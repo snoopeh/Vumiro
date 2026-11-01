@@ -1,15 +1,17 @@
-# Active deployment
+# Active Vumiro deployment
 
-- Deployed: 2026-11-01, via Wrangler OAuth authorized by the account owner.
+- Published/deployed: 2026-11-01.
+- Source release: `6c09f6239adc7051c6acc43ea39d1d322df92f0e`, tag `client-v1.16.0`.
+- Windows release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.16.0
+- Build/release workflow: https://github.com/snoopeh/Vumiro/actions/runs/41328332962 (success).
+- Main build/syntax workflow: https://github.com/snoopeh/Vumiro/actions/runs/41328330254 (success).
+- Published `Vumiro-win-x64.zip`: 454431 bytes; SHA-256 `2cc41b94881d60e057f7d30c3730619808b120564afb0ac450402ec1397dee32`.
+- Package inspection: exactly 18 allowed files; `Vumiro.exe` and `Vumiro.Updater.exe` version 1.16.0.0. The desktop shortcut uses the downloaded, checksum-verified published package.
+- Worker: `screentask-rooms`, version `7b0c29c5-5b10-481d-8b2f-66cdab4d53f4`.
 - Service: https://screentask-rooms.screentask-room-signaling.workers.dev
-- Signaling: wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling
-- Worker: screentask-rooms
-- Presence/invitations: wss://screentask-rooms.screentask-room-signaling.workers.dev/friends-signaling
-- Version: 340d898c-c1f2-46b6-ace6-c38a597fa55e
-- Bindings: CALL_ROOMS (CallRoom), FRIEND_DIRECTORY (FriendDirectory), ASSETS (five public client assets).
-- Migration v2 adds FriendDirectory; its state is limited to live WebSocket attachments, without persistent profile or friend-book records.
-- Root opens the friends client; /call retains room invitations. Desktop client uses packaged local assets at https://screentask.local.
-- Client 1.13.1 adds Create room to the toolbar and Rooms menu; room codes are generated on-device and use the existing signaling route.
-- Client 1.14.0 requires mutual friends for presence/invitations and identity-proven room membership. Guest admission requires mutual friendship with the connected room owner. Signed policy revisions revoke removed friends. Legacy anonymous rooms are rejected. GitHub client release: https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.14.0.
-- Vumiro 1.15.0 adds ephemeral online username/profile lookup, signed friend acceptance/blocks, event-driven live-room snapshots and signed join approval. Guest authentication requires an owner-signed identity-bound grant. Chat and avatars use P2P data channels only. Public release: https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.15.0.
-- No TURN/media relay. End-to-end streaming feedback is left to the user as requested.
+- Endpoints: `/friends-signaling`, `/call-signaling`.
+- Bindings: `CALL_ROOMS` (CallRoom), `FRIEND_DIRECTORY` (FriendDirectory), `ASSETS` (six client assets).
+- Existing Worker name, migration history, DO bindings and desktop identity origin remain stable. No profile/key database or TURN/media relay was added.
+- Runtime behavior is left to user feedback as requested; no runtime test suite or app-driven QA was run.
+
+The [pre-cleanup restore point](../docs/RESTORE.md) contains the committed/pushed original source, a verified all-history bundle, full ignored-file snapshot and separate closed-app local profile copy.
