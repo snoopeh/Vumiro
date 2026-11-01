@@ -17,3 +17,9 @@
 - Runtime behavior is left to user feedback as requested; no runtime test suite or app-driven QA was run.
 
 The [pre-cleanup restore point](../docs/RESTORE.md) contains the committed/pushed original source, a verified all-history bundle, full ignored-file snapshot and separate closed-app local profile copy.
+
+## Prepared 1.21.1 URL migration — cutover pending
+
+The Vumiro-branded target is `https://vumiro-rooms.vumiro-signaling.workers.dev`. Client 1.21.1 packages are built and uploaded, temporarily marked prerelease until Cloudflare's account subdomain rename completes. Stable clients continue using the active 1.21.0 endpoint above.
+
+The new `vumiro-rooms` Worker is staged (version `2b86803b-35a1-420c-b339-bd077d31e867`) and its two bindings were verified against the original namespace IDs. The old Worker and active account subdomain have not been changed. Final cutover requires dashboard authentication: the public API PUT only creates a new account subdomain and rejects replacement with code 10036. See [migration state](../docs/plans/service-url.md#pending-dashboard-authentication) for the exact remaining steps.
