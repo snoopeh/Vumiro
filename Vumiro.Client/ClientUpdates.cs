@@ -21,7 +21,7 @@ namespace Vumiro.Client
         private const string Repository = "https://github.com/snoopeh/Vumiro";
         private const string AssetName = "Vumiro-win-x64.zip";
         private const long PackageLimit = 16L * 1024 * 1024;
-        private readonly Form owner;
+        private readonly ClientWindow owner;
         private readonly Action<object> emit;
         private readonly Version current = Assembly.GetExecutingAssembly().GetName().Version;
         private bool busy;
@@ -46,7 +46,7 @@ namespace Vumiro.Client
             internal Asset Package;
         }
 
-        internal ClientUpdates(Form owner, Action<object> emit) { this.owner = owner; this.emit = emit; }
+        internal ClientUpdates(ClientWindow owner, Action<object> emit) { this.owner = owner; this.emit = emit; }
 
         private void State()
         {
@@ -224,7 +224,7 @@ namespace Vumiro.Client
                     {
                         if (!await Task.Run(() => ready.WaitOne(15000))) throw new IOException("The update helper did not become ready.");
                     }
-                    handedOff = true; message = "Restarting to install update…"; State(); owner.Close();
+                    handedOff = true; message = "Restarting to install update…"; State(); owner.ExitApplication();
                 }
             }
             finally

@@ -1,4 +1,4 @@
-# Vumiro 1.16
+# Vumiro 1.18
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -32,13 +32,15 @@ Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes
 
 The room uses a large focused stage with participant thumbnails, a **Chat/People** side pane and bottom call controls. Select a participant/stream to focus it. Double-click a stream for fullscreen. **Actual size** helps read small text. Screen, microphone and screen audio remain off until you enable them through the appropriate controls/picker.
 
-Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving or closing stops capture.
+Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving the room or quitting Vumiro stops capture. Closing the window keeps the room connected in the system tray.
 
 ## Settings and updates
 
 Open **Settings** outside the room or the room's **Stream settings**. FPS, resolution ceiling, bitrate per participant, text/motion preference and screen audio synchronize and persist on the device. Settings apply to active capture where the browser supports them. Screen audio must have been selected when capture started. Actual FPS depends on capture hardware, CPU and each peer connection.
 
 The compact dark title bar supports dragging, double-click maximize/restore, window controls and edge resize.
+
+Closing the window with **X** or **Alt+F4** hides Vumiro in the Windows system tray, including the hidden-icons area if Windows places it there. Your room, microphone, screen sharing and online connection keep running. Double-click the tray icon or right-click it and choose **Open Vumiro** to return. Choose **Quit Vumiro** from its tray menu to fully exit. The minimize button still minimizes to the taskbar. Updates and Windows shutdown can close the app normally.
 
 Version 1.16.1 adds a subtle frosted window background on supported Windows systems. Text and streams keep their normal opacity. The effect follows Windows transparency and high-contrast settings; other systems retain the solid dark theme.
 

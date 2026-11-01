@@ -20,7 +20,10 @@ namespace Vumiro.Client
             FormBorderStyle = FormBorderStyle.None;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             HandleCreated += (s, e) => ApplyWindowAppearance();
-            Resize += (s, e) => { ApplyWindowAppearance(); PublishWindowState(); };
+            Resize += (s, e) => {
+                if (WindowState != FormWindowState.Minimized) lastWindowState = WindowState;
+                ApplyWindowAppearance(); PublishWindowState();
+            };
         }
 
         protected override CreateParams CreateParams

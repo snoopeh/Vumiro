@@ -27,6 +27,10 @@ namespace Vumiro.Client
     {
         private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
         private readonly StartupLoading loading = new StartupLoading { Dock = DockStyle.Fill, Text = "Opening Vumiro…" };
+        private NotifyIcon trayIcon;
+        private ContextMenuStrip trayMenu;
+        private bool exitRequested;
+        private FormWindowState lastWindowState = FormWindowState.Normal;
         // Keep this origin and ClientBrowser folder stable: IndexedDB stores
         // existing identity keys and contacts under these compatibility names.
         private const string Origin = "https://screentask.local";
@@ -49,10 +53,60 @@ namespace Vumiro.Client
             ClientSize = new Size(1160, 800);
             MinimumSize = new Size(940, 640);
             InitializeWindowChrome();
+            InitializeTrayIcon();
             Controls.Add(browser); Controls.Add(loading);
             loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
-            FormClosed += (s, e) => browser.Dispose();
+            FormClosed += (s, e) => {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+                trayMenu.Dispose();
+                browser.Dispose();
+            };
+        }
+
+        private void InitializeTrayIcon()
+        {
+            trayMenu = new ContextMenuStrip();
+            var open = new ToolStripMenuItem("Open Vumiro");
+            var quit = new ToolStripMenuItem("Quit Vumiro");
+            open.Click += (s, e) => RestoreFromTray();
+            quit.Click += (s, e) => ExitApplication();
+            trayMenu.Items.Add(open);
+            trayMenu.Items.Add(new ToolStripSeparator());
+            trayMenu.Items.Add(quit);
+            trayIcon = new NotifyIcon { Icon = Icon ?? SystemIcons.Application, Text = "Vumiro", ContextMenuStrip = trayMenu, Visible = false };
+            trayIcon.DoubleClick += (s, e) => RestoreFromTray();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            if (e.Cancel || e.CloseReason != CloseReason.UserClosing || exitRequested) return;
+
+            // Keep the existing WebView alive so room media, capture and
+            // signaling continue while the window is out of sight.
+            if (WindowState != FormWindowState.Minimized) lastWindowState = WindowState;
+            trayIcon.Visible = true;
+            Hide();
+            e.Cancel = true;
+        }
+
+        internal void ExitApplication()
+        {
+            if (IsDisposed) return;
+            exitRequested = true;
+            trayIcon.Visible = false;
+            Close();
+        }
+
+        private void RestoreFromTray()
+        {
+            if (IsDisposed) return;
+            if (WindowState == FormWindowState.Minimized) WindowState = lastWindowState;
+            Show();
+            if (WindowState == FormWindowState.Minimized) WindowState = lastWindowState;
+            Activate();
         }
 
         private async Task OpenAsync()
