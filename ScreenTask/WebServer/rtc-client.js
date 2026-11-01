@@ -7,6 +7,7 @@
   const media = $(host ? 'preview' : 'video');
   const config = {iceServers: [{urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478']}], iceTransportPolicy: 'all'};
   let nativeSource = null, browserCapture = null;
+  let captureFps = 60, configuredBitrate = 0;
   let socket = null, pc = null, stream = null, room = '', chain = Promise.resolve();
   let pending = [], remoteSet = false, connectTimer = 0, peerTimer = 0, statsTimer = 0;
   let lastBytes = 0, lastFrames = 0, lastAt = 0, captureGeneration = 0;
@@ -17,6 +18,34 @@
   }
   function relay(candidate) {
     return candidate && (candidate.type === 'relay' || /\btyp relay\b/.test(candidate.candidate || ''));
+  }
+  function preferText(track) {
+    // Unsupported hints may be ignored or rejected, depending on the browser.
+    if (!('contentHint' in track)) return;
+    for (const hint of ['text', 'detail']) {
+      try { track.contentHint = hint; if (track.contentHint === hint) return; } catch {}
+    }
+  }
+  async function configureTextSender(sender) {
+    const settings = sender.track.getSettings?.() || {};
+    const pixels = (settings.width || media.videoWidth || 1920) * (settings.height || media.videoHeight || 1080);
+    const maxBitrate = configuredBitrate > 0 ? configuredBitrate * 1000000 : pixels <= 1280 * 720 ? 6000000 : pixels <= 1920 * 1080 ? 12000000 : pixels <= 2560 * 1440 ? 20000000 : 32000000;
+    for (const withPreference of [true, false]) {
+      try {
+        // Re-read after a rejected update; its transaction ID may be stale.
+        const p = sender.getParameters();
+        if (!p.encodings?.length) return;
+        for (const encoding of p.encodings) {
+          encoding.maxBitrate = maxBitrate;
+          encoding.maxFramerate = captureFps;
+          encoding.scaleResolutionDownBy = 1;
+        }
+        if (withPreference) p.degradationPreference = 'maintain-resolution';
+        else delete p.degradationPreference;
+        await sender.setParameters(p);
+        return;
+      } catch { /* Retry without the optional preference, preserving the bitrate. */ }
+    }
   }
   function send(message) {
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -119,6 +148,8 @@
     peer.onicecandidate = e => { if (pc === peer && e.candidate && !relay(e.candidate)) send({type: 'candidate', candidate: e.candidate}); };
     peer.ontrack = e => {
       if (pc !== peer || host) return;
+      // Let both receivers request minimal buffering; browsers choose the actual target.
+      try { if (e.receiver && 'jitterBufferTarget' in e.receiver) e.receiver.jitterBufferTarget = 0; } catch {}
       if (!media.srcObject) media.srcObject = new MediaStream();
       if (!media.srcObject.getTracks().some(t => t.id === e.track.id)) media.srcObject.addTrack(e.track);
       media.play().catch(() => { if (pc === peer) status('Connected. Press Play on the video to allow playback.'); });
@@ -167,10 +198,7 @@
       // Parameters are most portable after the offer establishes sender encodings.
       for (const sender of peer.getSenders()) {
         if (sender.track?.kind !== 'video') continue;
-        try {
-          const p = sender.getParameters();
-          if (p.encodings?.length) { p.encodings[0].maxBitrate = 3000000; p.encodings[0].maxFramerate = 60; await sender.setParameters(p); }
-        } catch { /* Let this browser negotiate its default encoding. */ }
+        await configureTextSender(sender);
       }
       if (pc === peer) status('Offer sent. Negotiating the direct media path…');
       return;
@@ -220,6 +248,7 @@
     $('viewerAddress').value = location.origin;
     refreshLink(); $('viewerAddress').oninput = refreshLink;
     fetch('/connection-info', {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(info => {
+      if (info && !$('start').disabled) { captureFps = Math.max(1, Math.min(120, Number(info.frameRate) || 60)); configuredBitrate = Math.max(0, Number(info.maxBitrateMbps) || 0); }
       if (info && !nativeChoiceMade && !$('start').disabled) $('hdrNative').checked = !!info.hdrCorrection;
       if (info && $('viewerAddress').value === location.origin) { $('viewerAddress').value = info.viewerOrigin; refreshLink(); }
     }).catch(() => {});
@@ -247,11 +276,12 @@
           status('Preparing the HDR-corrected monitor stream…');
           captured = await currentSource.ready;
           if (browserCapture) for (const track of browserCapture.getAudioTracks()) captured.addTrack(track);
-        } else captured = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: {ideal: 60, max: 60}}, audio: true});
+        } else captured = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: {ideal: captureFps, max: captureFps}}, audio: true});
         if (generation !== captureGeneration) { captured.getTracks().forEach(t => t.stop()); return; }
         stream = captured; media.srcObject = stream;
         const videoTrack = stream.getVideoTracks()[0];
         if (!videoTrack) throw new Error('No screen video track was returned.');
+        preferText(videoTrack);
         videoTrack.addEventListener('ended', () => { if (stream === captured) stop('Screen sharing ended.'); }, {once: true});
         refreshLink(); connectSignal();
       } catch (err) {

@@ -7,12 +7,15 @@ window.ScreenTaskHdrSource = {
     const video = document.createElement('video'), canvas = document.createElement('canvas');
     video.muted = true; video.autoplay = true; video.playsInline = true;
     video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none'; document.body.appendChild(video);
-    let controller = null, reader = null, url = null, captured = null, settled = false, stopped = false;
-    let resolveReady, rejectReady, retryTimer, paintFrame, failureSince = 0;
+    let controller = null, reader = null, url = null, captured = null, settled = false, stopped = false, livePlayback = null;
+    let resolveReady, rejectReady, retryTimer, paintFrame, failureSince = 0, decoderGeneration = 0;
+    const resizeFrame = document.createElement('canvas');
     const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
     const source = {ready, onerror: null, stop};
     const startup = setTimeout(() => fatal(new Error('Native HDR capture timed out. Check the selected display and Video settings.')), 25000);
     function cleanupDecoder() {
+      ++decoderGeneration;
+      livePlayback?.stop(); livePlayback = null;
       if (paintFrame != null) { if (video.cancelVideoFrameCallback) video.cancelVideoFrameCallback(paintFrame); else cancelAnimationFrame(paintFrame); paintFrame = null; }
       controller?.abort(); reader?.cancel().catch(() => {}); reader = null;
       video.pause(); video.removeAttribute('src'); video.load();
@@ -35,27 +38,38 @@ window.ScreenTaskHdrSource = {
       if (Date.now() - failureSince > 30000) { fatal(error); return; }
       clearTimeout(retryTimer); cleanupDecoder(); retryTimer = setTimeout(connect, 400);
     }
-    function paint() {
+    function drawDecodedFrame() {
+      if (video.readyState < 2 || video.seeking || !video.videoWidth || !video.videoHeight) return false;
+      const width = video.videoWidth, height = video.videoHeight;
+      if (canvas.width !== width || canvas.height !== height) {
+        // Decode into a staging canvas first. A failed new frame must not clear
+        // the canvas track that the remote peer is still displaying.
+        resizeFrame.width = width; resizeFrame.height = height;
+        resizeFrame.getContext('2d', {alpha: false}).drawImage(video, 0, 0, width, height);
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d', {alpha: false}).drawImage(resizeFrame, 0, 0);
+      } else canvas.getContext('2d', {alpha: false}).drawImage(video, 0, 0, width, height);
+      return true;
+    }
+    function paint(generation = decoderGeneration) {
+      if (stopped || generation !== decoderGeneration) return;
       paintFrame = null;
-      if (stopped) return;
-      if (video.readyState >= 2 && video.videoWidth && captured) {
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; }
-        canvas.getContext('2d', {alpha: false}).drawImage(video, 0, 0, canvas.width, canvas.height);
-        captured.getVideoTracks()[0]?.requestFrame?.();
-      }
-      paintFrame = video.requestVideoFrameCallback ? video.requestVideoFrameCallback(paint) : requestAnimationFrame(paint);
+      try { if (captured && drawDecodedFrame()) captured.getVideoTracks()[0]?.requestFrame?.(); }
+      catch (error) { reconnect(error); return; }
+      const next = () => paint(generation);
+      paintFrame = video.requestVideoFrameCallback ? video.requestVideoFrameCallback(next) : requestAnimationFrame(next);
     }
     video.addEventListener('error', () => reconnect(new Error('Native video decoder is reconnecting.')));
     video.addEventListener('loadeddata', async () => {
       if (stopped) return;
+      const generation = decoderGeneration;
       try {
-        await video.play(); if (stopped) return;
+        await video.play(); if (stopped || generation !== decoderGeneration) return;
         failureSince = 0;
         if (!captured) {
-          canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-          canvas.getContext('2d', {alpha: false}).drawImage(video, 0, 0);
+          if (!drawDecodedFrame()) return;
           captured = canvas.captureStream(0);
-          if (!captured.getVideoTracks()[0]?.requestFrame) { captured.getTracks().forEach(t => t.stop()); captured = canvas.captureStream(60); }
+          if (!captured.getVideoTracks()[0]?.requestFrame) { captured.getTracks().forEach(t => t.stop()); captured = canvas.captureStream(30); }
           paint(); settled = true; clearTimeout(startup); resolveReady(captured);
         }
         else if (paintFrame == null) paint();
@@ -76,6 +90,7 @@ window.ScreenTaskHdrSource = {
           if (!MediaSource.isTypeSupported(mime)) { fatal(new Error('This browser does not support the native video codec.')); return; }
           if (current.signal.aborted) return;
           const buffer = mediaSource.addSourceBuffer(mime); buffer.mode = 'segments';
+          livePlayback = window.ScreenTaskLivePlayback.attach(video);
           const queue = []; let bytes = new Uint8Array(), initialized = false, init = [], prefix = [], fragment = null, started = false;
           const join = parts => { const value = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let offset = 0; for (const p of parts) { value.set(p, offset); offset += p.length; } return value; };
           function drain() {
@@ -83,15 +98,16 @@ window.ScreenTaskHdrSource = {
             try {
               if (video.buffered.length) {
                 const start = video.buffered.start(0), end = video.buffered.end(video.buffered.length - 1);
-                if (!started || end - video.currentTime > 1.5) { video.currentTime = Math.max(start, end - .25); started = true; }
+                if (!started) { video.currentTime = Math.max(start, end - .2); started = true; }
+                else livePlayback?.sync();
                 if (end - start > 12) { buffer.remove(start, end - 8); return; }
               }
               buffer.appendBuffer(queue.shift());
             } catch (error) { if (!current.signal.aborted) reconnect(error); }
           }
-          function enqueue(parts) { queue.push(join(parts)); if (queue.length > 20) throw new Error('Native decoder fell behind. Lower the frame rate or width.'); drain(); }
+          function enqueue(parts) { queue.push(join(parts)); if (queue.length > 3) throw new Error('Skipping stale native video to catch up live.'); drain(); }
           buffer.addEventListener('error', () => { if (!current.signal.aborted) reconnect(new Error('Native decoder rejected a fragment.')); });
-          buffer.addEventListener('updateend', drain);
+          buffer.addEventListener('updateend', () => { if (!current.signal.aborted) { livePlayback?.sync(); drain(); } });
           const input = reader = response.body.getReader();
           while (!stopped && !current.signal.aborted) {
             const chunk = await input.read(); if (chunk.done) throw new Error('Native capture changed. Reconnecting…');

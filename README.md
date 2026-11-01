@@ -33,6 +33,10 @@ Preferences save automatically and atomically to `%LOCALAPPDATA%\ScreenTask\apps
 
 ## Features
 
+Version 1.12 adds an embedded **Call** tab with shared rooms, simultaneous screen sharing, optional microphones, invitations and per-peer decoded FPS. Participants connect to one signaling service and do not start their own servers. The configured service is [ScreenTask Rooms](https://screentask-rooms.screentask-room-signaling.workers.dev); deployment details are in [cloudflare/README.md](cloudflare/README.md). Media remains direct WebRTC without TURN. The desktop tab requires Microsoft Edge WebView2 Runtime.
+
+Reconnects and catch-up retain the last decoded frame and crossfade into its replacement. Development runs resolve the bundled FFmpeg instead of unnecessarily falling back to large JPEG frames; compatible NVIDIA GPUs use NVENC before Media Foundation/software fallbacks. Direct sharing honors the selected frame rate, subject to device and network capacity.
+
 - Direct WebRTC sharing with pairing links, browser codec negotiation, reconnects and useful address/port diagnostics.
 - Native DirectX capture with H.264 playback and JPEG compatibility fallback.
 - HDR to SDR color correction, exposure and peak-brightness controls.

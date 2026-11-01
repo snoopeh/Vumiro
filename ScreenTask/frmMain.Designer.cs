@@ -329,7 +329,7 @@
             this.numShotEvery.TabIndex = 30;
             this.numShotEvery.ThousandsSeparator = true;
             this.numShotEvery.Value = new decimal(new int[] {
-            60,
+            30,
             0,
             0,
             0});
@@ -444,7 +444,7 @@
             this.qualitySlider.SmallChange = 10;
             this.qualitySlider.TabIndex = 42;
             this.qualitySlider.TickFrequency = 25;
-            this.qualitySlider.Value = 75;
+            this.qualitySlider.Value = 90;
             this.qualitySlider.Scroll += new System.EventHandler(this.qualitySlider_Scroll);
             // 
             // lblQuality

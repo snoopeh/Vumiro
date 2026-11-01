@@ -7,7 +7,7 @@ const runtime = process.env.SCREENTASK_NODE_MODULES ? createRequire(process.env.
 const {chromium} = runtime('playwright');
 const origin = process.env.SCREENTASK_TEST_ORIGIN || 'http://localhost:17871';
 const artifacts = path.join(__dirname, 'artifacts'); fs.mkdirSync(artifacts, {recursive: true});
-const ffmpeg = path.join(__dirname, 'ConnectionHarness/bin/Release/net48/ffmpeg.exe');
+const ffmpeg = path.join(process.env.SCREENTASK_HARNESS_DIRECTORY || path.join(__dirname, 'ConnectionHarness/bin/Release/net48'), 'ffmpeg.exe');
 const mp4 = path.join(artifacts, 'viewer-pattern.mp4'), png = path.join(artifacts, 'viewer-pattern.png');
 execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=5', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-profile:v', 'baseline', '-level:v', '4.0', '-pix_fmt', 'yuv420p', '-g', '5', '-movflags', '+empty_moov+default_base_moof+frag_keyframe', mp4]);
 execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-y', '-i', mp4, '-frames:v', '1', png]);
@@ -30,7 +30,23 @@ async function main() {
     await page.goto(origin + '/'); await page.waitForFunction(() => document.getElementById('streamVideo').videoWidth === 1920);
     assert.equal(await page.locator('#stream').isVisible(), false);
     await page.screenshot({path: path.join(artifacts, 'viewer-window.png')});
+    await page.selectOption('#viewMode', 'actual');
+    async function checkActualSize(media) {
+      const dimensions = await media.evaluate(element => {
+        const bounds = element.getBoundingClientRect(), stage = document.getElementById('stage');
+        stage.scrollLeft = 120; stage.scrollTop = 80;
+        return {width: bounds.width, height: bounds.height, x: stage.scrollLeft, y: stage.scrollTop, pageWidth: document.documentElement.scrollWidth, viewport: innerWidth};
+      });
+      assert.equal(dimensions.width, 1920, 'Actual size must display each source pixel at its original CSS size');
+      assert.equal(dimensions.height, 1080);
+      assert(dimensions.x > 0 && dimensions.y > 0, 'Actual size must allow scrolling to text outside the viewport');
+      assert(dimensions.pageWidth <= dimensions.viewport + 1, 'Actual size must scroll inside the player');
+    }
+    await checkActualSize(page.locator('#streamVideo'));
+    assert.equal(await page.evaluate(() => localStorage.getItem('st-view-mode')), 'actual');
+    await page.screenshot({path: path.join(artifacts, 'viewer-actual-size.png')});
     await page.click('#fullscreenBtn'); await page.waitForFunction(() => !!document.fullscreenElement);
+    await checkActualSize(page.locator('#streamVideo'));
     for (const mode of ['fit', 'fill', '150']) {
       await page.selectOption('#viewMode', mode);
       const geometry = await page.evaluate(() => {
@@ -64,6 +80,10 @@ async function main() {
     await jpeg.route('**/stream.mjpg?*', route => route.fulfill({path: png, contentType: 'image/png'}));
     await jpeg.goto(origin + '/'); await jpeg.waitForFunction(() => document.getElementById('stream').naturalWidth === 1920);
     assert.equal(await jpeg.locator('#streamVideo').isVisible(), false);
+    await jpeg.selectOption('#viewMode', 'actual');
+    const jpegBounds = await jpeg.locator('#stream').evaluate(image => ({width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height}));
+    assert.deepEqual(jpegBounds, {width: 1920, height: 1080}, 'JPEG actual size must preserve the original dimensions');
+    await jpeg.selectOption('#viewMode', 'fit');
     await jpeg.screenshot({path: path.join(artifacts, 'viewer-jpeg.png')});
     console.log('PASS: JPEG fallback occupies the player alone');
     const files = await browser.newPage({viewport: {width: 1280, height: 800}}), requests = [];

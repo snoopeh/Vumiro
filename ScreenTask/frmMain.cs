@@ -61,7 +61,7 @@ namespace ScreenTask
         private long _skippedFrames;
         private double _copyMs;
         private double _jpegMs;
-        private volatile int _requestedFrameRate = 60;
+        private volatile int _requestedFrameRate = 30;
         private readonly H264StreamHub _h264Stream = new H264StreamHub();
         private int _legacyCaptureStarted;
         private int _serverGeneration;
@@ -70,6 +70,7 @@ namespace ScreenTask
         private string _captureCodec = "MJPEG";
         private AudioStreamServer _audioStream;
         private readonly RtcSignalingHub _rtcSignaling = new RtcSignalingHub();
+        private readonly CallSignalingHub _callSignaling = new CallSignalingHub();
         private readonly ConcurrentDictionary<Guid, WebSocket> _chatClients = new ConcurrentDictionary<Guid, WebSocket>();
         private readonly object _chatLock = new object();
         private readonly SemaphoreSlim _chatSendLock = new SemaphoreSlim(1, 1);
@@ -119,10 +120,10 @@ namespace ScreenTask
         {
             comboResolution = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
             comboResolution.Items.AddRange(new object[] { "Original", "1920 px", "1280 px", "854 px" });
-            comboResolution.SelectedIndex = 2;
+            comboResolution.SelectedIndex = 0;
             comboBitrate = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-            comboBitrate.Items.AddRange(new object[] { "2 Mbps (recommended for remote viewers)", "4 Mbps", "8 Mbps", "12 Mbps", "20 Mbps", "Unlimited" });
-            comboBitrate.SelectedIndex = 0;
+            comboBitrate.Items.AddRange(new object[] { "2 Mbps (low bandwidth)", "4 Mbps", "8 Mbps", "12 Mbps", "20 Mbps (clear text)", "Unlimited" });
+            comboBitrate.SelectedIndex = 4;
             comboAudioDevice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
             comboAudioDevice.Items.Add("Default output");
             try
@@ -148,7 +149,7 @@ namespace ScreenTask
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
             MinimumSize = new Size(620, 570);
-            ClientSize = new Size(760, 690);
+            ClientSize = new Size(1000, 850);
             BackColor = Color.FromArgb(31, 38, 48);
             Font = new Font("Segoe UI", 10F);
 
@@ -170,6 +171,7 @@ namespace ScreenTask
             var networkTab = CreateSettingsTab(tabs, "Network");
             var videoTab = CreateSettingsTab(tabs, "Video");
             var audioTab = CreateSettingsTab(tabs, "Audio");
+            BuildCallTab(tabs);
             BuildUpdatesTab(tabs);
             var privacyTab = CreateSettingsTab(tabs, "Privacy");
 
@@ -289,6 +291,17 @@ namespace ScreenTask
             txtLog.ForeColor = Color.FromArgb(30, 35, 42);
             txtLog.Margin = new Padding(0, 10, 0, 0);
             root.Controls.Add(txtLog, 0, 4);
+            Action updateCallLayout = () => {
+                var inCall = tabs.SelectedTab != null && tabs.SelectedTab.Text == "Call";
+                urlRow.Visible = btnStartServer.Visible = txtLog.Visible = !inCall;
+                root.RowStyles[2].SizeType = inCall ? SizeType.Absolute : SizeType.AutoSize;
+                root.RowStyles[2].Height = 0;
+                root.RowStyles[3].SizeType = inCall ? SizeType.Absolute : SizeType.AutoSize;
+                root.RowStyles[3].Height = 0;
+                root.RowStyles[4].Height = inCall ? 0 : 90;
+            };
+            tabs.SelectedIndexChanged += (s, e) => updateCallLayout();
+            Shown += (s, e) => updateCallLayout();
         }
 
         private void UpdateHdrSettings()
@@ -440,6 +453,7 @@ namespace ScreenTask
                 Interlocked.Exchange(ref _jpegCaptureStarted, 0);
                 StopCaptureProcess();
                 _rtcSignaling.Reset();
+                _callSignaling.Reset();
                 _fileShares.CancelDownloads();
                 _browserFiles.StopServing();
                 _h264Stream.BeginStream();
@@ -584,7 +598,7 @@ namespace ScreenTask
                     // The upload socket has a one-use capability issued only for
                     // an authorized download. It exposes no metadata or control
                     // and keeps existing sender tabs working after credentials change.
-                    if (((BrowserFileHub.IsRoute(resPath) && !resPath.StartsWith("/file-source/", StringComparison.Ordinal)) || FileShareHub.IsRoute(resPath) || resPath == "/ScreenTask.jpg" || resPath == "/stream.mjpg" || resPath == "/stream.mp4" || resPath == "/audio" || resPath == "/stats" || resPath == "/chat" || resPath == "/rtc-signaling" || resPath == "/connection-info") && !IsAuthorized(ctx))
+                    if (((BrowserFileHub.IsRoute(resPath) && !resPath.StartsWith("/file-source/", StringComparison.Ordinal)) || FileShareHub.IsRoute(resPath) || resPath == "/ScreenTask.jpg" || resPath == "/stream.mjpg" || resPath == "/stream.mp4" || resPath == "/audio" || resPath == "/stats" || resPath == "/chat" || resPath == "/rtc-signaling" || resPath == "/call-signaling" || resPath == "/connection-info") && !IsAuthorized(ctx))
                     {
                         ctx.Response.StatusCode = 401;
                         ctx.Response.AddHeader("WWW-Authenticate", "Basic realm=\"ScreenTask\"");
@@ -632,7 +646,10 @@ namespace ScreenTask
 
                     if (resPath == "/connection-info")
                     {
-                        var data = Encoding.UTF8.GetBytes("{\"viewerOrigin\":\"" + (_viewerOrigin ?? url) + "\",\"hdrCorrection\":" + (_currentSettings.HdrColorCorrection ? "true" : "false") + ",\"screen\":" + _currentSettings.SelectedScreenIndex + ",\"fileOnly\":" + (_fileTransferOnly ? "true" : "false") + "}");
+                        var data = Encoding.UTF8.GetBytes(new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(new {
+                            viewerOrigin = _viewerOrigin ?? url, hdrCorrection = _currentSettings.HdrColorCorrection,
+                            screen = _currentSettings.SelectedScreenIndex, fileOnly = _fileTransferOnly,
+                            frameRate = _requestedFrameRate, maxBitrateMbps = _currentSettings.MaxBitrateMbps }));
                         ctx.Response.ContentType = "application/json";
                         ctx.Response.Headers["Cache-Control"] = "no-store";
                         ctx.Response.ContentLength64 = data.Length;
@@ -684,6 +701,12 @@ namespace ScreenTask
                         continue;
                     }
 
+                    if (resPath == "/call-signaling")
+                    {
+                        _ = _callSignaling.HandleClientAsync(ctx);
+                        continue;
+                    }
+
                     if (resPath == "/ScreenTask.jpg")
                     {
                         var currentFrame = _latestFrame;
@@ -706,6 +729,7 @@ namespace ScreenTask
                     if (resPath == "/files" || resPath == "/files.html" || resPath.StartsWith("/files/", StringComparison.Ordinal)) resPath = "/index.html";
                     if (resPath == "/host") resPath = "/host.html";
                     if (resPath == "/direct") resPath = "/direct.html";
+                    if (resPath == "/call") resPath = "/call.html";
                     var webRoot = Path.GetFullPath(Path.Combine(Application.StartupPath, "WebServer")) + Path.DirectorySeparatorChar;
                     string page;
                     try { page = Path.GetFullPath(webRoot + resPath.TrimStart('/')); }
@@ -828,7 +852,7 @@ namespace ScreenTask
                     {
                         if (_currentSettings.HdrColorCorrection)
                         {
-                            try { CaptureWithFfmpeg(Path.Combine(Application.StartupPath, "ffmpeg.exe"), 10, _currentSettings.OutputWidth,
+                            try { CaptureWithFfmpeg(RuntimePaths.Ffmpeg(), 10, _currentSettings.OutputWidth,
                                 _currentSettings.ImageQuality, _currentSettings.IsShowMouseEnabled, _currentSettings.SelectedScreenIndex, true); }
                             catch (Exception ex) { Log("HDR JPEG capture unavailable: " + ex.Message); await Task.Delay(2000); }
                         }
@@ -869,7 +893,7 @@ namespace ScreenTask
 
         private void CaptureScreenH264Preferred()
         {
-            var ffmpeg = Path.Combine(Application.StartupPath, "ffmpeg.exe");
+            var ffmpeg = RuntimePaths.Ffmpeg();
             if (!File.Exists(ffmpeg))
             {
                 Log("H.264 capture is unavailable because ffmpeg.exe was not found; using the JPEG compatibility stream.");
@@ -878,7 +902,7 @@ namespace ScreenTask
                 return;
             }
 
-            var encoders = new[] { "h264_mf", "libx264" };
+            var encoders = new[] { "h264_nvenc", "h264_mf", "libx264" };
             while (isWorking && !_fileTransferOnly && !_captureStopRequested)
             {
                 var revision = Volatile.Read(ref _captureSettingsVersion);
@@ -941,22 +965,14 @@ namespace ScreenTask
             height -= height % 2;
             var level = GetH264Level(width, height, fps);
             var levelName = level == 32 ? "3.2" : level == 42 ? "4.2" : level == 51 ? "5.1" : level == 52 ? "5.2" : level == 60 ? "6.0" : "6.1";
-            var codec = String.Format(System.Globalization.CultureInfo.InvariantCulture, "avc1.42E0{0:X2}", level);
+            var codec = String.Format(System.Globalization.CultureInfo.InvariantCulture, "avc1.6400{0:X2}", level);
             var bitrateMbps = _currentSettings.MaxBitrateMbps;
             var filter = HdrColorCorrection.CaptureFilter(screen, Math.Max(1, Math.Min(120, fps)), mouse, width, hdr, exposure, peakNits, false);
-            var encoderOptions = encoder == "h264_mf"
-                ? "-scenario display_remoting -rate_control " + (bitrateMbps > 0 ? "cbr" : "quality") +
-                    " -quality " + Math.Max(1, Math.Min(100, quality))
-                : "-preset ultrafast -tune zerolatency";
-            var profileOption = encoder == "h264_mf" ? "-profile:v 66" : "-profile:v baseline";
-            var rateOptions = bitrateMbps > 0
-                ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "-b:v {0}M -maxrate {0}M -bufsize {1}M ", bitrateMbps, Math.Max(2, bitrateMbps * 2))
-                : String.Empty;
+            var encoderOptions = H264EncoderOptions(encoder, quality, bitrateMbps);
             var keyframeInterval = Math.Max(1, fps / 2);
             var args = "-hide_banner -nostdin -loglevel warning -stats_period 1 -progress pipe:2 -nostats " +
-                "-filter_complex \"" + filter + "\" -an -c:v " + encoder + " " + encoderOptions + " " + rateOptions +
-                "-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv " + profileOption + " -level:v " + levelName + " -g " + keyframeInterval + " -bf 0 " +
+                "-filter_complex \"" + filter + "\" -an -c:v " + encoder + " " + encoderOptions + " " +
+                "-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -level:v " + levelName + " -g " + keyframeInterval + " -bf 0 " +
                 "-force_key_frames \"expr:gte(t,n_forced*0.5)\" -f mp4 " +
                 "-movflags +empty_moov+default_base_moof+frag_keyframe+separate_moof -frag_duration 500000 -flush_packets 1 pipe:1";
             var info = new ProcessStartInfo(ffmpeg, args)
@@ -995,7 +1011,7 @@ namespace ScreenTask
                 _captureProcess = process;
                 process.BeginErrorReadLine();
                 _captureCodec = "H.264";
-                _captureBackend = "DXGI / H.264 " + (encoder == "h264_mf" ? "Media Foundation" : "software") + " (" + encoder + ")" + (hdr ? " / HDR to SDR" : "");
+                _captureBackend = "DXGI / H.264 " + (encoder == "h264_nvenc" ? "NVIDIA hardware" : encoder == "h264_mf" ? "Media Foundation" : "software") + " (" + encoder + ")" + (hdr ? " / HDR to SDR" : "");
                 _h264Stream.SetCodecString(codec);
                 _h264Stream.SetHdrCorrected(hdr);
                 Volatile.Write(ref _copyMs, 0);
@@ -1023,6 +1039,26 @@ namespace ScreenTask
                 if (process.ExitCode != 0)
                     throw new InvalidOperationException("FFmpeg exited with code " + process.ExitCode + ".");
             }
+        }
+
+        private static string H264EncoderOptions(string encoder, int quality, int bitrateMbps)
+        {
+            quality = Math.Max(1, Math.Min(100, quality));
+            // CRF keeps detail consistent on static text; the cap still bounds bursts.
+            // Previously the software encoder ignored the Video quality slider.
+            var options = encoder == "h264_nvenc"
+                ? "-preset p4 -tune ull -rc vbr -cq " + Math.Round(40 - quality * .25).ToString(System.Globalization.CultureInfo.InvariantCulture) + " -profile:v high"
+                : encoder == "h264_mf"
+                ? "-scenario display_remoting -rate_control " + (bitrateMbps > 0 ? "pc_vbr" : "quality") +
+                    " -quality " + quality + " -profile:v 100"
+                : "-preset veryfast -tune zerolatency -crf " +
+                    Math.Round(40 - quality * .25).ToString(System.Globalization.CultureInfo.InvariantCulture) + " -profile:v high";
+            if (bitrateMbps > 0)
+            {
+                if (encoder == "h264_mf" || encoder == "h264_nvenc") options += " -b:v " + bitrateMbps + "M";
+                options += " -maxrate " + bitrateMbps + "M -bufsize " + Math.Max(2, bitrateMbps * 2) + "M";
+            }
+            return options;
         }
 
         private void ReadFmp4Output(Stream output)
@@ -1128,7 +1164,7 @@ namespace ScreenTask
 
         private void CaptureScreenEvery()
         {
-            var ffmpeg = Path.Combine(Application.StartupPath, "ffmpeg.exe");
+            var ffmpeg = RuntimePaths.Ffmpeg();
             if (File.Exists(ffmpeg))
             {
                 while (isWorking && !_fileTransferOnly && !_captureStopRequested)
@@ -1809,6 +1845,7 @@ namespace ScreenTask
             try
             {
                 var saved = SettingsStore.Load(_preferencesPath, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.xml"));
+                    callSignalingInput.Text = saved.CallSignalingUrl ?? "";
                     this.cbPrivate.Checked = saved.IsPrivateSession;
                     this.cbCaptureMouse.Checked = saved.IsShowMouseEnabled;
                     this.cbAutoStart.Checked = saved.IsAutoStartServerEnabled;
@@ -1824,7 +1861,7 @@ namespace ScreenTask
                     fileOnlyCheck.Checked = saved.FileTransferOnly;
                     numHdrExposure.Value = (decimal)Math.Max(-2, Math.Min(2, hdrExposure));
                     numHdrPeak.Value = Math.Max(400, Math.Min(4000, hdrPeak));
-                    this.qualitySlider.Value = saved.ImageQuality != default ? saved.ImageQuality : 75;
+                    this.qualitySlider.Value = saved.ImageQuality != default ? saved.ImageQuality : 90;
                     comboResolution.SelectedIndex = saved.OutputWidth >= 1900 ? 1 : saved.OutputWidth >= 1200 ? 2 : saved.OutputWidth >= 800 ? 3 : 0;
                     comboBitrate.SelectedIndex = saved.MaxBitrateMbps <= 0 ? 5 : saved.MaxBitrateMbps <= 2 ? 0 : saved.MaxBitrateMbps <= 4 ? 1 : saved.MaxBitrateMbps <= 8 ? 2 : saved.MaxBitrateMbps <= 12 ? 3 : 4;
                     if (!String.IsNullOrEmpty(saved.AudioDeviceId))
@@ -1877,6 +1914,8 @@ namespace ScreenTask
             Interlocked.Increment(ref _serverGeneration);
             StopCaptureProcess();
             _rtcSignaling.Dispose();
+            _callSignaling.Dispose();
+            callBrowser?.Dispose();
             _h264Stream.Dispose();
             settingsTimer?.Dispose();
             hdrProfileTimer?.Dispose();
@@ -1950,7 +1989,7 @@ namespace ScreenTask
 
         private int GetSelectedBitrate()
         {
-            return comboBitrate == null || comboBitrate.SelectedIndex < 0 ? 2 : new[] { 2, 4, 8, 12, 20, 0 }[comboBitrate.SelectedIndex];
+            return comboBitrate == null || comboBitrate.SelectedIndex < 0 ? 20 : new[] { 2, 4, 8, 12, 20, 0 }[comboBitrate.SelectedIndex];
         }
 
         private void cbAllowPublicAccess_CheckedChanged(object sender, EventArgs e)

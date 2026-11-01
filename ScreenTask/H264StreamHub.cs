@@ -10,7 +10,10 @@ namespace ScreenTask
 {
     internal sealed class H264StreamHub : IDisposable
     {
-        private const int MaxQueuedFragments = 8;
+        // Encoder fragments span about half a second. Reconnect lagging viewers
+        // before seconds of obsolete screen content accumulate on the server.
+        private const int MaxQueuedFragments = 2;
+        private const int FragmentWriteDeadlineMilliseconds = 1500;
         private readonly object _sync = new object();
         private readonly HashSet<Subscriber> _subscribers = new HashSet<Subscriber>();
         private TaskCompletionSource<byte[]> _initializationReady = NewInitializationSource();
@@ -120,8 +123,8 @@ namespace ScreenTask
                 context.Response.SendChunked = true;
                 context.Response.KeepAlive = true;
                 context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
-                await context.Response.OutputStream.WriteAsync(init, 0, init.Length);
-                await context.Response.OutputStream.FlushAsync();
+                await WriteWithDeadlineAsync(context.Response.OutputStream, init, context.Response.Abort,
+                    FragmentWriteDeadlineMilliseconds, subscriber.Completion);
 
                 var sampleStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 long sampledFrames = 0;
@@ -133,8 +136,8 @@ namespace ScreenTask
                     var fragment = await subscriber.ReadAsync();
                     if (fragment == null) break;
                     var writeStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                    await context.Response.OutputStream.WriteAsync(fragment.Data, 0, fragment.Data.Length);
-                    await context.Response.OutputStream.FlushAsync();
+                    await WriteWithDeadlineAsync(context.Response.OutputStream, fragment.Data, context.Response.Abort,
+                        FragmentWriteDeadlineMilliseconds, subscriber.Completion);
                     sampledWriteTicks += System.Diagnostics.Stopwatch.GetTimestamp() - writeStart;
                     sampledFrames += fragment.FrameCount;
                     sampledBytes += fragment.Data.Length;
@@ -154,6 +157,9 @@ namespace ScreenTask
                         sampleStart = now;
                     }
                 }
+                // Do not gracefully drain stale transport buffers after a restart
+                // or queue overflow: the viewer must establish a fresh stream.
+                context.Response.Abort();
             }
             catch (Exception ex) when (ex is IOException || ex is HttpListenerException || ex is ObjectDisposedException || ex is InvalidOperationException)
             {
@@ -189,6 +195,52 @@ namespace ScreenTask
             return new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
+        internal static async Task WriteWithDeadlineAsync(Stream stream, byte[] data, Action abort,
+            int deadlineMilliseconds, Task stopped)
+        {
+            if (stopped.IsCompleted)
+            {
+                abort();
+                throw new IOException("The video stream was replaced or the viewer fell behind.");
+            }
+            var write = WriteAndFlushAsync(stream, data);
+            using (var deadlineCancellation = new CancellationTokenSource())
+            {
+                var deadline = Task.Delay(deadlineMilliseconds, deadlineCancellation.Token);
+                try
+                {
+                    await Task.WhenAny(write, deadline, stopped).ConfigureAwait(false);
+                    if (stopped.IsCompleted || !write.IsCompleted)
+                    {
+                        // Abort makes HttpListener unblock any pending network I/O.
+                        // Observe its eventual error even if that happens after this
+                        // method exits, rather than leaking an unobserved fault.
+                        ObserveWriteFailure(write);
+                        abort();
+                        throw new IOException("The video viewer fell behind; reconnect to the live stream.");
+                    }
+                    await write.ConfigureAwait(false);
+                }
+                finally
+                {
+                    deadlineCancellation.Cancel();
+                }
+            }
+        }
+
+        private static async Task WriteAndFlushAsync(Stream stream, byte[] data)
+        {
+            await stream.WriteAsync(data, 0, data.Length).ConfigureAwait(false);
+            await stream.FlushAsync().ConfigureAwait(false);
+        }
+
+        private static void ObserveWriteFailure(Task write)
+        {
+            write.ContinueWith(task => { var ignored = task.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
         internal sealed class H264Fragment
         {
             public H264Fragment(byte[] data, int frameCount)
@@ -206,7 +258,11 @@ namespace ScreenTask
             private readonly object _queueLock = new object();
             private readonly Queue<H264Fragment> _queue = new Queue<H264Fragment>();
             private readonly SemaphoreSlim _available = new SemaphoreSlim(0);
+            private readonly TaskCompletionSource<bool> _completion =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             private bool _complete;
+
+            public Task Completion { get { return _completion.Task; } }
 
             public void Enqueue(H264Fragment fragment, int maxCount)
             {
@@ -218,6 +274,7 @@ namespace ScreenTask
                         // Close slow viewers instead of growing memory or latency without bound.
                         _complete = true;
                         _queue.Clear();
+                        _completion.TrySetResult(true);
                         _available.Release();
                         return;
                     }
@@ -242,6 +299,8 @@ namespace ScreenTask
                 {
                     if (_complete) return;
                     _complete = true;
+                    _queue.Clear();
+                    _completion.TrySetResult(true);
                     _available.Release();
                 }
             }

@@ -25,7 +25,7 @@ namespace ScreenTask
                 screen, Math.Max(1, fps), mouse ? 1 : 0, hdr ? "16bit" : "8bit", hdr ? "rgbaf16le" : "bgra");
             // Scale while still floating point, before tone mapping/8-bit quantization.
             if (hdr) filter += ",format=gbrpf32le";
-            if (width > 0) filter += ",scale=" + width + ":-2:flags=fast_bilinear" + (hdr ? "" : jpeg ? ":out_color_matrix=bt601:out_range=full" : ":out_color_matrix=bt709:out_range=tv");
+            if (width > 0) filter += ",scale=" + width + ":-2:flags=lanczos" + (hdr ? "" : jpeg ? ":out_color_matrix=bt601:out_range=full" : ":out_color_matrix=bt709:out_range=tv");
             if (hdr) filter += "," + ToneMapFilter(exposure, peakNits, jpeg);
             return filter + (jpeg ? ",format=yuvj420p" : ",format=nv12");
         }

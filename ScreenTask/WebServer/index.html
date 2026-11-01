@@ -16,6 +16,11 @@
     .stage .liveBadge{z-index:1}.offline{inset:0;display:grid;place-content:center;z-index:1;pointer-events:none}
     .player:fullscreen .stage{position:absolute;inset:0;width:100%;height:100%;flex:none}
     .player:fullscreen .stage img,.player:fullscreen .stage video{width:100%;height:100%;max-width:none;max-height:none}
+    .player.actual-size .stage{overflow:auto;overscroll-behavior:contain}
+    .player.actual-size .stage img,.player.actual-size .stage video{position:relative;inset:auto;width:auto;height:auto;max-width:none;max-height:none;transform:none;object-fit:contain}
+    .stage .frame-hold{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:var(--media-fit,contain);transform:scale(var(--media-zoom,1));transform-origin:center;pointer-events:none;z-index:1;background:#050609}
+    .player.actual-size .stage .frame-hold{width:auto;height:auto;transform:none}
+    .stage .liveBadge,.stage .offline{z-index:2}
     .player:fullscreen .quality{display:flex;align-items:center;margin-left:0}.player:fullscreen .quality label{display:none}.player:fullscreen .quality select{font:12px system-ui;padding:6px;max-width:104px;margin:0}
     .player:fullscreen .controlRow{flex-wrap:wrap}.player:fullscreen .controls:focus-within,.player:fullscreen .controls:hover{opacity:1;pointer-events:auto}
     .sidebarTabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--line)}.sidebarTabs button{flex:1;border:0;border-radius:8px;padding:8px;background:transparent;color:var(--muted);font-weight:650}.sidebarTabs button[aria-selected=true]{background:var(--panel2);color:var(--text)}
@@ -32,7 +37,7 @@
       <button class="btn danger" id="watchBtn" title="Pause or resume stream (Space)" aria-label="Pause"><span class="controlIcon">Ⅱ</span><span class="controlLabel">Ⅱ &nbsp;Pause</span></button>
       <button class="btn" id="audioBtn" title="Audio is compressed to reduce bandwidth" aria-label="Enable audio"><span class="controlIcon">♫</span><span class="controlLabel">♫ &nbsp;Enable audio</span></button>
       <div class="volgroup"><label for="volume">Volume</label><input id="volume" type="range" min="0" max="200" value="80"><span class="volvalue" id="volumeLabel">80%</span></div>
-      <div class="spacer"></div><button class="btn icon active" id="statsBtn" title="Show or hide stream telemetry" aria-label="Hide stream telemetry" aria-expanded="true"><span class="controlIcon">ⓘ</span><span class="controlLabel">Telemetry</span></button><div class="quality"><label for="viewMode">View</label><select id="viewMode"><option value="fit">Fit</option><option value="fill">Fill (crop)</option><option value="75">75%</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="200">200%</option></select></div>
+      <div class="spacer"></div><button class="btn icon active" id="statsBtn" title="Show or hide stream telemetry" aria-label="Hide stream telemetry" aria-expanded="true"><span class="controlIcon">ⓘ</span><span class="controlLabel">Telemetry</span></button><div class="quality"><label for="viewMode">View</label><select id="viewMode" title="Actual size preserves text size; scroll to see the rest of the screen."><option value="fit">Fit</option><option value="fill">Fill (crop)</option><option value="actual">Actual size (1:1)</option><option value="75">75% of fit</option><option value="100">100% of fit</option><option value="125">125% of fit</option><option value="150">150% of fit</option><option value="200">200% of fit</option></select></div>
       <button class="btn icon" id="fullscreenBtn" title="Fullscreen (F)" aria-label="Fullscreen"><span class="controlIcon">⛶</span><span class="controlLabel">⛶ &nbsp;Fullscreen</span></button>
     </div><section class="statsPanel" id="statsPanel" aria-label="Stream telemetry"><div class="stats" id="stats">Waiting for stream statistics…</div><div class="statsDetail">Server · Capture/copy <b id="copyTime">—</b> · Encoder <b id="jpegTime">—</b> · Send rate <b id="sendRate">—</b> · Limit <b id="rateLimit">—</b></div><div class="statsDetail">Server · Avg frame <b id="avgFrame">—</b> · Write time <b id="writeTime">—</b> · Bitrate wait <b id="capWait">—</b> · Skipped <b id="skippedFrames">—</b></div><div class="statsDetail">Viewer · Displayed <b id="clientFps">Measuring</b> · Frame gap <b id="clientGap">—</b> · Jitter <b id="clientJitter">—</b> · Age <b id="frameAge">—</b></div><div class="statsDetail">Browser network estimate <b id="networkHint">Checking…</b></div></section></section></div>
   </main>
@@ -45,16 +50,20 @@
 <footer>Server: <span id="server"></span><br>Files stream from the sender through this ScreenTask server to your browser. Speed depends on their upload and your connection. No application size cap.<br>File links grant access to anyone who has them. Use HTTPS or a trusted private/VPN connection for sensitive files.</footer>
 </section></aside></div>
 </div><div class="toast" id="toast"></div>
+<script src="/frame-hold.js"></script><script src="/live-playback.js"></script>
 <script>
 (()=>{
   const $=id=>document.getElementById(id), filePage=location.pathname.startsWith('/files'), img=$('stream'), video=$('streamVideo'), stage=$('stage'), player=$('player'), offline=$('offline');
-  let audioRequested=false,audioReconnect=null;
+  const frameHold=window.ScreenTaskFrameHold.attach(stage);
+  let audioRequested=false,audioReconnect=null,livePlayback=null;
   let fileOnly=true,watching=!filePage,audioContext=null,audioSocket=null,audioGain=null,nextAudioTime=0,chatSocket=null,toastTimer,controlsTimer,lastFrameAt=0,frameGaps=[],h264Controller=null,mediaSourceUrl=null,h264Retry=null;
   const imaIndexTable=[-1,-1,-1,-1,2,4,6,8,-1,-1,-1,-1,2,4,6,8],imaStepTable=[7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767];
   const showToast=text=>{$('toast').textContent=text;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),2200)};
   function recordFrame(now){if(!watching||fileOnly)return;if(lastFrameAt){const gap=now-lastFrameAt;frameGaps.push(gap);if(frameGaps.length>60)frameGaps.shift();const mean=frameGaps.reduce((a,b)=>a+b,0)/frameGaps.length;const jitter=Math.sqrt(frameGaps.reduce((a,b)=>a+(b-mean)*(b-mean),0)/frameGaps.length);$('clientFps').textContent=(1000/mean).toFixed(1)+' FPS';$('clientGap').textContent=mean.toFixed(0)+' ms avg';$('clientJitter').textContent=jitter.toFixed(1)+' ms'}lastFrameAt=now;offline.hidden=true;$('connection').textContent='Live'}
   function observeVideoFrames(){if(!watching||video.hidden||typeof video.requestVideoFrameCallback!=='function')return;video.requestVideoFrameCallback(now=>{recordFrame(now);observeVideoFrames()})}
   function stopH264(){
+    frameHold.hold(!video.hidden&&video.readyState>=2?video:img);
+    if(livePlayback){livePlayback.stop();livePlayback=null}
     if(h264Controller){h264Controller.abort();h264Controller=null}
     video.onerror=null;video.pause();video.removeAttribute('src');video.load();
     if(mediaSourceUrl){URL.revokeObjectURL(mediaSourceUrl);mediaSourceUrl=null}
@@ -62,8 +71,8 @@
   function showJpegFallback(reason,retry=true){
     if(!watching)return;stopH264();video.hidden=true;img.hidden=false;offline.hidden=true;
     if(reason)showToast('Using JPEG: '+reason);
-    img.onload=()=>recordFrame(performance.now());
-    img.onerror=()=>{img.hidden=true;offline.hidden=false;$('connection').textContent='Offline';if(watching){clearTimeout(h264Retry);h264Retry=setTimeout(startH264,5000)}};
+    img.onload=()=>{recordFrame(performance.now());frameHold.releaseAfterFrame(img)};
+    img.onerror=()=>{frameHold.hold(img);img.hidden=true;offline.hidden=!frameHold.holding;$('connection').textContent='Offline';if(watching){clearTimeout(h264Retry);h264Retry=setTimeout(startH264,5000)}};
     img.src='/stream.mjpg?fallback='+Date.now();clearTimeout(h264Retry);
     if(retry)h264Retry=setTimeout(()=>{if(watching)startH264()},reason==='H.264 stream ended'?400:10000);
   }
@@ -72,13 +81,18 @@
     if(!window.MediaSource||!window.ReadableStream||!window.AbortController){
       showJpegFallback('This browser needs the compatibility stream',false);return;
     }
-    img.removeAttribute('src');img.hidden=true;video.hidden=false;offline.hidden=false;
+    img.removeAttribute('src');img.hidden=true;video.hidden=false;offline.hidden=!frameHold.holding;
     offline.querySelector('strong').textContent='Connecting to H.264 stream…';$('connection').textContent='Connecting';
     lastFrameAt=0;frameGaps=[];
     const controller=new AbortController();h264Controller=controller;
-    let startupTimer=0,reader=null,retry=true;
+    let startupTimer=0,reader=null,retry=true,receivedVideo=false;
+    function restartLive(){
+      if(controller.signal.aborted||h264Controller!==controller)return;
+      stopH264();clearTimeout(h264Retry);h264Retry=setTimeout(startH264,100);
+    }
     function fail(error){
       if(controller.signal.aborted||h264Controller!==controller)return;
+      if(retry&&(receivedVideo||error?.liveCatchup)){restartLive();return}
       showJpegFallback(error?.message||'Video decoder failed',retry);
     }
     try{
@@ -97,6 +111,7 @@
       if(!MediaSource.isTypeSupported(mime)){retry=false;throw new Error('Unsupported H.264 profile '+codec)}
       if(!response.body?.getReader){retry=false;throw new Error('Streaming fetch is unavailable')}
       const sourceBuffer=mediaSource.addSourceBuffer(mime);sourceBuffer.mode='segments';
+      livePlayback=window.ScreenTaskLivePlayback.attach(video,{onBeforeSeek:()=>frameHold.hold(video)});
       reader=response.body.getReader();const appendQueue=[];
       let boxBuffer=new Uint8Array(0),initializationBoxes=[],initialized=false,prefixBoxes=[],fragmentBoxes=null,started=false,pruning=false;
       function join(parts){const joined=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let offset=0;for(const p of parts){joined.set(p,offset);offset+=p.length}return joined}
@@ -105,13 +120,13 @@
         try{
           if(video.buffered.length){
             const start=video.buffered.start(0),end=video.buffered.end(video.buffered.length-1);
-            if(started&&end-video.currentTime>1.5)video.currentTime=Math.max(start,end-.25);
+            if(started)livePlayback?.sync();
             if(end-start>12&&!pruning){pruning=true;sourceBuffer.remove(start,Math.min(end-8,video.currentTime-.5));return}
           }
           sourceBuffer.appendBuffer(appendQueue.shift());
         }catch(e){fail(e)}
       }
-      function enqueue(bytes){appendQueue.push(bytes);if(appendQueue.length>20)throw new Error('Decoder fell behind the live stream');drain()}
+      function enqueue(bytes){appendQueue.push(bytes);if(appendQueue.length>3){const error=new Error('Skipping stale video to catch up live');error.liveCatchup=true;throw error}drain()}
       function handleBox(type,box){
         if(!initialized){initializationBoxes.push(box);if(type==='moov'){initialized=true;enqueue(join(initializationBoxes));initializationBoxes=[]}return}
         if(type==='moof'){fragmentBoxes=prefixBoxes.concat([box]);prefixBoxes=[];return}
@@ -125,7 +140,8 @@
           const start=video.buffered.start(0),end=video.buffered.end(video.buffered.length-1);
           video.currentTime=Math.max(start,end-.2);started=true;video.play().catch(()=>showToast('Press Resume to start playback'));
         }
-        if(video.readyState>=2)clearTimeout(startupTimer);
+        if(video.readyState>=2){receivedVideo=true;clearTimeout(startupTimer)}
+        livePlayback?.sync();
         drain();
       });
       while(watching&&!controller.signal.aborted){
@@ -143,12 +159,17 @@
       if(h264Controller===controller)h264Controller=null;
     }
   }
-  video.onloadeddata=()=>{if(!watching||video.hidden||fileOnly)return;offline.hidden=true;$('connection').textContent='Live';observeVideoFrames()};
-  img.onload=()=>recordFrame(performance.now());
-  img.onerror=()=>{offline.hidden=false;$('connection').textContent='Offline';if(watching){clearTimeout(h264Retry);h264Retry=setTimeout(startH264,5000)}};
+  video.onloadeddata=()=>{if(!watching||video.hidden||fileOnly)return;offline.hidden=true;$('connection').textContent='Live';frameHold.releaseAfterFrame(video);observeVideoFrames()};
+  video.addEventListener('seeking',()=>frameHold.hold(video));
+  video.addEventListener('seeked',()=>frameHold.releaseAfterFrame(video));
+  img.onload=()=>{recordFrame(performance.now());frameHold.releaseAfterFrame(img)};
+  img.onerror=()=>{frameHold.hold(img);offline.hidden=!frameHold.holding;$('connection').textContent='Offline';if(watching){clearTimeout(h264Retry);h264Retry=setTimeout(startH264,5000)}};
+  window.addEventListener('pagehide',()=>frameHold.stop(),{once:true});
   $('chatName').value=localStorage.getItem('st-chat-name')||'';  $('watchBtn').onclick=()=>{if(fileOnly)return;watching=!watching;$('watchBtn').querySelector('.controlIcon').textContent=watching?'Ⅱ':'▶';$('watchBtn').querySelector('.controlLabel').textContent=watching?'Ⅱ  Pause':'▶  Resume';$('watchBtn').setAttribute('aria-label',watching?'Pause':'Resume');$('watchBtn').classList.toggle('danger',watching);if(watching){offline.querySelector('strong').textContent='Waiting for stream…';startH264()}else{clearTimeout(h264Retry);stopH264();img.removeAttribute('src');img.hidden=true;video.hidden=true;offline.hidden=false;offline.querySelector('strong').textContent='Stream paused';$('connection').textContent='Paused'}};
-  function applyView(){const mode=$('viewMode').value;player.style.setProperty('--media-fit',mode==='fill'?'cover':'contain');player.style.setProperty('--media-zoom',/^\d+$/.test(mode)?Number(mode)/100:1);revealControls()}
+  function applyView(){const mode=$('viewMode').value;player.classList.toggle('actual-size',mode==='actual');player.style.setProperty('--media-fit',mode==='fill'?'cover':'contain');player.style.setProperty('--media-zoom',/^\d+$/.test(mode)?Number(mode)/100:1);try{localStorage.setItem('st-view-mode',mode)}catch{}revealControls()}
+  try{const saved=localStorage.getItem('st-view-mode');if(Array.from($('viewMode').options).some(option=>option.value===saved))$('viewMode').value=saved}catch{}
   $('viewMode').onchange=applyView;
+  applyView();
   $('volume').oninput=()=>{const v=+$('volume').value;$('volumeLabel').textContent=v+'%';if(audioGain)audioGain.gain.value=v/100};  $('audioBtn').onclick=async(reconnecting=false)=>{
     if(audioRequested&&!audioSocket&&reconnecting!==true){audioRequested=false;clearTimeout(audioReconnect);$('audioBtn').querySelector('.controlLabel').textContent='♫  Enable audio';return}
     if(audioSocket){audioRequested=false;clearTimeout(audioReconnect);audioSocket.close();audioSocket=null;if(audioContext){await audioContext.close();audioContext=null}audioGain=null;$('audioBtn').querySelector('.controlLabel').textContent='♫  Enable audio';$('audioBtn').setAttribute('aria-label','Enable audio');return}

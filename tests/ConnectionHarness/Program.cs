@@ -24,6 +24,12 @@ class ConnectionHarness
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--encoder-options")
+        {
+            Console.WriteLine(typeof(frmMain).GetMethod("H264EncoderOptions", BindingFlags.NonPublic | BindingFlags.Static)
+                .Invoke(null, new object[] { args[1], Int32.Parse(args[2]), Int32.Parse(args[3]) }));
+            return;
+        }
         if (args.Length > 0 && args[0] == "--hdr-profile")
         {
             var type = typeof(frmMain).Assembly.GetType("ScreenTask.HdrDisplayProbe");
@@ -232,6 +238,138 @@ class ConnectionHarness
         var values = new object[] { new MemoryStream(box), null, null };
         if (!(bool)readBox.Invoke(null, values) || !System.Linq.Enumerable.SequenceEqual(box, (byte[])values[1]))
             throw new Exception("Extended MP4 box header/payload was corrupted.");
-        Console.WriteLine("PASS: H.264 levels, actual encoder codec, extended MP4 boxes.");
+        var encoderOptions = typeof(frmMain).GetMethod("H264EncoderOptions", BindingFlags.NonPublic | BindingFlags.Static);
+        var sharp = (string)encoderOptions.Invoke(null, new object[] { "libx264", 90, 20 });
+        var low = (string)encoderOptions.Invoke(null, new object[] { "libx264", 30, 20 });
+        if (!sharp.Contains("-crf 18") || !low.Contains("-crf 32") || !sharp.Contains("-maxrate 20M") || sharp.Contains("-b:v"))
+            throw new Exception("Software video quality must select CRF while preserving the bitrate ceiling.");
+        var uncapped = (string)encoderOptions.Invoke(null, new object[] { "libx264", 100, 0 });
+        if (!uncapped.Contains("-crf 15") || uncapped.Contains("-maxrate")) throw new Exception("Uncapped quality settings ignored.");
+        var mf = (string)encoderOptions.Invoke(null, new object[] { "h264_mf", 90, 20 });
+        if (!mf.Contains("-rate_control pc_vbr") || !mf.Contains("-b:v 20M")) throw new Exception("Media Foundation bitrate ceiling ignored.");
+        var defaults = new AppSettings();
+        if (defaults.OutputWidth != 0 || defaults.FrameRate != 30 || defaults.ImageQuality != 90 || defaults.MaxBitrateMbps != 20)
+            throw new Exception("Fresh installs must retain native text detail.");
+        Console.WriteLine("PASS: H.264 levels, actual encoder codec, extended MP4 boxes, quality-driven encoding and native-resolution defaults.");
+        StreamLatencyChecks(hub);
+    }
+
+    sealed class ControlledWriteStream : MemoryStream
+    {
+        public Task PendingWrite;
+        public Task PendingFlush;
+        public int WriteCount;
+        public int FlushCount;
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            WriteCount++;
+            if (PendingWrite != null) return PendingWrite;
+            Write(buffer, offset, count);
+            return Task.CompletedTask;
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            FlushCount++;
+            return PendingFlush ?? Task.CompletedTask;
+        }
+    }
+
+    static Exception AwaitBoundedFailure(Task task)
+    {
+        if (!SpinWait.SpinUntil(() => task.IsCompleted, 2000))
+            throw new Exception("A stalled H.264 send exceeded its deadline.");
+        try { task.GetAwaiter().GetResult(); }
+        catch (Exception failure) { return failure; }
+        throw new Exception("Expected the stalled or failed H.264 send to fail.");
+    }
+
+    static void StreamLatencyChecks(Type hub)
+    {
+        var send = hub.GetMethod("WriteWithDeadlineAsync", BindingFlags.Static | BindingFlags.NonPublic);
+        var open = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var data = new byte[] { 11, 22, 33 };
+        var aborts = 0;
+        Action abort = () => Interlocked.Increment(ref aborts);
+        Func<ControlledWriteStream, int, Task, Task> write = (stream, deadline, stopped) =>
+            (Task)send.Invoke(null, new object[] { stream, data, abort, deadline, stopped });
+        using (var stream = new ControlledWriteStream())
+        {
+            write(stream, 1000, open.Task).GetAwaiter().GetResult();
+            if (aborts != 0 || stream.WriteCount != 1 || stream.FlushCount != 1 || !stream.ToArray().SequenceEqual(data))
+                throw new Exception("A healthy H.264 send must write and flush without aborting.");
+        }
+        var failure = new IOException("Controlled write failure.");
+        using (var stream = new ControlledWriteStream { PendingWrite = Task.FromException(failure) })
+        {
+            if (!Object.ReferenceEquals(AwaitBoundedFailure(write(stream, 1000, open.Task)), failure) ||
+                aborts != 0 || stream.FlushCount != 0)
+                throw new Exception("H.264 write failures must propagate without flushing.");
+        }
+        using (var stream = new ControlledWriteStream { PendingFlush = Task.FromException(failure) })
+        {
+            if (!Object.ReferenceEquals(AwaitBoundedFailure(write(stream, 1000, open.Task)), failure) || aborts != 0)
+                throw new Exception("H.264 flush failures must propagate.");
+        }
+        foreach (var stallFlush in new[] { false, true })
+        {
+            var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (var stream = new ControlledWriteStream
+            {
+                PendingWrite = stallFlush ? null : pending.Task,
+                PendingFlush = stallFlush ? pending.Task : null
+            })
+            {
+                var previousAborts = aborts;
+                if (!(AwaitBoundedFailure(write(stream, 30, open.Task)) is IOException) || aborts != previousAborts + 1)
+                    throw new Exception("A stalled H.264 write or flush must abort the transport.");
+                // The underlying send can fail after the timeout has returned.
+                // The helper must keep observing that operation's eventual fault.
+                pending.SetException(new IOException("Transport failed after abort."));
+            }
+        }
+        var subscriberType = hub.GetNestedType("Subscriber", BindingFlags.NonPublic);
+        var fragmentType = hub.GetNestedType("H264Fragment", BindingFlags.NonPublic);
+        var maxQueued = (int)hub.GetField("MaxQueuedFragments", BindingFlags.Static | BindingFlags.NonPublic).GetRawConstantValue();
+        if (maxQueued != 2) throw new Exception("H.264 viewers must have at most two queued fragments.");
+        var enqueue = subscriberType.GetMethod("Enqueue");
+        var read = subscriberType.GetMethod("ReadAsync");
+        var completion = subscriberType.GetProperty("Completion");
+        Func<object> newFragment = () => Activator.CreateInstance(fragmentType, new object[] { data, 15 });
+        using (var subscriber = (IDisposable)Activator.CreateInstance(subscriberType, true))
+        {
+            var first = newFragment();
+            enqueue.Invoke(subscriber, new object[] { first, maxQueued });
+            var firstRead = (Task)read.Invoke(subscriber, null);
+            firstRead.GetAwaiter().GetResult();
+            if (!Object.ReferenceEquals(firstRead.GetType().GetProperty("Result").GetValue(firstRead), first))
+                throw new Exception("Healthy subscribers must preserve fragment order.");
+            var blocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using (var stream = new ControlledWriteStream { PendingWrite = blocked.Task })
+            {
+                var previousAborts = aborts;
+                var sending = write(stream, 1000, (Task)completion.GetValue(subscriber));
+                for (var i = 0; i <= maxQueued; i++) enqueue.Invoke(subscriber, new object[] { newFragment(), maxQueued });
+                if (!(AwaitBoundedFailure(sending) is IOException) || aborts != previousAborts + 1)
+                    throw new Exception("Queue overflow must immediately abort a pending send and reconnect live.");
+                blocked.SetException(new IOException("Overflow aborted the transport."));
+            }
+            enqueue.Invoke(subscriber, new object[] { newFragment(), maxQueued });
+            var closedRead = (Task)read.Invoke(subscriber, null);
+            closedRead.GetAwaiter().GetResult();
+            if (!( (Task)completion.GetValue(subscriber)).IsCompleted || closedRead.GetType().GetProperty("Result").GetValue(closedRead) != null)
+                throw new Exception("Overflowed subscribers must discard their queue and stay closed.");
+        }
+        using (var subscriber = (IDisposable)Activator.CreateInstance(subscriberType, true))
+        {
+            enqueue.Invoke(subscriber, new object[] { newFragment(), maxQueued });
+            subscriberType.GetMethod("Complete").Invoke(subscriber, null);
+            var closedRead = (Task)read.Invoke(subscriber, null);
+            closedRead.GetAwaiter().GetResult();
+            if (closedRead.GetType().GetProperty("Result").GetValue(closedRead) != null)
+                throw new Exception("Restarted streams must discard stale queued fragments.");
+        }
+        Console.WriteLine("PASS: bounded H.264 write/flush deadlines, failures, overflow reconnects and restart queue cleanup.");
     }
 }

@@ -128,6 +128,7 @@ namespace ScreenTask
                     {
                         _h264Stream.FailStream("File-only mode is active.");
                         _rtcSignaling.Reset();
+                        _callSignaling.Reset();
                     }
                     else if (oldFileOnly)
                     {

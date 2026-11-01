@@ -69,6 +69,10 @@ async function main() {
     const firstTime = await viewer.locator('#video').evaluate(v => v.currentTime);
     await viewer.waitForFunction(time => document.getElementById('video').currentTime > time + .25, firstTime);
     console.log('PASS: viewer arrives before host; Chrome → Edge direct media decoded', dimensions);
+    await viewer.selectOption('#viewMode', 'actual');
+    const nativeDimensions = await viewer.locator('#video').evaluate(video => [video.clientWidth, video.clientHeight, video.videoWidth, video.videoHeight]);
+    assert.deepEqual(nativeDimensions.slice(0, 2), nativeDimensions.slice(2), 'Direct viewer actual size must preserve decoded dimensions');
+    await viewer.selectOption('#viewMode', 'fit');
 
     const occupied = await edge.newPage(); await occupied.goto(origin + '/direct?room=' + room); await occupied.click('#connect');
     await occupied.waitForFunction(() => document.getElementById('status').textContent.includes('Another viewer'));
@@ -119,10 +123,39 @@ async function main() {
     await mse.goto(origin + '/');
     await mse.waitForFunction(() => document.getElementById('streamVideo').videoWidth > 0, null, {timeout: 30000});
     console.log('PASS: real FFmpeg H.264 stream decodes in Chrome');
+    await mse.waitForFunction(() => { const v = document.getElementById('streamVideo'); return v.buffered.length && v.buffered.end(v.buffered.length - 1) - v.buffered.start(v.buffered.length - 1) > 2; }, null, {timeout: 15000});
+    await mse.evaluate(() => { const v = document.getElementById('streamVideo'); v.currentTime = v.buffered.end(v.buffered.length - 1) - 1.8; });
+    await mse.waitForFunction(() => { const v = document.getElementById('streamVideo'); return !v.seeking && v.buffered.end(v.buffered.length - 1) - v.currentTime < .7; }, null, {timeout: 2000});
+    console.log('PASS: delayed H.264 playback skips stale frames and returns to the live edge');
     await viewerLayout(mse);
-    await mse.click('#watchBtn'); await mse.click('#watchBtn');
+    await mse.click('#watchBtn');
+    assert.equal(await mse.locator('.frame-hold').isVisible(), true, 'Pausing/resetting the decoder must retain the last decoded frame');
+    const frozen = await mse.locator('.frame-hold').evaluate(canvas => ({width: canvas.width, height: canvas.height, opacity: getComputedStyle(canvas).opacity}));
+    assert(frozen.width > 0 && frozen.height > 0 && frozen.opacity === '1');
+    await mse.click('#watchBtn');
     await mse.waitForFunction(() => document.getElementById('streamVideo').videoWidth > 0, null, {timeout: 15000});
+    await mse.waitForFunction(() => document.querySelector('.frame-hold').hidden, null, {timeout: 5000});
     console.log('PASS: H.264 pause/resume starts a fresh decoder session');
+    const backlog = await chrome.newPage(); backlog.on('pageerror', e => errors.push(e.message));
+    await backlog.addInitScript(() => {
+      const add = MediaSource.prototype.addSourceBuffer, updating = Object.getOwnPropertyDescriptor(SourceBuffer.prototype, 'updating').get;
+      MediaSource.prototype.addSourceBuffer = function(...args) {
+        const buffer = add.apply(this, args);
+        Object.defineProperty(buffer, 'updating', {get: () => window.stallVideoQueue || updating.call(buffer)});
+        return buffer;
+      };
+      const originalFetch = window.fetch; window.videoRequests = 0;
+      window.fetch = (...args) => {
+        if (args[0] === '/stream.mp4') { window.videoRequests++; if (window.videoRequests > 1) window.stallVideoQueue = false; }
+        return originalFetch(...args);
+      };
+    });
+    await backlog.goto(origin + '/');
+    await backlog.waitForFunction(() => document.getElementById('streamVideo').readyState >= 2, null, {timeout: 15000});
+    await backlog.evaluate(() => { window.stallVideoQueue = true; });
+    await backlog.waitForFunction(() => window.videoRequests > 1 && document.getElementById('streamVideo').readyState >= 2, null, {timeout: 15000});
+    assert.equal(await backlog.locator('#stream').isVisible(), false);
+    console.log('PASS: overloaded decoder discards stale backlog and reconnects H.264 without JPEG fallback');
     const fallback = await edge.newPage(); fallback.on('pageerror', e => errors.push(e.message));
     await fallback.addInitScript(() => { window.MediaSource = undefined; });
     await fallback.goto(origin + '/');
@@ -141,7 +174,12 @@ async function main() {
     });
     await decoder.goto(origin + '/');
     await decoder.waitForFunction(() => !!window.testBuffer);
-    await decoder.evaluate(() => window.testBuffer.dispatchEvent(new Event('error')));
+    await decoder.waitForFunction(() => document.getElementById('streamVideo').readyState >= 2);
+    const heldAfterDecoderReset = await decoder.evaluate(() => {
+      window.testBuffer.dispatchEvent(new Event('error'));
+      return !document.querySelector('.frame-hold').hidden;
+    });
+    assert.equal(heldAfterDecoderReset, true, 'Decoder rejection must cover the reset with its last decoded frame');
     await decoder.waitForFunction(() => document.getElementById('stream').naturalWidth > 0, null, {timeout: 15000});
     console.log('PASS: asynchronous decoder rejection falls back to JPEG');
     assert.deepEqual(errors, [], 'Unexpected browser errors');

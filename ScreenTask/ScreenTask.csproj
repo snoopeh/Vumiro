@@ -29,7 +29,7 @@
     <BootstrapperEnabled>true</BootstrapperEnabled>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -39,7 +39,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
@@ -76,6 +76,8 @@
       <HintPath>$(NuGetPackageRoot)system.resources.extensions\8.0.0\lib\net462\System.Resources.Extensions.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="Microsoft.Web.WebView2.Core"><HintPath>$(NuGetPackageRoot)microsoft.web.webview2\1.0.4314.35\lib\net462\Microsoft.Web.WebView2.Core.dll</HintPath><Private>True</Private></Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms"><HintPath>$(NuGetPackageRoot)microsoft.web.webview2\1.0.4314.35\lib\net462\Microsoft.Web.WebView2.WinForms.dll</HintPath><Private>True</Private></Reference>
     <Reference Include="NAudio.Core">
       <HintPath>$(NuGetPackageRoot)naudio.core\2.2.1\lib\netstandard2.0\NAudio.Core.dll</HintPath>
       <Private>True</Private>
@@ -108,6 +110,7 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AppSettings.cs" />
@@ -117,6 +120,9 @@
     <Compile Include="BrowserFileHub.cs" />
     <Compile Include="frmMain.Files.cs" />
     <Compile Include="frmMain.LiveSettings.cs" />
+    <Compile Include="frmMain.Call.cs" />
+    <Compile Include="RuntimePaths.cs" />
+    <Compile Include="CallSignalingHub.cs" />
     <Compile Include="SettingsStore.cs" />
     <Compile Include="HdrDisplayProbe.cs" />
     <Compile Include="frmMain.Updates.cs" />
@@ -166,6 +172,7 @@
     <None Include="logo_text.png" />
     <Content Include="file_icon.ico" />
     <Content Include="screenicon.ico" />
+    <Content Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.4314.35\runtimes\win-x64\native\WebView2Loader.dll"><Link>WebView2Loader.dll</Link><TargetPath>WebView2Loader.dll</TargetPath><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="ScreenTaskMain.png" />
     <Content Include="ScreenTaskWebUI.png" />
     <None Include="screentask_logo.png" />
@@ -187,6 +194,12 @@
     <Content Include="WebServer\hdr-source.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="WebServer\live-playback.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="WebServer\frame-hold.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="WebServer\call.html"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
+    <Content Include="WebServer\call-client.js"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
     <Content Include="WebServer\host.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -119,7 +119,8 @@ internal static class Program
             if (args.Length > 0 && args[0] != "--github")
             {
                 UpdateInstaller.Extract(Path.GetFullPath(args[0]), Path.Combine(root, "actual-release"));
-                Assert(System.Reflection.AssemblyName.GetAssemblyName(Path.Combine(root, "actual-release", "ScreenTask.exe")).Version == System.Reflection.AssemblyName.GetAssemblyName(Path.GetFullPath("ScreenTask/bin/Release/ScreenTask.exe")).Version, "Real packaged application version");
+                var expectedApplication = args.Length > 1 && args[1] != "--github" ? args[1] : "ScreenTask/bin/Release/ScreenTask.exe";
+                Assert(System.Reflection.AssemblyName.GetAssemblyName(Path.Combine(root, "actual-release", "ScreenTask.exe")).Version == System.Reflection.AssemblyName.GetAssemblyName(Path.GetFullPath(expectedApplication)).Version, "Real packaged application version");
             }
             if (args.Contains("--github"))
             {

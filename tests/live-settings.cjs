@@ -3,7 +3,7 @@ const {spawn} = require('node:child_process'), {createRequire} = require('node:m
 const runtime = process.env.SCREENTASK_NODE_MODULES ? createRequire(process.env.SCREENTASK_NODE_MODULES + '/package.json') : require;
 const {chromium} = runtime('playwright');
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'screentask-live-settings-')), stop = path.join(directory, 'stop');
-const binary = path.join(__dirname, 'ConnectionHarness/bin/Release/net48/ConnectionHarness.exe');
+const binary = path.join(process.env.SCREENTASK_HARNESS_DIRECTORY || path.join(__dirname, 'ConnectionHarness/bin/Release/net48'), 'ConnectionHarness.exe');
 const harness = spawn(binary, ['17876', stop, '--live', directory], {windowsHide: true});
 let stdout = '', stderr = ''; harness.stdout.on('data', b => { stdout += b; }); harness.stderr.on('data', b => { stderr += b; });
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -32,6 +32,10 @@ async function main() {
     await host.click('#start'); await host.waitForFunction(() => document.getElementById('status').textContent.includes('Waiting for your viewer'), null, {timeout: 30000});
     const room = await host.locator('#room').textContent(); await direct.goto('http://localhost:17876/direct?room=' + room); await direct.click('#connect');
     await direct.waitForFunction(() => document.getElementById('video').readyState >= 2 && document.getElementById('status').textContent.includes('Direct connected'), null, {timeout: 30000});
+    await host.waitForFunction(() => { const v = document.querySelector('body > video'); return v?.buffered.length && v.buffered.end(v.buffered.length - 1) - v.buffered.start(v.buffered.length - 1) > 2; }, null, {timeout: 15000});
+    await host.evaluate(() => { const v = document.querySelector('body > video'); v.currentTime = v.buffered.end(v.buffered.length - 1) - 1.8; });
+    await host.waitForFunction(() => { const v = document.querySelector('body > video'); return !v.seeking && v.buffered.end(v.buffered.length - 1) - v.currentTime < .7; }, null, {timeout: 2000});
+    console.log('PASS: native HDR source catches up before forwarding frames to WebRTC');
     const changed = await change('fps=30,width=854,bitrate=4,quality=70,exposure=0.2,peak=800,mouse=true');
     assert.equal(changed.listener, original.listener); assert.equal(changed.generation, original.generation); assert(changed.listening);
     await viewer.waitForFunction(() => document.getElementById('streamVideo').videoWidth === 854 && !document.getElementById('streamVideo').hidden, null, {timeout: 25000});

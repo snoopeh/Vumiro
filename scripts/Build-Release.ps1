@@ -10,8 +10,11 @@ if (Test-Path -LiteralPath $package) { throw "Output folder already exists: $pac
 New-Item -ItemType Directory -Path $package -Force | Out-Null
 Push-Location $root
 try {
-    dotnet build ScreenTask.sln -c Release --nologo
+    $appBuild = Join-Path $output 'app-build'
+    dotnet build ScreenTask/ScreenTask.csproj -c Release -o $appBuild --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
+    dotnet build ScreenTask.Updater/ScreenTask.Updater.csproj -c Release --nologo
+    if ($LASTEXITCODE -ne 0) { throw 'Updater build failed.' }
     $audio = Join-Path $output 'audio-publish'
     dotnet publish ScreenTask.AudioCaptureHelper/ScreenTask.AudioCaptureHelper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $audio --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Audio helper publish failed.' }
@@ -30,8 +33,11 @@ try {
     if ((Get-FileHash -LiteralPath $FfmpegPath -Algorithm SHA256).Hash -ne '3256173F3F8BFFD7DF12227C68ADF68025EDB1832273A9530688A7BB1ED8EDEC') {
         throw 'FFmpeg SHA-256 does not match the tested 9.0.2 essentials build.'
     }
-    Copy-Item ScreenTask/bin/Release/ScreenTask.exe, ScreenTask/bin/Release/ScreenTask.exe.config -Destination $package
-    Get-ChildItem ScreenTask/bin/Release -Filter '*.dll' -File | Copy-Item -Destination $package
+    Copy-Item (Join-Path $appBuild 'ScreenTask.exe'), (Join-Path $appBuild 'ScreenTask.exe.config') -Destination $package
+    Get-ChildItem $appBuild -Filter '*.dll' -File | Copy-Item -Destination $package
+    foreach ($required in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll')) {
+        if (!(Test-Path -LiteralPath (Join-Path $package $required))) { throw "Missing in-app call dependency: $required" }
+    }
     Copy-Item ScreenTask/WebServer -Destination $package -Recurse
     Copy-Item ScreenTask.Updater/bin/Release/net48/ScreenTask.Updater.exe -Destination $package
     Copy-Item (Join-Path $audio 'ScreenTask.AudioCaptureHelper.exe') -Destination $package
@@ -45,7 +51,7 @@ try {
     Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Value "$digest  ScreenTask-win-x64.zip" -Encoding ascii
     dotnet build tests/UpdateTests -c Release --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Update test build failed.' }
-    & tests/UpdateTests/bin/Release/net48/UpdateTests.exe $archive
+    & tests/UpdateTests/bin/Release/net48/UpdateTests.exe $archive (Join-Path $appBuild 'ScreenTask.exe')
     if ($LASTEXITCODE -ne 0) { throw 'Packaged update checks failed.' }
     Write-Output "Release ready: $archive"
 } finally { Pop-Location }
