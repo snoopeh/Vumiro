@@ -1,3 +1,311 @@
+(() => {
+  'use strict';
+
+  const MAX_INPUT_BYTES = 5 * 1024 * 1024;
+  const MAX_PIXELS = 50000000;
+  const MAX_DATA_URL_LENGTH = 32768;
+  const ACCEPTED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+  let dialog;
+
+  function ensureDialog() {
+    if (dialog?.isConnected) return dialog;
+
+    const style = document.createElement('style');
+    style.dataset.vumiroAvatarEditor = '';
+    style.textContent = `
+      dialog.vumiro-avatar-editor{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:24px;border:1px solid #3a3a43;border-radius:14px;background:#17171b;color:#f8f8f8;box-shadow:0 24px 90px #000b;font:14px/1.5 Sora,"Segoe UI",system-ui,sans-serif}
+      dialog.vumiro-avatar-editor::backdrop{background:#050507c9;backdrop-filter:blur(4px)}
+      .vae-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+      .vae-head h2{font-size:20px;letter-spacing:-.5px;margin:0 0 4px}
+      .vae-head p,.vae-help{margin:0;color:#a1a1aa;font-size:12px}
+      .vae-close{width:36px;height:36px;display:grid;place-items:center;border:1px solid #34343b;border-radius:8px;background:#222227;color:#eee;font-size:21px;cursor:pointer}
+      .vae-close:focus-visible,.vae-actions button:focus-visible,.vae-zoom:focus-visible,.vae-crop:focus-visible{outline:2px solid #e11d2e;outline-offset:3px}
+      .vae-crop-wrap{display:grid;place-items:center;padding:13px;background:#101013;border:1px solid #2d2d33;border-radius:12px}
+      .vae-crop{position:relative;width:min(100%,360px);aspect-ratio:1;overflow:hidden;border-radius:50%;background:#222227;cursor:grab;touch-action:none;outline:none;user-select:none}
+      .vae-crop:active{cursor:grabbing}
+      .vae-image{position:absolute;left:0;top:0;max-width:none;max-height:none;pointer-events:none;user-select:none;will-change:transform}
+      .vae-grid{position:absolute;inset:0;pointer-events:none;border:1px solid #ffffff55;border-radius:50%;box-shadow:inset 0 0 0 1px #0004}
+      .vae-help{margin-top:12px;text-align:center}
+      .vae-zoom-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;margin:20px 2px 0}
+      .vae-zoom-row label{font-size:12px;font-weight:600}
+      .vae-zoom-row output{min-width:40px;text-align:right;color:#b8b8c0;font-size:11px;font-variant-numeric:tabular-nums}
+      .vae-zoom{width:100%;accent-color:#e11d2e}
+      .vae-error{min-height:18px;margin:10px 2px 0;color:#ff9ca8;font-size:12px}
+      .vae-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+      .vae-actions button{padding:10px 15px;border:1px solid #38383f;border-radius:8px;background:#242429;color:#f8f8f8;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+      .vae-actions .vae-save{background:#e11d2e;border-color:#e11d2e}
+      .vae-actions button:hover{filter:brightness(1.12)}
+      @media(max-width:480px){dialog.vumiro-avatar-editor{padding:18px}.vae-crop-wrap{padding:8px}.vae-crop{width:min(100%,300px)}}
+    `;
+    document.head.append(style);
+
+    dialog = document.createElement('dialog');
+    dialog.className = 'vumiro-avatar-editor';
+    dialog.setAttribute('aria-labelledby', 'vae-title');
+    dialog.innerHTML = `
+      <div class="vae-head">
+        <div><h2 id="vae-title">Adjust profile picture</h2><p>Drag to reposition your picture.</p></div>
+        <button class="vae-close" type="button" aria-label="Cancel picture editing">×</button>
+      </div>
+      <div class="vae-crop-wrap">
+        <div class="vae-crop" role="img" aria-label="Circular preview of your profile picture. Use arrow keys to reposition it." tabindex="0">
+          <img class="vae-image" alt="" draggable="false">
+          <span class="vae-grid" aria-hidden="true"></span>
+        </div>
+      </div>
+      <p class="vae-help">Use the slider to zoom. Arrow keys also move the picture.</p>
+      <div class="vae-zoom-row">
+        <label for="vae-zoom">Zoom</label>
+        <input class="vae-zoom" id="vae-zoom" type="range" min="1" max="3" step="0.01" value="1">
+        <output class="vae-zoom-value" for="vae-zoom">1.00×</output>
+      </div>
+      <p class="vae-error" role="alert" aria-live="polite"></p>
+      <div class="vae-actions"><button class="vae-cancel" type="button">Cancel</button><button class="vae-save" type="button">Use picture</button></div>
+    `;
+    document.body.append(dialog);
+    return dialog;
+  }
+
+  function inputError(file) {
+    if (!file || !ACCEPTED_TYPES.has(file.type) || file.size > MAX_INPUT_BYTES) {
+      return 'Choose a PNG, JPEG or WebP picture up to 5 MB.';
+    }
+    return '';
+  }
+
+  function validateOutput(value) {
+    if (value.length > MAX_DATA_URL_LENGTH || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+      throw new Error('This picture could not be compressed under the 32 KiB profile limit. Choose another image.');
+    }
+    const validator = window.VumiroLocalProfile?.validateAvatar;
+    if (validator) return validator(value);
+    return value;
+  }
+
+  function encodeCrop(image, size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 192;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser could not prepare this picture.');
+    // The image is scaled uniformly; converting the visible crop from preview
+    // pixels back to source pixels keeps the saved square aligned with the UI.
+    const scale = image.__previewScale;
+    const cropSize = size / scale;
+    const sourceX = Math.max(0, Math.min(image.naturalWidth - cropSize, -image.__offsetX / scale));
+    const sourceY = Math.max(0, Math.min(image.naturalHeight - cropSize, -image.__offsetY / scale));
+    context.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, 192, 192);
+
+    for (const quality of [.85, .7, .5]) {
+      const value = canvas.toDataURL('image/webp', quality);
+      if (value.length <= MAX_DATA_URL_LENGTH) return validateOutput(value);
+    }
+    canvas.width = canvas.height = 128;
+    const smaller = canvas.getContext('2d');
+    smaller.drawImage(image, sourceX, sourceY, cropSize, cropSize, 0, 0, 128, 128);
+    for (const quality of [.65, .5, .35]) {
+      const value = canvas.toDataURL('image/jpeg', quality);
+      if (value.length <= MAX_DATA_URL_LENGTH) return validateOutput(value);
+    }
+    throw new Error('This picture could not be compressed under the 32 KiB profile limit. Choose another image.');
+  }
+
+  function edit(file) {
+    const problem = inputError(file);
+    if (problem) return Promise.reject(new Error(problem));
+
+    const ui = ensureDialog();
+    const crop = ui.querySelector('.vae-crop');
+    const image = ui.querySelector('.vae-image');
+    const zoom = ui.querySelector('.vae-zoom');
+    const zoomValue = ui.querySelector('.vae-zoom-value');
+    const error = ui.querySelector('.vae-error');
+    const save = ui.querySelector('.vae-save');
+    const close = ui.querySelector('.vae-close');
+    const cancel = ui.querySelector('.vae-cancel');
+    const objectUrl = URL.createObjectURL(file);
+    const previousFocus = document.activeElement;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let pointer = null;
+      let startPoint = null;
+      let offsetX = 0;
+      let offsetY = 0;
+      let baseScale = 1;
+      let scale = 1;
+      let minZoom = 1;
+      let maxZoom = 3;
+      let imageWidth = 0;
+      let imageHeight = 0;
+      let previewSide = 0;
+      let resizeObserver = null;
+
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        URL.revokeObjectURL(objectUrl);
+        image.removeAttribute('src');
+        image.onload = null;
+        image.onerror = null;
+        resizeObserver?.disconnect();
+        ui.removeEventListener('cancel', onDialogCancel);
+        ui.removeEventListener('click', onBackdrop);
+        crop.removeEventListener('pointerdown', onPointerDown);
+        crop.removeEventListener('pointermove', onPointerMove);
+        crop.removeEventListener('pointerup', onPointerUp);
+        crop.removeEventListener('pointercancel', onPointerUp);
+        crop.removeEventListener('keydown', onKeyDown);
+        zoom.removeEventListener('input', onZoom);
+        save.removeEventListener('click', onSave);
+        close.removeEventListener('click', onCancel);
+        cancel.removeEventListener('click', onCancel);
+        if (ui.open) ui.close();
+        if (previousFocus?.isConnected) previousFocus.focus();
+        resolve(value);
+      };
+      const clamp = () => {
+        const side = crop.clientWidth;
+        const width = imageWidth * scale;
+        const height = imageHeight * scale;
+        offsetX = Math.min(0, Math.max(side - width, offsetX));
+        offsetY = Math.min(0, Math.max(side - height, offsetY));
+      };
+      const render = () => {
+        clamp();
+        image.style.left = '0';
+        image.style.top = '0';
+        image.style.width = `${imageWidth}px`;
+        image.style.height = `${imageHeight}px`;
+        image.style.transform = `translate(${offsetX}px,${offsetY}px) scale(${scale})`;
+        image.style.transformOrigin = 'top left';
+        image.__previewScale = scale;
+        image.__offsetX = offsetX;
+        image.__offsetY = offsetY;
+        zoom.value = String(scale / baseScale);
+        zoomValue.value = `${(scale / baseScale).toFixed(2)}×`;
+        zoomValue.textContent = zoomValue.value;
+      };
+      const onCropResize = () => {
+        if (!imageWidth || !imageHeight) return;
+        const side = crop.clientWidth;
+        if (!side || side === previewSide) return;
+        const centerSourceX = (previewSide / 2 - offsetX) / scale;
+        const centerSourceY = (previewSide / 2 - offsetY) / scale;
+        const zoomRatio = scale / baseScale;
+        baseScale = Math.max(side / imageWidth, side / imageHeight);
+        scale = baseScale * zoomRatio;
+        offsetX = side / 2 - centerSourceX * scale;
+        offsetY = side / 2 - centerSourceY * scale;
+        previewSide = side;
+        render();
+      };
+      const onZoom = () => {
+        const previousScale = scale;
+        const ratio = Number(zoom.value);
+        scale = baseScale * ratio;
+        const side = crop.clientWidth;
+        const centerX = side / 2;
+        const centerY = side / 2;
+        offsetX = centerX - (centerX - offsetX) * (scale / previousScale);
+        offsetY = centerY - (centerY - offsetY) * (scale / previousScale);
+        render();
+      };
+      const onPointerDown = (event) => {
+        if (event.button !== 0) return;
+        pointer = event.pointerId;
+        startPoint = {x: event.clientX, y: event.clientY, offsetX, offsetY};
+        crop.setPointerCapture(pointer);
+        event.preventDefault();
+      };
+      const onPointerMove = (event) => {
+        if (pointer !== event.pointerId || !startPoint) return;
+        offsetX = startPoint.offsetX + event.clientX - startPoint.x;
+        offsetY = startPoint.offsetY + event.clientY - startPoint.y;
+        render();
+      };
+      const onPointerUp = (event) => {
+        if (pointer !== event.pointerId) return;
+        pointer = null;
+        startPoint = null;
+        if (crop.hasPointerCapture(event.pointerId)) crop.releasePointerCapture(event.pointerId);
+      };
+      const onKeyDown = (event) => {
+        const step = event.shiftKey ? 20 : 8;
+        if (event.key === 'ArrowLeft') offsetX += step;
+        else if (event.key === 'ArrowRight') offsetX -= step;
+        else if (event.key === 'ArrowUp') offsetY += step;
+        else if (event.key === 'ArrowDown') offsetY -= step;
+        else return;
+        event.preventDefault();
+        render();
+      };
+      const onSave = () => {
+        try {
+          error.textContent = '';
+          save.disabled = true;
+          resolveSave();
+        } catch (cause) {
+          error.textContent = cause.message || 'Could not prepare this picture.';
+          save.disabled = false;
+        }
+      };
+      const onCancel = () => finish(null);
+      const onDialogCancel = (event) => { event.preventDefault(); finish(null); };
+      const onBackdrop = (event) => { if (event.target === ui) finish(null); };
+      const resolveSave = () => finish(encodeCrop(image, crop.clientWidth));
+
+      image.onload = () => {
+        if (!image.naturalWidth || !image.naturalHeight) {
+          error.textContent = 'This image could not be decoded. Choose another picture.';
+          return;
+        }
+        if (image.naturalWidth * image.naturalHeight > MAX_PIXELS) {
+          error.textContent = 'Choose a smaller picture.';
+          return;
+        }
+        const side = crop.clientWidth;
+        imageWidth = image.naturalWidth;
+        imageHeight = image.naturalHeight;
+        previewSide = side;
+        baseScale = Math.max(side / imageWidth, side / imageHeight);
+        scale = baseScale;
+        minZoom = 1;
+        maxZoom = 3;
+        zoom.min = String(minZoom);
+        zoom.max = String(maxZoom);
+        zoom.value = '1';
+        offsetX = (side - imageWidth * scale) / 2;
+        offsetY = (side - imageHeight * scale) / 2;
+        render();
+        if (typeof ResizeObserver === 'function') {
+          resizeObserver = new ResizeObserver(onCropResize);
+          resizeObserver.observe(crop);
+        }
+        save.disabled = false;
+        crop.focus();
+      };
+      image.onerror = () => { error.textContent = 'This image could not be decoded. Choose another picture.'; };
+      image.src = objectUrl;
+      error.textContent = '';
+      save.disabled = true;
+      close.addEventListener('click', onCancel);
+      cancel.addEventListener('click', onCancel);
+      save.addEventListener('click', onSave);
+      zoom.addEventListener('input', onZoom);
+      crop.addEventListener('pointerdown', onPointerDown);
+      crop.addEventListener('pointermove', onPointerMove);
+      crop.addEventListener('pointerup', onPointerUp);
+      crop.addEventListener('pointercancel', onPointerUp);
+      crop.addEventListener('keydown', onKeyDown);
+      ui.addEventListener('cancel', onDialogCancel);
+      ui.addEventListener('click', onBackdrop);
+      if (!ui.open) ui.showModal();
+    });
+  }
+
+  window.VumiroAvatarEditor = {edit};
+})();
+
 /* Local contacts and signed requests. Photos never reach the directory. */
 (() => {
 'use strict';
@@ -198,25 +506,52 @@ function openRoom(room,signaling,name='Your room',grant,access) {
   };
   roomFrame.src=url.href;$('callFrameSlot').append(roomFrame);
   $('callTitle').textContent=currentAccess.name||(name==='Your room'?name:'Room with '+name);
-  $('friendsBody').hidden=true;$('callArea').hidden=false;renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
+  $('roomReturnTitle').textContent=$('callTitle').textContent;
+  $('callArea').hidden=false;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('roomReturn').hidden=true;$('friendsBody').hidden=true;renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
 }
-function finishRoom(){clearTimeout(leaveTimer);frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').hidden=true;$('friendsBody').hidden=false;for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
+function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=false;$('roomReturn').hidden=false;}
+function returnToRoom(){if(!frame)return;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;}
+function finishRoom(){clearTimeout(leaveTimer);frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
 function leaveRoom(){if(!frame)return;frame.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);clearTimeout(leaveTimer);leaveTimer=setTimeout(finishRoom,1200);}
 addEventListener('message',event=>{
   if(!frame||event.source!==frame.contentWindow||event.origin!==location.origin)return;
   const data=event.data;
+  if(data?.type==='vumiro-friend-status-query'||data?.type==='vumiro-add-friend'){
+    const sourceFrame=frame,id=data.id;
+    const reply=(status,message)=>{if(frame===sourceFrame)sourceFrame.contentWindow.postMessage({type:'vumiro-friend-status',id,status,message},location.origin);};
+    (async()=>{
+      try{
+        if(typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id)||id===profile?.id)throw Error('This room member has an invalid identity.');
+        const friend=friendById(id);
+        if(friend){reply('friend',friend.nickname||friend.name);return;}
+        if(blocked.includes(id))throw Error('Unblock this identity before sending a friend request.');
+        const savedRequest=requests.find(item=>item.contact.id===id&&item.kind==='friend-request'&&item.expires>Date.now());
+        if(savedRequest){reply('pending',savedRequest.direction==='outgoing'?'Friend request waiting for acceptance.':'They already sent you a friend request.');return;}
+        if(!ready)throw Error('Reconnect to look up this member.');
+        const found=await lookup(id);if(!found)throw Error('This member is offline or could not be verified.');
+        if(frame!==sourceFrame)return;const contact=await local.validateContact(found);if(contact.id!==id)throw Error('The directory returned a different identity.');
+        if(frame!==sourceFrame)return;if(data.type==='vumiro-friend-status-query'){reply('available',contact.name+' · Not in your friends yet.');return;}
+        if(friendById(id)){reply('friend','Already in your friends.');return;}
+        if(requests.some(item=>item.contact.id===id&&item.kind==='friend-request'&&item.expires>Date.now())){reply('pending','Friend request is already waiting.');return;}
+        await contactCapacity(id);if(blocked.includes(id))throw Error('Unblock this identity before sending a friend request.');
+        const message=await social(id,'friend-request',{},()=>frame===sourceFrame&&ready&&!blocked.includes(id));
+        await storeRequest({id:message.nonce,direction:'outgoing',kind:'friend-request',contact,nonce:message.nonce,expires:message.expires,nickname:''});
+        reply('sent','Friend request sent to '+contact.name+'.');
+      }catch(error){reply('error',error.message||'Could not verify this room member.');}
+    })();return;
+  }
   if(data?.type==='vumiro-call-ended'){finishRoom();return;}
   if(data?.type==='vumiro-room-state'&&data.room===currentRoom){
     const changed=joined!==(data.joined===true)||sharing!==(data.sharing===true)||currentAccess?.mode!==data.mode;
     joined=data.joined===true;sharing=data.sharing===true;
     if(['public','friends','private','legacy'].includes(data.mode))currentAccess={...currentAccess,mode:data.mode};
-    if(typeof data.name==='string'&&data.name.trim())$('callTitle').textContent=data.name.trim().slice(0,60);
+    if(typeof data.name==='string'&&data.name.trim())$('callTitle').textContent=data.name.trim().slice(0,60);$('roomReturnTitle').textContent=$('callTitle').textContent;
     if(changed)publishRoom();
   }
   if(data?.type==='vumiro-room-policy'&&data.room===currentRoom&&['public','friends','private','legacy'].includes(data.mode)){
     currentAccess={...currentAccess,mode:data.mode,name:typeof data.name==='string'?data.name.slice(0,60):currentAccess?.name||''};
     delete currentAccess.password;
-    if(currentAccess.name)$('callTitle').textContent=currentAccess.name;publishRoom();
+    if(currentAccess.name)$('callTitle').textContent=currentAccess.name;$('roomReturnTitle').textContent=$('callTitle').textContent;publishRoom();
   }
   if(data?.type==='vumiro-peer-profile'&&friendById(data.id)&&data.profile&&typeof data.profile==='object')local.updateContactProfile(data.id,data.profile).catch(()=>{});
   if(data?.type==='vumiro-stream-settings'&&data.settings){settings=normalizeSettings(data.settings);save('vumiro-stream-settings',JSON.stringify(settings));renderSettings();}
@@ -252,11 +587,11 @@ async function requestJoin(room,mode){
 }
 $('acceptInvite').onclick=async()=>{const value=pending;if(!value||value.direction!=='incoming')return;$('acceptInvite').disabled=true;try{if(Date.now()>=value.expires||!await validGrant(friendById(value.friend),profile.id,value.room,value.grant))throw Error('This call approval expired.');await answer(value,true);if(pending!==value)return;const name=friendById(value.friend)?.nickname||'Your friend';clearPending();openRoom(value.room,serviceUrl,name,value.grant);}catch(error){status(error.message);}finally{$('acceptInvite').disabled=false;}};
 async function dismissInvite(){const value=pending;if(!value)return;try{if(Date.now()<value.expires)await answer(value,false);}catch(error){status(error.message);}if(pending===value)clearPending(value.direction==='incoming'?'Call declined.':'Call cancelled.');}
-$('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;
-$('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('profileNav').onclick=$('selfProfile').onclick=showProfile;$('settingsNav').onclick=$('topSettings').onclick=$('roomSettings').onclick=showSettings;
+$('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;$('leaveRoomFromBrowse').onclick=leaveRoom;$('browseApp').onclick=browseRoom;$('returnToRoom').onclick=returnToRoom;
+$('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('selfProfile').onclick=showProfile;$('topSettings').onclick=$('roomSettings').onclick=showSettings;
 $('reconnectService').onclick=()=>{clearPending();connect();};$('reconnectRoom').onclick=()=>{frame?.contentWindow.postMessage({type:'vumiro-call-reconnect'},location.origin);if(!ready)connect();status('Reconnecting your room…');};
 function requestUpdate(action){if(action==='install'&&(frame||pending)){status('Leave your room or finish the call invitation before installing an update.');return;}if(host)host.postMessage({type:'updates',action});else $('updateStatus').textContent='This browser client updates when reloaded. Get the desktop app from the project releases.';}
-$('updatesNav').onclick=()=>{showProfile();$('updateDetails').open=true;$('updateDetails').scrollIntoView({block:'nearest'});requestUpdate('state');};$('checkUpdate').onclick=()=>requestUpdate('check');$('installUpdate').onclick=()=>requestUpdate('install');
+$('updatesNav').onclick=()=>{browseRoom();showProfile();$('updateDetails').open=true;$('updateDetails').scrollIntoView({block:'nearest'});requestUpdate('state');};$('checkUpdate').onclick=()=>requestUpdate('check');$('installUpdate').onclick=()=>requestUpdate('install');
 if(host){document.documentElement.classList.add('native');$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button')&&event.detail<2)host.postMessage({type:'window',action:'drag'});};$('windowTitlebar').ondblclick=event=>{if(!event.target.closest('button')){event.preventDefault();host.postMessage({type:'window',action:'maximize'});}};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||!!frame||!!pending;$('updateBadge').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
 $('shareMyCode').onclick=()=>{$('addDialog').close();showProfile();};
 function roomPrivacyFields(){
@@ -280,8 +615,8 @@ $('createRoomForm').onsubmit=event=>{
   }catch(error){$('createRoomError').textContent=error.message;}
 };
 $('createRoom').onclick=$('createRoomFromDialog').onclick=$('roomCreateNav').onclick=createRoom;
-$('roomNav').onclick=()=>{const expanded=$('roomSubnav').hidden;$('roomSubnav').hidden=!expanded;$('roomNav').setAttribute('aria-expanded',String(expanded));if(matchMedia('(max-width:570px)').matches)showRooms();};$('discoverRooms').onclick=$('manualRoom').onclick=()=>{$('roomError').textContent='';showRooms();};
-$('friendsNav').onclick=()=>{if(frame)status('Your room is open. Leave it to return to your friends.');else $('search').focus();};$('search').oninput=renderFriends;$('filterAll').onclick=()=>{filter='all';renderFriends();};$('filterOnline').onclick=()=>{filter='online';renderFriends();};document.querySelectorAll('[data-close]').forEach(button=>{button.onclick=()=>$(button.dataset.close).close();});$('setupDialog').addEventListener('cancel',event=>event.preventDefault());
+$('roomNav').onclick=()=>{browseRoom();const expanded=$('roomSubnav').hidden;$('roomSubnav').hidden=!expanded;$('roomNav').setAttribute('aria-expanded',String(expanded));if(matchMedia('(max-width:570px)').matches)showRooms();};$('discoverRooms').onclick=$('manualRoom').onclick=()=>{browseRoom();$('roomError').textContent='';showRooms();};
+const goHome=()=>{browseRoom();$('friendsNav').classList.add('active');$('roomNav').classList.remove('active');$('settingsNav').classList.remove('active');$('updatesNav').classList.remove('active');$('profileNav').classList.remove('active');if(!frame)$('search').focus();};$('homeNav').onclick=$('friendsNav').onclick=goHome;$('settingsNav').onclick=()=>{browseRoom();showSettings();};$('profileNav').onclick=()=>{browseRoom();showProfile();};$('search').oninput=renderFriends;$('filterAll').onclick=()=>{filter='all';renderFriends();};$('filterOnline').onclick=()=>{filter='online';renderFriends();};document.querySelectorAll('[data-close]').forEach(button=>{button.onclick=()=>$(button.dataset.close).close();});$('setupDialog').addEventListener('cancel',event=>event.preventDefault());
 $('setupForm').onsubmit=async event=>{event.preventDefault();$('createProfile').disabled=true;$('setupError').textContent='';try{profile=await local.createProfile($('setupName').value);$('setupDialog').close();renderProfile();await reloadFriends();connect();showInvitation();}catch(error){$('setupError').textContent=error.message;}finally{$('createProfile').disabled=false;}};
 $('profileForm').onsubmit=async event=>{
   event.preventDefault(); $('profileError').textContent='';
@@ -295,7 +630,6 @@ $('profileForm').onsubmit=async event=>{
   } catch(error) { $('profileError').textContent=error.message; }
   finally { if(button)button.disabled=false; }
 };
-async function compressAvatar(file){if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5*1024*1024)throw Error('Choose a PNG, JPEG or WebP picture up to 5 MB.');const url=URL.createObjectURL(file);try{const image=new Image();image.src=url;await image.decode();if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>50000000)throw Error('Choose a smaller picture.');const canvas=document.createElement('canvas');canvas.width=canvas.height=192;const context=canvas.getContext('2d'),size=Math.min(image.naturalWidth,image.naturalHeight);context.drawImage(image,(image.naturalWidth-size)/2,(image.naturalHeight-size)/2,size,size,0,0,192,192);for(const quality of [.85,.7,.5]){const value=canvas.toDataURL('image/webp',quality);if(value.length<=32768)return local.validateAvatar(value);}canvas.width=canvas.height=128;context.drawImage(image,(image.naturalWidth-size)/2,(image.naturalHeight-size)/2,size,size,0,0,128,128);return local.validateAvatar(canvas.toDataURL('image/jpeg',.65));}finally{URL.revokeObjectURL(url);}}
 async function saveAvatar(value,version) {
   if(version!==avatarSelection)return;
   await local.updateProfile({avatar:value});
@@ -307,7 +641,7 @@ $('avatarFile').onchange=()=>{
   const file=$('avatarFile').files[0], version=++avatarSelection;
   $('avatarFile').value=''; $('profileError').textContent='';
   if(!file)return;
-  avatarWork=(async()=>{try{const value=await compressAvatar(file);await saveAvatar(value,version);}catch(error){if(version===avatarSelection)$('profileError').textContent=error.message;}})();
+  avatarWork=(async()=>{try{const editor=window.VumiroAvatarEditor;if(!editor?.edit)throw Error('The profile picture editor is unavailable.');const value=await editor.edit(file);if(value)await saveAvatar(value,version);}catch(error){if(version===avatarSelection)$('profileError').textContent=error.message;}})();
 };
 $('removeAvatar').onclick=async()=>{
   if(!await confirmAction('Remove your profile picture?','Your friends will see your initials. You can choose another picture at any time.','Remove picture'))return;

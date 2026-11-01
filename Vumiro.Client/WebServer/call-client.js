@@ -39,8 +39,31 @@
     for(const item of entries) item.tile.element.classList.toggle('focused',item.id===focusedId);
     $('participantCount').textContent=joined?(entries.length+' '+(entries.length===1?'person':'people')):joining?'Connecting…':disconnected?'Disconnected':'Ready to join';$('peopleCount').textContent=String(entries.length);$('empty').hidden=entries.length>0;
     $('emptyTitle').textContent=disconnected?'Let’s get you back in':joining?'Your room is getting ready':'Make yourself at home';$('emptyDescription').textContent=disconnected?'Your room stays here. Reconnect when you’re ready to pick up where you left off.':'A place to watch, talk and share. Your screen and microphone stay off until you choose to turn them on.';$('emptyHint').textContent=disconnected?'Use Reconnect below':joining?'Connecting securely to your room…':'Choose a room to get started';
-    const people=$('peopleList');people.replaceChildren();for(const item of entries) { const profile=profileCache.get(item.id) || {name:item.local?($('name').value || 'You'):item.name || 'Participant',avatar:''},row=document.createElement('li');row.className='person';const photo=avatarElement(profile),copy=document.createElement('div'),name=document.createElement('span'),state=document.createElement('span'),dot=document.createElement('span');name.className='person-name';name.textContent=profile.name+(item.local?' (you)':'');state.className='person-status';state.textContent=item.tile.sharing?'Sharing a screen':item.local?'In the room':item.pc.connectionState==='connected'?'Connected':'Connecting…';dot.className='person-dot'+(item.local || item.pc.connectionState==='connected'?' online':'');copy.append(name,state);row.append(photo,copy,dot);people.append(row); }
+    const people=$('peopleList');people.replaceChildren();for(const item of entries) { const profile=profileCache.get(item.id) || {name:item.local?($('name').value || 'You'):item.name || 'Participant',username:'',avatar:''},row=document.createElement('li');row.className='person';row.tabIndex=0;row.setAttribute('role','button');row.setAttribute('aria-haspopup','dialog');row.setAttribute('aria-label','View '+profile.name+(item.local?' (you)':'')+' profile');row.onclick=()=>openParticipantProfile(item.id,item.local);row.onkeydown=event=>{ if(event.target===row && (event.key==='Enter'||event.key===' ')) { event.preventDefault();openParticipantProfile(item.id,item.local); } };const photo=avatarElement(profile),copy=document.createElement('div'),name=document.createElement('span'),state=document.createElement('span'),dot=document.createElement('span');copy.className='person-copy';name.className='person-name';name.textContent=profile.name+(item.local?' (you)':'');state.className='person-status';state.textContent=item.tile.sharing?'Sharing a screen':item.local?'In the room':item.pc.connectionState==='connected'?'Connected':'Connecting…';dot.className='person-dot'+(item.local || item.pc.connectionState==='connected'?' online':'');copy.append(name,state);row.append(photo,copy,dot);people.append(row); }
   }
+
+  function openParticipantProfile(id,isLocal) {
+    const profile=profileCache.get(id) || {name:id===identity?.id?($('name').value||'You'):peers.get(id)?.name||'Participant',username:'',avatar:''};
+    $('profileName').textContent=profile.name+(isLocal?' (you)':'');$('profileUsername').textContent=profile.username?'@'+profile.username:'';$('profileUsername').hidden=!profile.username;$('profileAvatar').src=profile.avatar||fallbackAvatar(profile.name);$('profileNote').textContent='';
+    const action=$('profileFriend');action.hidden=isLocal;action.disabled=true;action.textContent='Checking friendship…';profileAddBusy=false;profileRequestId=isLocal?'':id;clearTimeout(profileRequestTimer);
+    if(!isLocal) {
+      if(embedded) { parentMessage({type:'vumiro-friend-status-query',id});profileRequestTimer=setTimeout(()=>{ if(profileRequestId===id) { action.hidden=true;$('profileNote').textContent='Could not check friend status. Open the Friends page to manage this person.'; } },5000); }
+      else { action.hidden=false;action.disabled=false;action.textContent='Open Friends';$('profileNote').textContent='Friend requests are managed from the Vumiro Friends page.'; }
+    }
+    const dialog=$('profilePopover');if(!dialog.open) dialog.showModal();$('profileClose').focus();
+  }
+  function friendStatus(message) {
+    if(message.id!==profileRequestId) return;clearTimeout(profileRequestTimer);const action=$('profileFriend'),note=$('profileNote');action.disabled=profileAddBusy;
+    if(message.status==='friend') { action.hidden=false;action.disabled=true;action.textContent='Already friends';note.textContent=message.message||'You are friends.'; }
+    else if(message.status==='pending') { action.hidden=false;action.disabled=true;action.textContent='Request pending';note.textContent=message.message||'A friend request is already pending.'; }
+    else if(message.status==='sent') { profileAddBusy=false;action.hidden=false;action.disabled=true;action.textContent='Request sent';note.textContent=message.message||'Friend request sent.'; }
+    else if(message.status==='error') { profileAddBusy=false;action.hidden=false;action.disabled=false;action.textContent='Add friend';note.textContent=message.message||'Could not send the friend request.'; }
+    else { profileAddBusy=false;action.hidden=false;action.disabled=false;action.textContent='Add friend';note.textContent=''; }
+  }
+  $('profileClose').onclick=()=>{ clearTimeout(profileRequestTimer);profileRequestId='';$('profilePopover').close(); };
+  $('profilePopover').addEventListener('click',event=>{ if(event.target===$('profilePopover')) $('profilePopover').close(); });
+  $('profilePopover').addEventListener('close',()=>{ clearTimeout(profileRequestTimer);profileRequestTimer=0;profileRequestId='';profileAddBusy=false; });
+  $('profileFriend').onclick=()=>{ const id=profileRequestId;if(!id||profileAddBusy) return;if(!embedded) { location.href=new URL('/friends.html',location.href).href;return; }profileAddBusy=true;$('profileFriend').disabled=true;$('profileFriend').textContent='Sending…';$('profileNote').textContent='';parentMessage({type:'vumiro-add-friend',id});profileRequestTimer=setTimeout(()=>{ if(profileRequestId===id&&profileAddBusy) { profileAddBusy=false;$('profileFriend').disabled=false;$('profileFriend').textContent='Add friend';$('profileNote').textContent='No response from Vumiro. You can try again.'; } },8000); };
   function avatarElement(profile) { const image=document.createElement('img');image.className='avatar';image.alt='';image.src=profile.avatar || fallbackAvatar(profile.name);return image; }
   function fallbackAvatar(name) { const initial=Array.from(String(name || '?').trim())[0] || '?',svg='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="32" fill="#3b303a"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#f8dce1" font-family="sans-serif">'+initial.replace(/[<>&"']/g,'')+'</text></svg>';return 'data:image/svg+xml,'+encodeURIComponent(svg); }
   function updateMessageProfiles(id) { const profile=profileCache.get(id);if(!profile) return;for(const row of $('chatLog').children) if(row.dataset.sender===id) { row.querySelector('.message-avatar').src=profile.avatar || fallbackAvatar(profile.name);row.querySelector('.message-label').textContent=profile.name+(id===identity?.id?' (you)':''); } }
@@ -50,6 +73,7 @@
   let identity = null, roomNonce = '', roomFriendsRevision = 0;
   const identityReady = local.initialize().then(value => { identity = value; return value; });
   let selfId = '', socket = null, joined = false, reconnectTimer = 0, retry = 0, generation = 0;
+  let profileRequestId='', profileRequestTimer=0, profileAddBusy=false;
   let screen = null, microphone = null, localTile = null, joining = false;
   const readSaved = key => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
   const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* optional */ } };
@@ -171,15 +195,16 @@
     // Grants belong to one approved identity and must never be copied into a public room link.
     return url.href;
   }
+  function syncMuteControl() { const muted=!!microphone&&!microphone.getAudioTracks().some(track=>track.enabled);$('muteLabel').textContent=muted?'Unmute mic':'Mute mic';$('mute').setAttribute('aria-pressed',String(muted));$('mute').setAttribute('aria-label',muted?'Unmute microphone':'Mute microphone');$('mute').classList.toggle('active',!muted&&!!microphone);$('muteIcon').setAttribute('href',muted?'#i-mic-off':'#i-mic'); }
   function updateControls() {
     document.body.classList.toggle('in-room', joined || joining || !!localTile);
     $('join').disabled = joined || joining || !!localTile; $('leave').disabled = !joined && !joining && !localTile && !disconnected;
     for (const id of ['name', 'room', 'signaling']) $(id).disabled = joined || joining;
     $('share').disabled = !joined || !!screen; $('stopShare').disabled = !screen;
-    $('mic').disabled = !joined || !!microphone; $('mute').disabled = !microphone;
+    $('mic').disabled = !joined || !!microphone; $('mute').disabled = !microphone; syncMuteControl();
     $('copyInvite').disabled = !joined;
     $('reconnect').hidden=!disconnected && ![...peers.values()].some(peer=>['failed','disconnected'].includes(peer.pc.connectionState));$('reconnect').disabled=joining;chatControls();roomState();
-    $('mic').hidden=!!microphone;$('mute').hidden=!microphone;$('mute').classList.toggle('active',!!microphone?.getAudioTracks().some(track=>track.enabled));$('share').hidden=!!screen;$('stopShare').hidden=!screen;renderRoom();refreshLayout();
+    $('mic').hidden=!!microphone;$('mute').hidden=!microphone;$('share').hidden=!!screen;$('stopShare').hidden=!screen;renderRoom();refreshLayout();
     if (joined) { $('invite').href = invitation(); $('invite').textContent = 'Open invitation'; }
     else { $('invite').removeAttribute('href'); $('invite').textContent = ''; }
   }
@@ -346,7 +371,7 @@
       if(!joined || generation!==thisGeneration) { capture.getTracks().forEach(t=>t.stop());return; }
       microphone=capture;
       for(const track of capture.getAudioTracks()) track.onended=()=>{
-        if(microphone!==capture) return;microphone=null;$('muteLabel').textContent='Mute mic';
+        if(microphone!==capture) return;microphone=null;syncMuteControl();
         replaceTracks().catch(error=>status(error.message));updateControls();status('Microphone disconnected. You can enable another microphone.');
       };
       await replaceTracks();status('Microphone enabled.');
@@ -410,19 +435,21 @@
   async function leave() {
     generation++;disconnected=false;if(policyAck) policyAck.reject(Error('You left the room.'));password='';if(passwordResolve) { passwordResolve('');passwordResolve=null; }clearTimeout(reconnectTimer);const old=socket;socket=null;joined=false;joining=false;if(old) old.close(1000,'Left room');
     clearPeers();await stopShare();if(microphone) microphone.getTracks().forEach(t=>t.stop());microphone=null;
-    if(localTile) localTile.element.remove();localTile=null;selfId='';$('muteLabel').textContent='Mute mic';updateControls();status('You left the room.');chatLine('You left the room.');
+    if(localTile) localTile.element.remove();localTile=null;selfId='';syncMuteControl();updateControls();status('You left the room.');chatLine('You left the room.');
     if(embedded) parent.postMessage({type:'vumiro-call-ended'}, location.origin);
   }
   $('name').value=query.get('name')?.slice(0,48) || readSaved('call-name') || 'Guest';$('room').value=query.get('room') || '';
   $('signaling').value=query.get('signaling') || readSaved('call-signaling') || (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/call-signaling';
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
-  $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks()[0].enabled;microphone.getAudioTracks().forEach(t=>t.enabled=enabled);$('muteLabel').textContent=enabled?'Mute mic':'Unmute mic';$('mute').classList.toggle('active',enabled);$('mute').setAttribute('aria-pressed',String(!enabled));for(const peer of peers.values()) announce(peer); } };
+  $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks().some(track=>track.enabled);microphone.getAudioTracks().forEach(track=>track.enabled=enabled);syncMuteControl();for(const peer of peers.values()) announce(peer); } };
   $('copyInvite').onclick=async()=>{ try { await navigator.clipboard.writeText(invitation());status(roomMode==='private'?'Room link copied. Share the password separately.':roomMode==='public'?'Room link copied. Anyone with a profile can join.':'Room link copied. Mutual friends can join.'); } catch { status('Copy this invitation: '+invitation()); } };
   $('enableAudio').onclick=()=>{ $('enableAudio').hidden=true;for(const peer of peers.values()) { play(peer.tile.video);for(const audio of peer.tile.audios) play(audio); } };
   addEventListener('beforeunload',()=>{ generation++;if(socket) socket.close();for(const stream of [screen,microphone]) stream?.getTracks().forEach(t=>t.stop());clearPeers(); });
   addEventListener('message',event=>{
     if(!embedded || event.origin!==location.origin || event.source!==parent) return;
-    if(event.data?.type==='vumiro-call-leave') leave();
+    if(event.data?.type==='vumiro-friend-status') friendStatus(event.data);
+    else if(event.data?.type==='vumiro-friends-changed') { if(profileRequestId) parentMessage({type:'vumiro-friend-status-query',id:profileRequestId});updateRoomFriends().catch(error=>status(error.message)); }
+    else if(event.data?.type==='vumiro-call-leave') leave();
     else if(event.data?.type==='vumiro-call-reconnect') reconnect();
     else if(event.data?.type==='vumiro-stream-settings') applySettings(event.data.settings,false);
     else if(event.data?.type==='vumiro-profile') refreshProfile();
@@ -430,7 +457,7 @@
       if(accessReceived) return;accessReceived=true;roomMode=event.data.mode;ownerPolicy={mode:roomMode};if(typeof event.data.name==='string') roomName=event.data.name.trim().slice(0,60) || roomName;if(typeof event.data.password==='string' && event.data.password.length<=128) password=event.data.password;renderRoom();accessResolve?.();
     }
   });
-  addEventListener('vumiro-friends-changed',()=>updateRoomFriends().catch(error=>status(error.message)));
+  addEventListener('vumiro-friends-changed',()=>{ if(profileRequestId) parentMessage({type:'vumiro-friend-status-query',id:profileRequestId});updateRoomFriends().catch(error=>status(error.message)); });
   function reconnect() { clearTimeout(reconnectTimer);generation++;if(policyAck) policyAck.reject(Error('Reconnecting before room access was confirmed.'));const old=socket;socket=null;if(old) old.close(1000,'Reconnecting');joined=false;joining=false;disconnected=true;clearPeers();status('Reconnecting to the room…');join(); }
   async function refreshProfile() { try { const current=await local.initialize();if(!current) return;identity=current; } catch { return; }const profile=ownProfile();if(!profile) return;$('name').value=profile.name;cacheProfile(identity.id,profile);if(localTile) showProfile(localTile,profile,true);for(const peer of peers.values()) announceProfile(peer); }
   for(const id of ['settingFps','settingMbps','settingResolution','settingContent','settingAudio']) $(id).onchange=()=>{ const value={fps:Number($('settingFps').value),mbps:Number($('settingMbps').value),resolution:$('settingResolution').value,contentHint:$('settingContent').value,audio:$('settingAudio').checked};if(validateSettings(value)) applySettings(value);else { syncSettingsControls();status('Choose 1–120 FPS and 1–100 Mbps.'); } };

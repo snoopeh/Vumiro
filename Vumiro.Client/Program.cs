@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -25,13 +26,14 @@ namespace Vumiro.Client
     internal sealed partial class ClientWindow : Form
     {
         private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
-        private readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Gainsboro, BackColor = Color.FromArgb(11, 11, 12), Text = "Opening Vumiro…" };
+        private readonly StartupLoading loading = new StartupLoading { Dock = DockStyle.Fill, Text = "Opening Vumiro…" };
         // Keep this origin and ClientBrowser folder stable: IndexedDB stores
         // existing identity keys and contacts under these compatibility names.
         private const string Origin = "https://screentask.local";
         private const string DefaultSignaling = "wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling";
         private Rectangle windowBounds;
         private FormWindowState windowState;
+        private bool startupOverlayActive = true;
         private readonly ClientUpdates updates;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
 
@@ -48,6 +50,7 @@ namespace Vumiro.Client
             MinimumSize = new Size(940, 640);
             InitializeWindowChrome();
             Controls.Add(browser); Controls.Add(loading);
+            loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => browser.Dispose();
         }
@@ -86,9 +89,16 @@ namespace Vumiro.Client
                 };
                 browser.CoreWebView2.NavigationCompleted += async (s, e) => {
                     if (IsDisposed) return;
-                    loading.Visible = !e.IsSuccess;
-                    if (!e.IsSuccess) loading.Text = "Vumiro could not load its local interface: " + e.WebErrorStatus;
-                    else { PublishWindowState(); await updates.HandleAsync("check"); }
+                    if (!e.IsSuccess)
+                    {
+                        if (startupOverlayActive) loading.ShowError("Vumiro could not load its local interface: " + e.WebErrorStatus);
+                    }
+                    else
+                    {
+                        DismissStartupOverlay();
+                        PublishWindowState();
+                        await updates.HandleAsync("check");
+                    }
                 };
                 var signaling = DefaultSignaling;
                 var fps = 60; var bitrate = 20;
@@ -111,8 +121,95 @@ namespace Vumiro.Client
             }
             catch (Exception error)
             {
-                if (!IsDisposed) loading.Text = "Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message;
+                if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }
+        }
+
+        private void DismissStartupOverlay()
+        {
+            if (!startupOverlayActive) return;
+            startupOverlayActive = false;
+            loading.StopAnimation();
+            Controls.Remove(loading);
+            loading.Dispose();
+
+            // Removing the covering WinForms control invalidates the child
+            // window region. Refresh the existing WebView2 surface so its
+            // compositor presents the already-loaded page immediately.
+            PerformLayout();
+            browser.BringToFront();
+            browser.Invalidate();
+            browser.Refresh();
+        }
+    }
+
+    internal sealed class StartupLoading : Control
+    {
+        private readonly Timer animation = new Timer { Interval = 32 };
+        private float angle;
+        private bool spinning = true;
+
+        internal StartupLoading()
+        {
+            DoubleBuffered = true;
+            BackColor = Color.FromArgb(11, 11, 12);
+            ForeColor = Color.Gainsboro;
+            AccessibleRole = AccessibleRole.StaticText;
+            animation.Tick += (s, e) => { angle = (angle + 9) % 360; Invalidate(); };
+        }
+
+        internal void ShowError(string message)
+        {
+            spinning = false;
+            animation.Stop();
+            Text = message;
+            Invalidate();
+        }
+
+        internal void StopAnimation()
+        {
+            spinning = false;
+            animation.Stop();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible && spinning) animation.Start();
+            else animation.Stop();
+        }
+
+        protected override void OnTextChanged(EventArgs e)
+        {
+            base.OnTextChanged(e);
+            AccessibleName = Text;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            var scale = DeviceDpi / 96f;
+            var size = 36 * scale;
+            var centerY = ClientSize.Height / 2f;
+            if (spinning)
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                var bounds = new RectangleF((ClientSize.Width - size) / 2f, centerY - size - 12 * scale, size, size);
+                using (var track = new Pen(Color.FromArgb(48, 25, 30), 3 * scale)) e.Graphics.DrawEllipse(track, bounds);
+                using (var arc = new Pen(Color.FromArgb(225, 29, 46), 3 * scale) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    e.Graphics.DrawArc(arc, bounds, angle, 95);
+            }
+            var textBounds = new Rectangle((int)(24 * scale), (int)(spinning ? centerY + 7 * scale : centerY - 50 * scale),
+                Math.Max(1, ClientSize.Width - (int)(48 * scale)), (int)(100 * scale));
+            TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) animation.Dispose();
+            base.Dispose(disposing);
         }
     }
 }

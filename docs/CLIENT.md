@@ -42,6 +42,8 @@ The compact dark title bar supports dragging, double-click maximize/restore, win
 
 Version 1.16.1 adds a subtle frosted window background on supported Windows systems. Text and streams keep their normal opacity. The effect follows Windows transparency and high-contrast settings; other systems retain the solid dark theme.
 
+Version 1.17.0 adds picture panning and zoom before saving, participant profile popups with friend requests, clearer call icons, and a red startup spinner. Click the sidebar Vumiro logo or Friends to browse without disconnecting your room, then choose Return to room. The People list scrolls only when its contents exceed the available height.
+
 **Updates → Update now** rechecks GitHub release metadata, verifies SHA-256, size and executable identities, then restarts through a separate helper. Leave the room before updating. Failed file copies roll back. Executables are unsigned; publisher-account integrity is the update trust anchor.
 
 ## Local data and connectivity

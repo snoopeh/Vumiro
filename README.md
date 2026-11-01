@@ -19,13 +19,13 @@ dotnet build Vumiro.sln -c Release
 ./scripts/Build-Client.ps1
 ```
 
-The package is written to `dist/vumiro-1.16.1/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
+The package is written to `dist/vumiro-1.17.0/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
 
 For signaling development, run `npm ci` and `npm run dev` in `cloudflare/`. See [service deployment](cloudflare/README.md).
 
 ## Releases and updates
 
-Commit and push a matching `client-v1.16.1` tag to publish the Windows package. Both project versions must match the tag. The app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back.
+Commit and push a matching `client-v1.17.0` tag to publish the Windows package. Both project versions must match the tag. The app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back.
 
 **Older 1.14/1.15 clients need one fresh Vumiro installation after the GitHub repository rename.** Their updater pins the old repository API URL and executable layout. From 1.16 onward, updates use the Vumiro repository and filenames. Existing local profiles and contacts are preserved.
 
