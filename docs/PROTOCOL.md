@@ -26,7 +26,17 @@ announced, unblocked profile is returned. Public contact codes remain a local
 offline fallback, never upload private keys. Lookup does not reveal friendship,
 presence subscriptions or rooms.
 
-## Signed requests and answers
+## Durable friend requests (version 2)
+
+Directory `ready` includes `serverTime` and `socialVersion:2`. Clients announce `socialVersion:2` with their profile, and public directory profiles include this capability. Server time is anchored to a monotonic browser clock; no periodic time requests are made. Room challenges also supply serverTime for grant checks.
+
+Friend `social` envelopes add `version:2` and use the canonical prefix `vumiro-social-v2`, with the remaining fields and payload order below unchanged. Initial requests require an online version 2 recipient and expire within 24 hours of server time. Answers expire within 120 seconds and may be stored for an offline requester. Duplicate requests and equivalent repeat answers return the canonical stored outcome; conflicting decisions are rejected.
+
+The service durably stores bounded request/answer proofs and public profiles, then acknowledges with `social-sent`. It pushes `friend-state` containing signed `request`, optional signed `response`, the viewer's peer `contact`, `state` (pending/accepted/declined/cancelled), server `expires` and `delivered`. Relevant states replay after profile announcement on reconnect. Each client verifies roles and signatures and applies accepted friendship with a local atomic completion record.
+
+`{type:"friend-received",requestNonce,phase:"pending"}` acknowledges recipient delivery. Phase `resolved` acknowledges a local terminal commit; both acknowledgements allow deletion. `{type:"friend-cancel",requestNonce}` cancels a pending request owned by the authenticated sender. Terminal records expire within seven days even without both receipts. Limits are 32 outstanding rows per identity and 1,024 globally. Indexed SQLite lookups, pushes and one-shot expiry alarms replace polling.
+
+## Legacy signed requests and room answers (version 1)
 
 Client envelope: `{type:"social",to,kind,nonce,expires,payload,signature}`.
 `kind` is `friend-request`, `friend-answer`, `join-request`, or `join-answer`.

@@ -3,7 +3,31 @@
   'use strict';
   const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal: true});
   const algorithm = {name: 'ECDSA', namedCurve: 'P-256'};
+  const MAX_SERVER_TIME = 8640000000000000;
+  const validServerTime = value => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= MAX_SERVER_TIME;
   let database, identity;
+  const serverClock = (() => {
+    let serverBase = null, performanceBase = 0;
+    return Object.freeze({
+      sync(serverTime) {
+        if (!validServerTime(serverTime) || typeof performance === 'undefined')
+          throw Error('The server clock returned an invalid timestamp.');
+        const baseline = performance.now();
+        if (!Number.isFinite(baseline) || baseline < 0) throw Error('A monotonic clock is unavailable.');
+        serverBase = serverTime;
+        performanceBase = baseline;
+      },
+      now() {
+        if (serverBase === null) return null;
+        const current = performance.now();
+        if (!Number.isFinite(current) || current < 0) return null;
+        const value = Math.floor(serverBase + Math.max(0, current - performanceBase));
+        return validServerTime(value) ? value : null;
+      },
+      isSynced() { return serverBase !== null; }
+    });
+  })();
+  window.VumiroServerClock = serverClock;
   const changes = typeof BroadcastChannel === 'function' ? new BroadcastChannel('vumiro-contact-changes') : null;
   function changed() { dispatchEvent(new Event('vumiro-friends-changed')); changes?.postMessage('changed'); }
   function profileChanged() { dispatchEvent(new Event('vumiro-profile-changed')); changes?.postMessage({type: 'profile'}); }
@@ -161,6 +185,77 @@
     }).catch(error => { throw Error(error.name === 'AbortError' ? 'Your local contact book is full (128 friends).' : error.message); });
     changed(); return contact.id;
   }
+  async function applyFriendResolution(value, canSave) {
+    if (!value || typeof value !== 'object' || typeof value.nonce !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/.test(value.nonce) || typeof value.accepted !== 'boolean' ||
+        !validServerTime(value.expires)) throw Error('This friend request resolution is invalid.');
+    if (!serverClock.isSynced()) throw Error('Waiting for a trusted server time before saving this resolution.');
+    const now = serverClock.now();
+    if (!Number.isSafeInteger(now) || value.expires <= now) throw Error('This friend request resolution has expired.');
+    const contact = await validateContact(value.contact);
+    if (value.nickname != null && typeof value.nickname !== 'string') throw Error('The saved nickname is invalid.');
+    const alias = value.nickname?.trim() ? cleanName(value.nickname) : '';
+
+    const db = await open();
+    const result = {added: false, alreadyProcessed: false};
+    let didChangeFriends = false;
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(['friends', 'state'], 'readwrite');
+      const friends = tx.objectStore('friends'), state = tx.objectStore('state');
+      let failure = null;
+      const abort = error => {
+        failure = error;
+        try { tx.abort(); } catch { reject(error); }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => {};
+      tx.onabort = () => reject(failure || tx.error || Error('Could not save this friend request resolution.'));
+
+      const completedRequest = state.get('friend-resolution-completions');
+      completedRequest.onerror = () => abort(Error('Could not read saved friend request resolutions.'));
+      completedRequest.onsuccess = () => {
+        try {
+          const currentNow = serverClock.now();
+          if (!Number.isSafeInteger(currentNow) || value.expires <= currentNow) throw Error('This friend request resolution has expired.');
+          const completed = (Array.isArray(completedRequest.result) ? completedRequest.result : [])
+            .filter(item => item && typeof item.nonce === 'string' && Number.isSafeInteger(item.expires) && item.expires > currentNow);
+          if (completed.some(item => item.nonce === value.nonce)) {
+            result.alreadyProcessed = true;
+            return;
+          }
+          if (canSave && !canSave()) throw Error('This request is no longer available.');
+
+          const recordCompletion = () => {
+            completed.push({nonce: value.nonce, expires: value.expires});
+            state.put(completed.slice(-256), 'friend-resolution-completions');
+          };
+          if (!value.accepted) { recordCompletion(); return; }
+
+          const countRequest = friends.count(), existingRequest = friends.get(contact.id);
+          let countReady = false, existingReady = false;
+          const commitContact = () => {
+            if (!countReady || !existingReady) return;
+            try {
+              const commitNow = serverClock.now();
+              if (!Number.isSafeInteger(commitNow) || value.expires <= commitNow) throw Error('This friend request resolution has expired.');
+              if (canSave && !canSave()) throw Error('This request is no longer available.');
+              const old = existingRequest.result ? decorate(existingRequest.result) : null;
+              if (!old && countRequest.result >= 128) throw Error('Your local contact book is full (128 friends).');
+              friends.put({...contact, avatar: contact.avatar || old?.avatar || '', nickname: old?.nicknameOverride ? old.nickname : alias || contact.name,
+                nicknameOverride: old?.nicknameOverride || !!alias, added: old?.added || commitNow});
+              recordCompletion();
+              result.added = !old;
+              didChangeFriends = true;
+            } catch (error) { abort(error); }
+          };
+          countRequest.onsuccess = () => { countReady = true; commitContact(); };
+          existingRequest.onsuccess = () => { existingReady = true; commitContact(); };
+          countRequest.onerror = existingRequest.onerror = () => abort(Error('Could not read the local contact book.'));
+        } catch (error) { abort(error); }
+      };
+    });
+    if (didChangeFriends) changed();
+    return result;
+  }
   async function addFriend(code, nickname) { return addContact(await parseContactCode(code), nickname); }
   async function updateContactProfile(id, update) {
     let didChange = false;
@@ -199,5 +294,5 @@
   async function verify(contact, text, signature) {
     try { const key = await crypto.subtle.importKey('spki', decode(contact.key, 256), algorithm, false, ['verify']); return await crypto.subtle.verify({name: 'ECDSA', hash: 'SHA-256'}, key, decode(signature, 128), encoder.encode(text)); } catch { return false; }
   }
-  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, listRequests, saveRequest, removeRequest, sign, verify, profile: publicProfile, validateAvatar: cleanAvatar};
+  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, listRequests, saveRequest, removeRequest, sign, verify, profile: publicProfile, validateAvatar: cleanAvatar};
 })();

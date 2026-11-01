@@ -5,7 +5,7 @@
 - `Vumiro.Client`: .NET Framework 4.8/x64 WinForms host with WebView2, custom window chrome and a trusted update bridge. Produces `Vumiro.exe`.
 - `Vumiro.Client.Updater`: separate replacement process sharing the package validator. Produces `Vumiro.Updater.exe`.
 - `Vumiro.Client/WebServer`: local profile/contact storage, friends UI, direct profile exchange and WebRTC room UI. Exactly these assets are also published by `cloudflare/prepare-assets.mjs`.
-- `cloudflare`: authenticated ephemeral directory and per-room signaling Durable Objects. No account database, chat storage, avatar hosting or media relay.
+- `cloudflare`: authenticated directory and per-room signaling Durable Objects. Bounded SQLite friend-request state supports reconnect replay; no account database, chat storage, avatar hosting or media relay.
 - `scripts`: packaging, vector-icon generation and embedding of the locally licensed font.
 
 ## Identity and compatibility
@@ -17,6 +17,8 @@ The existing `https://screentask.local` WebView origin, `%LOCALAPPDATA%/ScreenTa
 Display names and pictures are public peer profile fields. A personal nickname override in one's contact book stays local. Online friends exchange fresh profile metadata over short-lived, authenticated, bounded WebRTC data channels; the Worker carries only the SDP/ICE handshake. Room chat resolves profiles by peer identity and updates when fresh metadata arrives.
 
 ## Rooms
+
+Friend requests use the existing directory WebSocket for confirmed submission, delivery, acceptance and replay. SQLite rows belong to public identities rather than live socket attachments. A local IndexedDB transaction applies a contact and records its completed request nonce together, preventing replay from re-adding a contact removed later. There is no recurring fetch loop; storage changes occur on actions, reconnection replay and one-shot expiry alarms. Server timestamps in existing authentication handshakes anchor signed expiries independently of the Windows clock.
 
 Each room binds its random invitation code to the owner identity. Every participant proves its local identity. Modern owner policy admits public participants, mutual friends, or participants proving knowledge of a password. Private-room passwords remain in local memory; PBKDF2-derived challenge responses go through signaling. Signed policy updates and current block/friend state govern ongoing access. The owner stays connected; rooms contain at most eight people.
 

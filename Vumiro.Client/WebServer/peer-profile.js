@@ -3,6 +3,7 @@
 (() => {
   'use strict';
   const encoder = new TextEncoder();
+  const serverNow=()=>window.VumiroServerClock?.now()??Date.now();
   const noncePattern = /^[A-Za-z0-9_-]{16,64}$/;
   const signalText = value => `vumiro-profile-signal-v1\n${value.from}\n${value.to}\n${value.nonce}\n${value.expires}\n${JSON.stringify(value.payload)}`;
   const profileText = (from,to,value) => `vumiro-peer-profile-v1\n${from}\n${to}\n${value.nonce}\n${value.expires}\n${JSON.stringify(value.profile)}`;
@@ -21,7 +22,7 @@
       pump();
     }
     function reset() {
-      epoch++; waiting.clear(); deferred.clear(); early.clear(); seen.clear(); online.clear();
+      epoch++; nextSignalAt=0; waiting.clear(); deferred.clear(); early.clear(); seen.clear(); online.clear();
       for (const peer of [...peers.values()]) close(peer);
     }
     function signal(id,payload,peer) {
@@ -29,12 +30,12 @@
       if (queuedSignals >= 512) return Promise.reject(Error('Profile signaling queue is full.'));
       queuedSignals++;
       wire = wire.catch(() => {}).then(async () => {
-        const delay = Math.max(0,nextSignalAt-Date.now());
+        const delay = Math.max(0,nextSignalAt-serverNow());
         if (delay) await new Promise(resolve => setTimeout(resolve,delay));
         const own = identity();
         if (!own || epoch !== version || !known(id) || (peer && !active(peer))) return;
-        nextSignalAt = Date.now()+45;
-        const value = {type:'profile-signal',from:own.id,to:id,nonce:crypto.randomUUID(),expires:Date.now()+14000,payload};
+        nextSignalAt = serverNow()+45;
+        const value = {type:'profile-signal',from:own.id,to:id,nonce:crypto.randomUUID(),expires:serverNow()+14000,payload};
         value.signature = await local.sign(signalText(value));
         if (epoch === version && known(id) && (!peer || active(peer))) send(value);
       }).finally(() => { queuedSignals--; });
@@ -56,7 +57,7 @@
       const ticket = ++peer.profileRequested; clearTimeout(peer.finish); peer.finish = 0;
       peer.profiles = peer.profiles.then(async () => {
         const own = identity(); if (!own || !active(peer)) return;
-        const value = {type:'profile',id:own.id,key:own.key,nonce:crypto.randomUUID(),expires:Date.now()+60000,profile:{name:own.name,username:own.username||'',avatar:own.avatar||''}};
+        const value = {type:'profile',id:own.id,key:own.key,nonce:crypto.randomUUID(),expires:serverNow()+60000,profile:{name:own.name,username:own.username||'',avatar:own.avatar||''}};
         value.signature = await local.sign(profileText(own.id,peer.id,value));
         if (!active(peer)) return;
         if (channelSend(peer,value)) { peer.sent = value.nonce; peer.acknowledged = false; peer.profileSent = ticket; clearTimeout(peer.finish); peer.finish = 0; }
@@ -71,11 +72,11 @@
       const value = JSON.parse(text);
       if (value?.type === 'received' && value.nonce === peer.sent) { peer.acknowledged = true; finish(peer); return; }
       const friend = getFriend(peer.id), own = identity();
-      if (value?.type !== 'profile' || value.id !== peer.id || value.key !== friend?.key || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires <= Date.now() || value.expires > Date.now()+60000 || !value.profile || typeof value.profile !== 'object' || Array.isArray(value.profile)) return;
+      if (value?.type !== 'profile' || value.id !== peer.id || value.key !== friend?.key || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires <= serverNow() || value.expires > serverNow()+60000 || !value.profile || typeof value.profile !== 'object' || Array.isArray(value.profile)) return;
       const profile = value.profile;
       if (typeof profile.name !== 'string' || !profile.name.trim() || profile.name.length > 48 || typeof profile.username !== 'string' || (profile.username && !/^[a-z0-9_.-]{3,24}$/.test(profile.username)) || typeof profile.avatar !== 'string') return;
       local.validateAvatar(profile.avatar);
-      if (!await local.verify(friend,profileText(peer.id,own.id,value),value.signature) || !active(peer) || getFriend(peer.id)?.key !== friend.key || value.expires <= Date.now()) return;
+      if (!await local.verify(friend,profileText(peer.id,own.id,value),value.signature) || !active(peer) || getFriend(peer.id)?.key !== friend.key || value.expires <= serverNow()) return;
       await onProfile(peer.id,{name:profile.name,username:profile.username,avatar:profile.avatar});
       if (!active(peer)) return;
       peer.received = true; channelSend(peer,{type:'received',nonce:value.nonce}); finish(peer);
@@ -158,10 +159,10 @@
     }
     async function receive(value) {
       const own=identity(), friend=getFriend(value.from), version=epoch;
-      if (!own || !friend || !known(value.from) || value.to!==own.id || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires<=Date.now() || value.expires>Date.now()+15000 || !value.payload || typeof value.payload!=='object' || Array.isArray(value.payload)) return;
-      for (const [key,expires] of seen) if (expires<=Date.now()) seen.delete(key);
+      if (!own || !friend || !known(value.from) || value.to!==own.id || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires<=serverNow() || value.expires>serverNow()+15000 || !value.payload || typeof value.payload!=='object' || Array.isArray(value.payload)) return;
+      for (const [key,expires] of seen) if (expires<=serverNow()) seen.delete(key);
       const replay=value.from+':'+value.nonce; if (seen.has(replay)) return;
-      if (!await local.verify(friend,signalText(value),value.signature) || epoch!==version || !known(value.from) || getFriend(value.from)?.key!==friend.key || value.expires<=Date.now()) return;
+      if (!await local.verify(friend,signalText(value),value.signature) || epoch!==version || !known(value.from) || getFriend(value.from)?.key!==friend.key || value.expires<=serverNow()) return;
       seen.set(replay,value.expires); while (seen.size>4096) seen.delete(seen.keys().next().value);
       const payload=value.payload, keys=Object.keys(payload);
       if (keys.length!==1) return;

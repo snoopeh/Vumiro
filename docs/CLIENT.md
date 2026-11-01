@@ -1,4 +1,4 @@
-# Vumiro 1.18
+# Vumiro 1.19
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -10,7 +10,7 @@ Older 1.14/1.15 clients need one fresh installation after the repository/executa
 
 Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames are online lookup handles, not permanent cloud accounts; your identity belongs to the device key.
 
-Choose **Add friend** and enter their username or short **vm1.** contact code. Vumiro fills the available public name automatically. Both people must be online to send/accept a request. Pending requests expire; there is no offline cloud mailbox. **Save code locally** supports offline/manual contact exchange. Both people must save each other or accept a request to become mutual friends.
+Choose **Add friend** and enter their username or short **vm1.** contact code. Vumiro fills the available public name automatically. Both people must be online for the initial lookup and request. With both clients on 1.19 or later, pending friend requests survive reconnects for up to 24 hours. An acceptance is saved until both apps have applied it, so the sender may reconnect later. The UI distinguishes service confirmation from delivery and reports failures. **Save code locally** supports offline/manual contact exchange. Both people must save each other or accept a request to become mutual friends.
 
 The short code encodes your public key without changing your identity; existing long **stfriend1.** codes still work. A code contains no private key and cannot restore a lost profile. If no public name is available, an optional personal nickname remains a fallback. Personal nickname overrides stay in your contact book; your own profile display name is what others receive.
 
@@ -52,6 +52,6 @@ Version 1.17.0 adds picture panning and zoom before saving, participant profile 
 
 Profiles, nonextractable P-256 signing keys, friends, pictures, blocks and settings remain under `%LOCALAPPDATA%\ScreenTask\ClientBrowser`. That compatibility folder and the existing WebView origin deliberately keep their old internal names to preserve identities. Normal browsers use separate identities. Clearing that data loses the local key/contact book.
 
-The Worker handles temporary online metadata, requests, room discovery and signaling. Media, messages and pictures remain direct P2P. There is no TURN relay; restrictive NAT/firewall combinations can prevent direct connections even when signaling succeeds. Participants receive peer network addresses and may record shared content.
+The Worker handles temporary online metadata, requests, room discovery and signaling. Friend requests store bounded public identities and signed proofs until answered/expired; completed outcomes remain for at most seven days or until both apps acknowledge them. Delivery and replay are pushed over the existing WebSocket, without polling. Expiry uses server time supplied during the existing handshake rather than requiring synchronized PC clocks. Media, messages and pictures remain direct P2P. There is no TURN relay; restrictive NAT/firewall combinations can prevent direct connections even when signaling succeeds. Participants receive peer network addresses and may record shared content.
 
 Build/package: `./scripts/Build-Client.ps1`. The [restore guide](RESTORE.md) records the committed baseline and complete pre-cleanup backup. Runtime behavior in this iteration awaits your feedback; compilation/syntax checks are not an end-to-end security audit.

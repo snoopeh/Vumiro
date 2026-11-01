@@ -23,3 +23,7 @@ The current profile directory was left untouched. Restore the `LocalProfile` sna
 ## Before the window backdrop update
 
 The 1.16.0 desktop state is also preserved by `restore/pre-window-backdrop-1.16.0` (commit `7be184a`). Its verified all-history bundle and previous published Windows package are in `../Restore Points/2026-11-01-pre-window-backdrop`. The backdrop change does not modify local profile storage.
+
+## Before durable friend requests
+
+The prior desktop and service source is preserved by `client-v1.18.0` (commit `efb8ee1`). Before the 1.19 service update, the active Worker version was `7b0c29c5-5b10-481d-8b2f-66cdab4d53f4`. The new version adds a separate bounded SQLite friend-request table and a local completion-state key; it preserves existing identities and contacts.

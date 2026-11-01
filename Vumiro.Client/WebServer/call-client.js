@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id), query = new URLSearchParams(location.search);
+  const clock=window.VumiroServerClock,serverNow=()=>clock?.now()??Date.now();
   const embedded = query.get('embedded') === '1' && parent !== window;
   document.body.classList.toggle('embedded', embedded);
   const settingsKey='vumiro-stream-settings', encoder=new TextEncoder();
@@ -15,7 +16,9 @@
   let requestedFps=streamSettings.fps, bitrateMbps=streamSettings.mbps, roomGrant=null, disconnected=false;
   function grantValue(raw) {
     if(typeof raw!=='string' || raw.length>1024) return null;
-    try { const value=JSON.parse(raw); return value && /^[A-Za-z0-9_-]{16,64}$/.test(value.nonce || '') && Number.isSafeInteger(value.expires) && value.expires>Date.now() && value.expires<=Date.now()+86400000 && /^[A-Za-z0-9_-]{86}$/.test(value.signature || '') ? {nonce:value.nonce,expires:value.expires,signature:value.signature} : null; } catch { return null; }
+    // Parse the proof before connecting, then validate its time bounds against
+    // the room server clock after the challenge arrives.
+    try { const value=JSON.parse(raw); return value && /^[A-Za-z0-9_-]{16,64}$/.test(value.nonce || '') && Number.isSafeInteger(value.expires) && (!clock?.isSynced() || (value.expires>serverNow() && value.expires<=serverNow()+86400000)) && /^[A-Za-z0-9_-]{86}$/.test(value.signature || '') ? {nonce:value.nonce,expires:value.expires,signature:value.signature} : null; } catch { return null; }
   }
   roomGrant=grantValue(query.get('grant'));
   let grantRoom=query.get('room') || '';
@@ -387,6 +390,7 @@
       try {
         const message=JSON.parse(event.data);
         if(message.type==='room-challenge') {
+          clock?.sync(message.serverTime);
           await authenticateRoom(message,connection,thisGeneration);
         } else if(message.type==='welcome') {
           if(message.id!==identity.id) throw Error('Room identity does not match your local profile.');

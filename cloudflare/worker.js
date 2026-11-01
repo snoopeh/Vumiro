@@ -100,7 +100,7 @@ export class CallRoom extends DurableObject {
     this.ctx.acceptWebSocket(server);
     this.save(server,{id,name,room,nonce,auth:false,authStarted:false,friends:[],blockedIds:[],friendsRevision:0,policyRevision:0,
       challengeRevision:policyRevision,challengeOwnerNonce:owner?.nonce||'',visible:[],time:now,window:now,count:0,departed:false});
-    this.send(server,{type:'room-challenge',nonce,room,id,policy,policyRevision});
+    this.send(server,{type:'room-challenge',nonce,room,id,policy,policyRevision,serverTime:Date.now()});
     return new Response(null,{status:101,webSocket:client});
   }
   allowed(session,owner) {

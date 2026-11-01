@@ -4,7 +4,7 @@ The deployed coordination service is **https://screentask-rooms.screentask-room-
 
 `/friends-signaling` proves device identities, announces online display names/usernames, handles mutual-friend presence, requests and room snapshots, and routes bounded signed profile-only SDP/ICE exchanges. Pictures themselves travel directly between peers. `/call-signaling` authenticates participants and enforces the owner's room access mode: public, mutual friends, or password. Legacy clients retain the older grant-based friendship policy.
 
-The Worker stores no persistent account/profile/contact database and relays no media, chat, pictures or arbitrary file payloads. WebSocket attachments hold bounded live coordination state. Rooms use direct mesh WebRTC, at most eight participants, and require the owner to remain connected. STUN assists route discovery; there is no TURN relay.
+The Worker stores no persistent account/contact database and relays no media, chat, pictures or arbitrary file payloads. WebSocket attachments hold bounded live coordination state. Version 2 friend requests use indexed SQLite rows for public identities and signed proofs: pending requests last up to 24 hours, terminal outcomes at most seven days or until both apps acknowledge them. Reconnect replay and receipts use the existing WebSocket; there is no polling. One-shot alarms clean up actual expirations. Rooms use direct mesh WebRTC, at most eight participants, and require the owner to remain connected. STUN assists route discovery; there is no TURN relay.
 
 The six client assets are prepared from `Vumiro.Client/WebServer`; no device data or retired server pages are published. Exact signed messages, limits and compatibility behavior are documented in [the protocol](../docs/PROTOCOL.md).
 
