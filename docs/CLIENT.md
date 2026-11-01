@@ -1,33 +1,41 @@
-# ScreenTask local client 1.14.0
+# Vumiro 1.15
 
-Extract the entire archive and run **ScreenTask.Client.exe** on Windows 10/11 x64. Requires .NET Framework 4.8 and the Microsoft Edge WebView2 Runtime. No administrator access or local sharing server is needed.
+Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
-1. Create a local profile with your display name. This creates a device identity, without a cloud account or password.
-2. Copy your contact code and exchange codes with your friend. **Both people must add each other's code**. Save a nickname if you like.
-3. Choose **Create room** to open your own private room immediately, even without any friends added. Use **Copy invitation** inside the room to invite mutual friends; they can join from the link or paste it into **Join with invitation**. You and the owner must have added each other's contact codes, and the owner must be connected. Alternatively, select an online friend and call; they accept inside their app.
-4. In the call, choose **Share screen** and select a display/window. Microphone and screen audio are optional. Either participant can share. Use **Actual size** or **Fullscreen** to read small text.
-5. End the call to return to friends. Closing the app stops sharing and makes you offline.
+Get [Vumiro 1.15](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.15.0), extract **Vumiro-win-x64.zip**, and run **ScreenTask.Client.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed. Existing 1.14 clients can install through **Updates → Update now**; profiles and friends are preserved.
 
-The Cloudflare Worker coordinates presence, signed invitations and WebRTC connection setup. Screen video and voice flow directly between participants, encrypted by WebRTC. The app configures no TURN/media relay. Restrictive networks may prevent a direct connection; the app does not silently route media through a server.
+## Friends and profiles
 
-Your profile, private signing key and friend book live in the local WebView2 profile at `%LOCALAPPDATA%\ScreenTask\ClientBrowser`. The private key is nonextractable through the app's Web Crypto API. Your public identity and temporary friend-ID subscriptions/access policy go to the Worker while connected; names and friend-book records are not uploaded as a cloud account database. Call display names accompany authenticated room membership. Calls require both people online; offline invitations are not stored. Only one active directory session per identity is supported.
+Create a local display name, then open **Your profile** to choose an optional username and picture. Usernames are online lookup handles, not permanent cloud accounts. Your public identity remains tied to the device key, not its display name.
 
-## Updates
+Choose **Add friend**, enter their username or contact code, and Vumiro fills their current name automatically. Send a request; they receive **Accept**, **Decline** and **Block** controls. Accepting updates both contact books. Both people must be online; pending requests expire and have no offline cloud mailbox. Reconnect and resend if either person went offline before acceptance.
 
-Get the desktop client from [the repository's client release](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.14.0). The download is a ZIP because the application is portable; extracting once installs the files without administrator access. Version 1.13 and older need this one bootstrap installation to gain the updater.
+If someone has no username or is offline, **Save code locally** keeps the manual contact-code flow. Names fill from the verified code; both people must add each other's codes before calling. Local nicknames are optional overrides; leave them empty to follow the current name automatically. Blocked identities can be unblocked from your profile.
 
-Open **Updates** in the sidebar, choose **Check for updates**, then **Update now** when available. The app also checks at startup. Leave your room first. Installing verifies the repository asset's SHA-256 digest, download size and executable versions, then restarts the app. Your profile and friends stay in their existing local data folder. Failed copies trigger rollback; previous application files remain in an update backup folder.
+Pictures are resized and saved locally. Names/usernames use temporary directory metadata; pictures travel only through a direct peer connection and are cached for known friends. A friend's latest picture appears after connecting in a room, rather than being uploaded to Cloudflare.
 
-The dedicated `client-v*` release channel is separate from legacy server releases. The updater accepts only stable assets from `snoopeh/ScreenTask` through GitHub HTTPS. It contains no publisher token. GitHub's publisher account/release integrity is the update trust anchor; these Windows executables are not Authenticode signed. Keep the app in a writable folder.
+## Rooms, chat and reconnect
 
-## Friend-only access
+Choose **Create room**. Mutual friends see it under **Rooms → Friends' rooms** and receive an in-app room notification. Lists update when rooms open/close or begin sharing, when friends come online, when you open Rooms, and after reconnecting. No room-discovery polling timer runs.
 
-Online status and direct invitations require mutual addition; adding someone's public code alone does not make them reachable. Invitations are signed and expire. Room entry requires a fresh device-key proof and mutual friendship with the room owner. A leaked room URL alone grants no access. Group rooms admit the **owner's** mutual friends; participants need not all be friends with one another. The owner must remain connected. Removing a friend removes direct-call/presence access and revokes that person's access to your current room. Old anonymous room codes are no longer accepted; create fresh rooms after updating.
+Choose **Request to join**; the owner accepts inside Vumiro. A copied invitation also goes through owner approval. Direct call invitations include approval. A room link alone grants no access: guests prove their identity and present an owner-signed grant, and both sides must still be friends. Group participants are friends of the owner; they need not all be friends with one another. The owner must remain connected.
 
-These controls do not protect against a compromised device or someone you deliberately add as a friend. Participants can record what you share, and direct connections reveal network addresses to peers. Do not share your device's local browser profile or import untrusted contact codes as friends.
+Either participant can share a screen, enable a microphone, and send **room chat**. Chat and pictures use WebRTC data channels, not the Worker. Chat is bounded, live and local to the open room; there is no cloud history or delivery to disconnected peers. Double-click a stream to toggle fullscreen; **Actual size** remains available for small text.
 
-Contact codes are public identity cards, not recovery backups. Clearing the local browser profile loses this identity and its friend book. The browser-hosted client uses its own browser storage and therefore a separate identity from the desktop app.
+Use **Reconnect** in the sidebar for the presence service, or the room's **Reconnect** button for its connection. Automatic backoff remains available. Reconnecting retains the room and an unexpired approval, and can retain an existing capture. You still choose what to share through the system picker. Leaving or closing stops capture. Expired approvals require requesting entry again.
 
-Sharing defaults to 60 FPS and a 20 Mbps cap per participant, or imports the legacy app's saved FPS/bitrate on startup. Adjust these in the client settings before a call. WebRTC adapts to each connection; requested FPS is not a guarantee. The new package reuses the direct WebRTC client and omits the legacy HTTP server, FFmpeg and native audio helper. The old application remains available separately for legacy features.
+## Stream and window settings
 
-Build/package: `powershell -File scripts/Build-Client.ps1`. Runtime testing for this iteration is left to the user as requested.
+Open **Settings** outside the room or **Stream settings** inside it. Changes synchronize and persist locally. Controls: 1–120 FPS, native/720p/1080p/1440p/2160p resolution ceiling, 1–100 Mbps per participant, text/detail or motion preference, and screen audio. FPS/bitrate/resolution apply to the active capture where supported. Enabling screen audio requires choosing audio when capture starts; existing captured audio can be paused/resumed. Actual FPS depends on the device and each connection.
+
+Drag the compact dark title bar to move the window, double-click it to maximize/restore, and use minimize/maximize/close. Edges resize; fullscreen restores the same dark frame.
+
+## Updates and local data
+
+The app checks stable client releases at startup. **Updates → Update now** verifies GitHub's SHA-256 digest, package size and executable versions, then restarts to install. Leave the room first. Failed copies roll back; local profile data is not an update target. Version 1.13 and older need one bootstrap installation to gain the updater. Executables are unsigned; GitHub publisher-account/release integrity is the update trust anchor.
+
+Profiles, nonextractable P-256 signing keys, friends, pictures and blocks stay under `%LOCALAPPDATA%\ScreenTask\ClientBrowser`. The origin and folder keep their existing names so rebranding does not create another identity. Contact codes are public identity cards, not recovery backups. Clearing local profile data loses the identity. Normal browsers use separate storage and identities.
+
+The Worker handles bounded live public profile/username metadata, requests, room announcements and signaling, without a persistent account database. Screen, voice, chat and pictures stay direct P2P. No TURN/media relay is configured; restrictive networks can prevent connections. Adding a contact grants trust in that identity, not proof of a person's real-world identity. Participants can record what you share; direct connections expose peer network addresses.
+
+Build/package: `powershell -File scripts/Build-Client.ps1`. Brand sources and icon/font embedding scripts are included in the repository. Runtime streaming, chat, update-install and security testing for this iteration are left to the user as requested.

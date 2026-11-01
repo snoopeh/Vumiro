@@ -5,6 +5,7 @@ export { FriendDirectory };
 
 export const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
 const LIMIT = 65536;
+const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const encoder = new TextEncoder();
 function encoded(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''); }
 function decoded(value, limit) {
@@ -17,6 +18,11 @@ function friends(value, id) {
   return sorted.length===value.length && sorted.every((item,index)=>item===value[index]) ? sorted : null;
 }
 function attachment(ws) {try {return ws.deserializeAttachment();} catch {return null;}}
+function roomGrant(value, now) {
+  return value && typeof value==='object' && !Array.isArray(value) && Object.keys(value).length===3 &&
+    typeof value.nonce==='string' && NONCE_PATTERN.test(value.nonce) && Number.isSafeInteger(value.expires) &&
+    value.expires>now && value.expires<=now+86400000 && decoded(value.signature,64)?.length===64;
+}
 async function verify(keyText, signatureText, canonical, identity) {
   try {
     const bytes=decoded(keyText,256),signature=decoded(signatureText,64);
@@ -55,7 +61,7 @@ export class CallRoom extends DurableObject {
   async fetch(request) {
     if(request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket upgrade required.',{status:426});
     const url=new URL(request.url),room=url.searchParams.get('room'),id=url.searchParams.get('id');
-    if(!ROOM_PATTERN.test(room || '') || !FRIEND_ID_PATTERN.test(id || '')) return new Response('A protected room and local profile are required. Create a new room in ScreenTask.',{status:400});
+    if(!ROOM_PATTERN.test(room || '') || !FRIEND_ID_PATTERN.test(id || '')) return new Response('A protected room and local profile are required. Create a new room in Vumiro.',{status:400});
     for(const pending of this.sessions()) if(!attachment(pending).auth && Date.now()-attachment(pending).time>30000) this.reject(pending,'Room identity challenge expired.');
     if(this.sessions().length>=24 || this.authenticated().length>=8 && !this.authenticated().some(ws=>attachment(ws).id===id)) {
       const [client,server]=Object.values(new WebSocketPair());server.accept();server.close(1008,'This room already has 8 participants.');
@@ -73,6 +79,9 @@ export class CallRoom extends DurableObject {
   async webSocketMessage(ws,message) {
     if(typeof message!=='string' || encoder.encode(message).byteLength>LIMIT) {this.reject(ws,'Signaling message too large.',1009);return;}
     let session=attachment(ws);if(!session || session.departed) return;
+    if(session.auth && session.id!==session.room.slice(0,43) && (!session.grantExpires || session.grantExpires<=Date.now())) {
+      this.reject(ws,'Room approval expired. Request approval from the owner again.');return;
+    }
     const now=Date.now();if(now-session.window>10000) {session.window=now;session.count=0;}
     if(++session.count>(session.auth?240:4)) {this.reject(ws,'Too many signaling messages.');return;}
     ws.serializeAttachment(session);
@@ -102,12 +111,27 @@ export class CallRoom extends DurableObject {
     if(message?.type!=='room-authenticate' || !list || session.authStarted || Date.now()-session.time>30000) {this.reject(ws,'Room identity challenge expired or is invalid.');return;}
     session.authStarted=true;ws.serializeAttachment(session);
     const valid=await verify(message.key,message.signature,`screentask-room-v1\n${session.room}\n${session.id}\n${session.nonce}\n${list.join(',')}`,session.id);
-    const current=attachment(ws);
+    let current=attachment(ws);
     if(!current || current.departed || ws.readyState!==1) return;
     if(!valid || Date.now()-current.time>30000) {this.reject(ws,'Room identity authentication failed.');return;}
-    const ownerId=current.room.slice(0,43),owner=this.owner(current.room);
+    const ownerId=current.room.slice(0,43);
+    let owner=this.owner(current.room);
     if(current.id!==ownerId && !owner) {this.reject(ws,'Waiting for the room owner to connect.',4004);return;}
     if(current.id!==ownerId && (!attachment(owner).friends.includes(current.id) || !list.includes(ownerId))) {this.reject(ws,'Only mutual friends of the online room owner can join.');return;}
+    if(current.id!==ownerId) {
+      if(!roomGrant(message.grant,Date.now())) {this.reject(ws,'Owner approval is required. Update Vumiro and request to join this room.');return;}
+      const approvingOwner=owner,ownerKey=attachment(owner).key,grant=message.grant;
+      const approved=await verify(ownerKey,grant.signature,`vumiro-room-grant-v1\n${ownerId}\n${current.id}\n${current.room}\n${grant.nonce}\n${grant.expires}`);
+      // Verification yields. Recheck the current owner, current friend revision,
+      // socket lifetime and expiry instead of restoring a stale attachment.
+      current=attachment(ws);owner=this.owner(session.room);
+      if(!current || current.departed || ws.readyState!==1) return;
+      if(!approved || Date.now()-current.time>30000 || grant.expires<=Date.now() || owner!==approvingOwner || attachment(owner)?.key!==ownerKey ||
+        !attachment(owner)?.friends.includes(current.id) || !list.includes(ownerId)) {
+        this.reject(ws,'Room approval is invalid or access changed. Request approval again.');return;
+      }
+      current.grantExpires=grant.expires;
+    }
     const existing=this.authenticated().filter(other=>attachment(other).id!==current.id);
     if(existing.length>=8) {this.reject(ws,'This room already has 8 participants.');return;}
     // Replace a duplicate only after its cryptographic proof is verified. Keep
@@ -127,7 +151,7 @@ export class CallRoom extends DurableObject {
     const owner=this.owner(room),ownerId=room.slice(0,43),list=owner?attachment(owner).friends:[];
     for(const other of this.authenticated()) {
       const session=attachment(other);
-      if(session.id!==ownerId && (!owner || !list.includes(session.id) || !session.friends.includes(ownerId))) this.reject(other,'Room access removed. Mutual friendship with its owner is required.');
+      if(session.id!==ownerId && (!owner || !list.includes(session.id) || !session.friends.includes(ownerId) || !session.grantExpires || session.grantExpires<=Date.now())) this.reject(other,'Room access removed. Current owner approval and mutual friendship are required.');
     }
   }
   depart(ws) {
@@ -148,7 +172,7 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==='/call-signaling' || url.pathname==='/friends-signaling') {
       const friends=url.pathname==='/friends-signaling';
-      if(!FRIEND_ID_PATTERN.test(url.searchParams.get('id') || '') || !friends && !ROOM_PATTERN.test(url.searchParams.get('room') || '')) return new Response('A local profile and protected room code are required. Create a new room in ScreenTask.',{status:400});
+      if(!FRIEND_ID_PATTERN.test(url.searchParams.get('id') || '') || !friends && !ROOM_PATTERN.test(url.searchParams.get('room') || '')) return new Response('A local profile and protected room code are required. Create a new room in Vumiro.',{status:400});
       const origin=request.headers.get('Origin');
       if(origin && origin!==url.origin && origin!=='https://screentask.local') {
         // Local browser development is allowed only on the local Worker itself.

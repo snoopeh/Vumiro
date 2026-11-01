@@ -1,4 +1,4 @@
-name: Publish ScreenTask client
+name: Publish Vumiro client
 on:
   push:
     tags: ['client-v*']
@@ -28,5 +28,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" dist/client-release/ScreenTask-client-win-x64.zip dist/client-release/SHA256SUMS.txt --title "ScreenTask Client $env:GITHUB_REF_NAME" --generate-notes --latest=false
+          gh release create "$env:GITHUB_REF_NAME" dist/client-release/Vumiro-win-x64.zip dist/client-release/ScreenTask-client-win-x64.zip dist/client-release/SHA256SUMS.txt --title "Vumiro $env:GITHUB_REF_NAME" --generate-notes --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Client release publication failed.' }

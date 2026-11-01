@@ -1,6 +1,6 @@
-# ScreenTask
+# Vumiro
 
-**Local friends client:** [Download ScreenTask Client 1.14](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.14.0). Create a local profile, exchange contact codes both ways, and share screens directly. Rooms admit only mutual friends of the room owner. The app checks GitHub for updates; use **Updates → Update now** to install future client versions. See [client instructions](docs/CLIENT.md). Build with `powershell -File scripts/Build-Client.ps1`. The legacy server app remains available below.
+**Vumiro desktop:** [Download Vumiro 1.15](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.15.0). Local profiles, friend requests and online usernames, private live rooms, P2P screen/voice/chat, profile pictures and stream settings. Existing clients update through **Updates → Update now**. See [the Vumiro guide](docs/CLIENT.md). Build with `powershell -File scripts/Build-Client.ps1`. The legacy ScreenTask server remains available below.
 
 Screen sharing, audio and large file transfers straight from your Windows PC to a friend's browser.
 

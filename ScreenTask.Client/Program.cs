@@ -22,10 +22,10 @@ namespace ScreenTask.Client
         }
     }
 
-    internal sealed class ClientWindow : Form
+    internal sealed partial class ClientWindow : Form
     {
-        private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(12, 16, 25) };
-        private readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Gainsboro, Text = "Opening ScreenTask…" };
+        private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
+        private readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Gainsboro, Text = "Opening Vumiro…" };
         private const string Origin = "https://screentask.local";
         private const string DefaultSignaling = "wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling";
         private Rectangle windowBounds;
@@ -38,12 +38,13 @@ namespace ScreenTask.Client
             updates = new ClientUpdates(this, state => {
                 if (!IsDisposed && browser.CoreWebView2 != null) browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(state));
             });
-            Text = "ScreenTask";
-            BackColor = Color.FromArgb(12, 16, 25);
+            Text = "Vumiro";
+            BackColor = Color.FromArgb(11, 11, 12);
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1160, 800);
             MinimumSize = new Size(940, 640);
+            InitializeWindowChrome();
             Controls.Add(browser); Controls.Add(loading);
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => browser.Dispose();
@@ -61,20 +62,7 @@ namespace ScreenTask.Client
                 browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 browser.CoreWebView2.ContainsFullScreenElementChanged += (s, e) => {
-                    if (browser.CoreWebView2.ContainsFullScreenElement)
-                    {
-                        windowState = WindowState;
-                        windowBounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-                        WindowState = FormWindowState.Normal;
-                        FormBorderStyle = FormBorderStyle.None;
-                        Bounds = Screen.FromControl(this).Bounds;
-                    }
-                    else
-                    {
-                        FormBorderStyle = FormBorderStyle.Sizable;
-                        Bounds = windowBounds;
-                        WindowState = windowState;
-                    }
+                    SetContentFullscreen(browser.CoreWebView2.ContainsFullScreenElement);
                 };
                 browser.CoreWebView2.NavigationStarting += (s, e) => {
                     Uri target;
@@ -87,6 +75,7 @@ namespace ScreenTask.Client
                     try
                     {
                         var message = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
+                        if (HandleWindowMessage(message)) return;
                         object type, action;
                         if (message != null && message.Count == 2 && message.TryGetValue("type", out type) && type as string == "updates" && message.TryGetValue("action", out action) && action is string)
                             await updates.HandleAsync((string)action);
@@ -96,8 +85,8 @@ namespace ScreenTask.Client
                 browser.CoreWebView2.NavigationCompleted += async (s, e) => {
                     if (IsDisposed) return;
                     loading.Visible = !e.IsSuccess;
-                    if (!e.IsSuccess) loading.Text = "ScreenTask could not load its local interface: " + e.WebErrorStatus;
-                    else await updates.HandleAsync("check");
+                    if (!e.IsSuccess) loading.Text = "Vumiro could not load its local interface: " + e.WebErrorStatus;
+                    else { PublishWindowState(); await updates.HandleAsync("check"); }
                 };
                 var signaling = DefaultSignaling;
                 var fps = 60; var bitrate = 20;
@@ -120,7 +109,7 @@ namespace ScreenTask.Client
             }
             catch (Exception error)
             {
-                if (!IsDisposed) loading.Text = "ScreenTask could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message;
+                if (!IsDisposed) loading.Text = "Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message;
             }
         }
     }

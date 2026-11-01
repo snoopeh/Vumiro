@@ -1,10 +1,11 @@
-// Ephemeral coordination only. Profiles, names and friend lists stay on devices;
-// attachments contain identity proofs and presence subscriptions, never media.
+// Ephemeral coordination only. Attachments contain bounded public profile,
+// identity proofs, subscriptions and requests, never private keys or media.
 import { DurableObject } from 'cloudflare:workers';
 
 export const FRIEND_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+const USERNAME_PATTERN = /^[a-z0-9_.-]{3,24}$/;
 const MAX_BYTES = 16 * 1024;
 const encoder = new TextEncoder();
 
@@ -23,16 +24,54 @@ function decoded(value, maxBytes) {
   } catch { return null; }
 }
 
-function onlyFields(value, fields) {
+function onlyFields(value, fields, optional = []) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+    fields.every(field => Object.hasOwn(value, field)) && Object.keys(value).every(field => fields.includes(field) || optional.includes(field));
 }
 
 function read(ws) {
   try { return ws.deserializeAttachment(); } catch { return null; }
 }
 
+function publicProfile(session) { return {id: session.id, name: session.name, username: session.username || '', key: session.key}; }
+function ids(value, self) { return Array.isArray(value) && value.length <= 128 && value.every(id => typeof id === 'string' && FRIEND_ID_PATTERN.test(id) && id !== self) && new Set(value).size === value.length; }
+function blocked(a, b) { return (a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id); }
+function mutual(a, b) { return a.watch.includes(b.id) && b.watch.includes(a.id) && !blocked(a, b); }
+function budget(session, key, limit, duration, now) {
+  const window = session[key] || {at: now, count: 0};
+  if (now - window.at >= duration) { window.at = now; window.count = 0; }
+  session[key] = window; return ++window.count <= limit;
+}
+async function verify(keyText, signatureText, canonical) {
+  try {
+    const bytes = decoded(keyText, 256), signature = decoded(signatureText, 64);
+    if (!bytes || signature?.byteLength !== 64) return false;
+    const key = await crypto.subtle.importKey('spki', bytes, {name: 'ECDSA', namedCurve: 'P-256'}, false, ['verify']);
+    return await crypto.subtle.verify({name: 'ECDSA', hash: 'SHA-256'}, key, signature, encoder.encode(canonical));
+  } catch { return false; }
+}
+function grantShape(grant, now) {
+  return onlyFields(grant, ['nonce', 'expires', 'signature']) && typeof grant.nonce === 'string' && NONCE_PATTERN.test(grant.nonce) && Number.isSafeInteger(grant.expires) &&
+    grant.expires > now && grant.expires <= now + 86400000 && decoded(grant.signature, 64)?.length === 64;
+}
+
 export class FriendDirectory extends DurableObject {
+  save(ws, session) {
+    if (encoder.encode(JSON.stringify(session)).byteLength >= MAX_BYTES - 256) { this.reject(ws, 'Presence metadata is full. Reduce friends or blocks.'); return false; }
+    ws.serializeAttachment(session); return true;
+  }
+  error(ws, code, message, nonce) { this.send(ws, {type: 'social-error', code, message, ...(typeof nonce === 'string' && NONCE_PATTERN.test(nonce) ? {nonce} : {})}); }
+  rooms() {
+    // Deserialize each bounded attachment once per push, rather than once per
+    // pair of friends. A failed send publishes a fresh departure snapshot;
+    // stop this older snapshot so it cannot overwrite that newer one.
+    const sessions = this.authenticated().map(ws => ({ws, session: read(ws)}));
+    for (const watcher of sessions) {
+      const rooms = sessions.filter(other => other !== watcher && other.session.room && mutual(watcher.session, other.session))
+        .map(other => { const s = other.session; return {owner: s.id, room: s.room, live: !!s.live}; });
+      if (!this.send(watcher.ws, {type: 'rooms', rooms})) return;
+    }
+  }
   sessions() {
     return this.ctx.getWebSockets().filter(ws => ws.readyState === 1 && !read(ws)?.departed);
   }
@@ -60,7 +99,7 @@ export class FriendDirectory extends DurableObject {
     const now = Date.now();
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({id, auth: false, nonce: encoded(crypto.getRandomValues(new Uint8Array(32))),
-      time: now, watch: [], window: now, count: 0, departed: false, authStarted: false});
+      time: now, watch: [], blocked: [], pending: [], seen: [], window: now, count: 0, departed: false, authStarted: false});
     this.send(server, {type: 'challenge', nonce: read(server).nonce});
     return new Response(null, {status: 101, webSocket: client});
   }
@@ -86,8 +125,12 @@ export class FriendDirectory extends DurableObject {
     const owner = this.owner(id);
     for (const watcher of this.authenticated()) {
       const session = read(watcher);
-      if (session.watch.includes(id)) this.send(watcher, {type: 'presence', id, online: !!owner && read(owner).watch.includes(session.id)});
+      if (session.watch.includes(id)) this.send(watcher, this.presenceEvent(session, id, owner));
     }
+  }
+  presenceEvent(session, id, owner) {
+    const value = owner && read(owner), online = !!value && mutual(session, value);
+    return {type: 'presence', id, online, ...(online && value.name ? {profile: publicProfile(value)} : {})};
   }
 
   async webSocketMessage(ws, text) {
@@ -97,38 +140,55 @@ export class FriendDirectory extends DurableObject {
     if (!session || session.departed) return;
     const now = Date.now();
     if (now - session.window >= 10000) { session.window = now; session.count = 0; }
-    if (++session.count > 120) { this.reject(ws, 'Too many presence messages.'); return; }
-    ws.serializeAttachment(session);
+    if (++session.count > (session.auth ? 120 : 4)) { this.reject(ws, 'Too many presence messages.'); return; }
+    if (!this.save(ws, session)) return;
     let message;
     try { message = JSON.parse(text); } catch { this.reject(ws, 'Invalid presence JSON.'); return; }
     if (!session.auth) {
       await this.authenticate(ws, session, message);
       return;
     }
+    if (this.owner(session.id) !== ws) return;
+    if (['watch', 'profile-announce', 'lookup', 'room-state'].includes(message?.type)) {
+      if (!budget(session, 'controlRate', 24, 10000, now)) { this.error(ws, 'rate-limit', 'Wait before sending more directory updates.', message.nonce); this.save(ws, session); return; }
+      if (!this.save(ws, session)) return;
+    }
+    if (message?.type === 'profile-announce') { this.profile(ws, session, message); return; }
+    if (message?.type === 'lookup') { this.lookup(ws, session, message); return; }
+    if (message?.type === 'social') { await this.social(ws, session, message); return; }
+    if (message?.type === 'room-state') {
+      if (!onlyFields(message, ['type', 'room', 'live']) || typeof message.live !== 'boolean' ||
+        message.room !== null && (typeof message.room !== 'string' || !ROOM_PATTERN.test(message.room) || message.room.slice(0, 43) !== session.id) || message.room === null && message.live) {
+        this.error(ws, 'invalid-room', 'Only your own protected room can be published.'); return;
+      }
+      session.room = message.room; session.live = message.live;
+      if (this.save(ws, session)) this.rooms(); return;
+    }
     if (onlyFields(message, ['type', 'ids']) && message.type === 'watch') {
-      if (!Array.isArray(message.ids) || message.ids.length > 128 || !message.ids.every(id => typeof id === 'string' && FRIEND_ID_PATTERN.test(id))) {
+      if (!ids(message.ids, session.id) || message.ids.length + (session.blocked || []).length > 192) {
         this.reject(ws, 'Invalid presence subscriptions.'); return;
       }
       session.watch = [...new Set(message.ids)].filter(id => id !== session.id);
-      ws.serializeAttachment(session);
+      if (!this.save(ws, session)) return;
       for (const id of session.watch) {
         const owner = this.owner(id);
-        if (!this.send(ws, {type: 'presence', id, online: !!owner && read(owner).watch.includes(session.id)})) break;
+        if (!this.send(ws, this.presenceEvent(session, id, owner))) break;
       }
       // Adding or removing a local friend changes whether that friend can see
       // this identity online. No online state is disclosed for one-sided adds.
       this.presence(session.id);
+      this.rooms();
       return;
     }
     if (message?.type !== 'invite' && message?.type !== 'answer') { this.reject(ws, 'Invalid presence message type.'); return; }
     const answer = message.type === 'answer';
     const fields = ['type', 'to', 'room', 'nonce', 'expires', 'signature'];
     if (answer) fields.push('accepted');
-    if (!onlyFields(message, fields) || typeof message.to !== 'string' || !FRIEND_ID_PATTERN.test(message.to) || message.to === session.id ||
+    if (!onlyFields(message, fields, answer ? [] : ['grant']) || typeof message.to !== 'string' || !FRIEND_ID_PATTERN.test(message.to) || message.to === session.id ||
       typeof message.room !== 'string' || !ROOM_PATTERN.test(message.room) || !answer && message.room.slice(0,43) !== session.id ||
       typeof message.nonce !== 'string' || !NONCE_PATTERN.test(message.nonce) ||
       !Number.isSafeInteger(message.expires) || message.expires <= now || message.expires > now + 120000 ||
-      answer && typeof message.accepted !== 'boolean') {
+      answer && typeof message.accepted !== 'boolean' || message.grant !== undefined && !grantShape(message.grant, now)) {
       this.reject(ws, 'Invalid signed call invitation.'); return;
     }
     const signature = decoded(message.signature, 64);
@@ -141,20 +201,121 @@ export class FriendDirectory extends DurableObject {
       const key = await crypto.subtle.importKey('spki', decoded(session.key, 256), {name: 'ECDSA', namedCurve: 'P-256'}, false, ['verify']);
       verified = await crypto.subtle.verify({name: 'ECDSA', hash: 'SHA-256'}, key, signature, encoder.encode(canonical));
     } catch { /* malformed or incompatible proof */ }
+    if (message.grant) verified = verified && await verify(session.key, message.grant.signature,
+      `vumiro-room-grant-v1\n${session.id}\n${message.to}\n${message.room}\n${message.grant.nonce}\n${message.grant.expires}`);
     // Crypto awaits can interleave replacement, close, reset, and watch events.
     // Never write the old attachment back or act for a superseded owner.
     session = read(ws);
     if (!session?.auth || session.departed || this.owner(session.id) !== ws) return;
     if (!verified) { this.reject(ws, 'Invalid call invitation proof.'); return; }
-    if (message.expires <= Date.now()) { this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce}); return; }
+    if (message.expires <= Date.now() || message.grant && message.grant.expires <= Date.now()) { this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce}); return; }
     const target = this.owner(message.to);
-    if (!target || !session.watch.includes(message.to) || !read(target).watch.includes(session.id)) {
+    if (!target || !mutual(session, read(target))) {
       this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce}); return;
     }
     const forwarded = {type: message.type, from: session.id, to: message.to, room: message.room,
       nonce: message.nonce, expires: message.expires, signature: message.signature};
     if (answer) forwarded.accepted = message.accepted;
+    if (message.grant) forwarded.grant = message.grant;
     if (!target || !this.send(target, forwarded)) this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce});
+  }
+
+  profile(ws, session, message) {
+    const username = message.username ?? '', blocks = message.blockedIds ?? [];
+    if (!onlyFields(message, ['type', 'name'], ['username', 'blockedIds']) || typeof message.name !== 'string' ||
+      !message.name.trim() || message.name !== message.name.trim() || message.name.length > 48 || /[\u0000-\u001f\u007f]/.test(message.name) ||
+      typeof username !== 'string' || username !== '' && !USERNAME_PATTERN.test(username) || !ids(blocks, session.id) || blocks.length + session.watch.length > 192) {
+      this.error(ws, 'invalid-profile', 'Use a name up to 48 characters, an optional lowercase username and valid block list.'); return;
+    }
+    if (username && this.authenticated().some(other => other !== ws && read(other).username === username)) {
+      this.error(ws, 'username-taken', 'That username is in use online. Choose another or use contact codes.'); return;
+    }
+    session.name = message.name; session.username = username; session.blocked = blocks;
+    if (!this.save(ws, session)) return;
+    this.send(ws, {type: 'profile-ready', profile: publicProfile(session)});
+    this.presence(session.id);
+    for (const id of session.watch) this.send(ws, this.presenceEvent(session, id, this.owner(id)));
+    this.rooms();
+  }
+  lookup(ws, session, message) {
+    if (!onlyFields(message, ['type', 'query', 'nonce']) || typeof message.query !== 'string' || message.query.length > 2048 || typeof message.nonce !== 'string' || !NONCE_PATTERN.test(message.nonce)) {
+      this.error(ws, 'invalid-lookup', 'Enter a username or contact code.', message.nonce); return;
+    }
+    let query = message.query.trim(), id = '';
+    if (query.startsWith('stfriend1.')) {
+      try {
+        const bytes = decoded(query.slice(10), 1500), contact = bytes && JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
+        if (contact?.v === 1 && FRIEND_ID_PATTERN.test(contact.id || '')) id = contact.id;
+      } catch { /* no result for malformed code */ }
+    } else if (FRIEND_ID_PATTERN.test(query)) id = query;
+    else query = query.replace(/^@/, '').toLowerCase();
+    const target = this.authenticated().find(other => {
+      const value = read(other);
+      return value.name && !blocked(session, value) && (id ? value.id === id : USERNAME_PATTERN.test(query) && value.username === query);
+    });
+    this.send(ws, {type: 'lookup-result', nonce: message.nonce, profile: target ? publicProfile(read(target)) : null});
+  }
+  async social(ws, session, message) {
+    const now = Date.now(), kinds = ['friend-request', 'friend-answer', 'join-request', 'join-answer'];
+    if (!onlyFields(message, ['type', 'to', 'kind', 'nonce', 'expires', 'payload', 'signature']) ||
+      typeof message.to !== 'string' || !FRIEND_ID_PATTERN.test(message.to) || message.to === session.id || !kinds.includes(message.kind) ||
+      typeof message.nonce !== 'string' || !NONCE_PATTERN.test(message.nonce) || !Number.isSafeInteger(message.expires) || message.expires <= now || message.expires > now + 120000 || !session.name) {
+      this.error(ws, 'invalid-social', 'Announce your profile and send a valid, unexpired signed request.', message.nonce); return;
+    }
+    const kind = message.kind, payload = message.payload, answer = kind.endsWith('answer'), join = kind.startsWith('join');
+    const fields = kind === 'friend-request' ? [] : kind === 'friend-answer' ? ['requestNonce', 'accepted'] : kind === 'join-request' ? ['room'] : ['requestNonce', 'room', 'accepted'];
+    if (!onlyFields(payload, fields, kind === 'join-answer' && payload?.accepted === true ? ['grant'] : []) ||
+      answer && (typeof payload.requestNonce !== 'string' || !NONCE_PATTERN.test(payload.requestNonce) || typeof payload.accepted !== 'boolean') ||
+      join && (typeof payload.room !== 'string' || !ROOM_PATTERN.test(payload.room) || payload.room.slice(0, 43) !== (answer ? session.id : message.to)) ||
+      kind === 'join-answer' && payload.accepted && !grantShape(payload.grant, now)) {
+      this.error(ws, 'invalid-social', 'Invalid request details.', message.nonce); return;
+    }
+    if (!budget(session, 'socialRate', 16, 10000, now)) { this.save(ws, session); this.error(ws, 'rate-limit', 'Wait before sending more requests.', message.nonce); return; }
+    if (!this.save(ws, session)) return;
+    const canonical = `vumiro-social-v1\n${session.id}\n${message.to}\n${kind}\n${message.nonce}\n${message.expires}\n${JSON.stringify(payload)}`;
+    const verified = await verify(session.key, message.signature, canonical);
+    let validGrant = true;
+    if (kind === 'join-answer' && payload.accepted) validGrant = await verify(session.key, payload.grant.signature,
+      `vumiro-room-grant-v1\n${session.id}\n${message.to}\n${payload.room}\n${payload.grant.nonce}\n${payload.grant.expires}`);
+    session = read(ws);
+    if (!session?.auth || session.departed || this.owner(session.id) !== ws) return;
+    if (!verified || !validGrant) { this.reject(ws, 'Invalid signed social proof.'); return; }
+    const target = this.owner(message.to), targetSession = target && read(target), currentTime = Date.now();
+    if (message.expires <= currentTime || kind === 'join-answer' && payload.accepted && payload.grant.expires <= currentTime ||
+      !targetSession?.name || !session.name || blocked(session, targetSession) || join && (!mutual(session, targetSession) || (answer ? session.room : targetSession.room) !== payload.room)) {
+      this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce}); return;
+    }
+    session.seen = (session.seen || []).filter(entry => entry[1] > currentTime);
+    session.pending = (session.pending || []).filter(entry => entry.e > currentTime);
+    if (session.seen.some(entry => entry[0] === message.nonce)) { this.error(ws, 'replay', 'This signed request was already used.', message.nonce); return; }
+    if (session.seen.length >= 16 || !answer && session.pending.length >= 8) { this.error(ws, 'request-limit', 'Wait for pending requests to finish or expire.', message.nonce); return; }
+    if (answer) {
+      targetSession.pending = (targetSession.pending || []).filter(entry => entry.e > currentTime);
+      const pending = targetSession.pending.find(entry => entry.n === payload.requestNonce && entry.t === session.id && entry.k === (join ? 'join-request' : 'friend-request') && (!join || entry.r === payload.room));
+      if (!pending) { this.error(ws, 'unknown-request', 'The original request is no longer pending.', message.nonce); return; }
+      targetSession.pending = targetSession.pending.filter(entry => entry !== pending);
+    } else {
+      if (kind === 'friend-request') {
+        // Sum the bounded online windows: no durable counter or mailbox. This
+        // also limits aggregate unsolicited notifications across the directory.
+        const globalCount = this.authenticated().reduce((count, socket) => {
+          const rate = read(socket).requestRate;
+          return count + (rate && currentTime - rate.at < 60000 ? rate.count : 0);
+        }, 0);
+        if (globalCount >= 128 || !budget(session, 'requestRate', 4, 60000, currentTime) || !budget(targetSession, 'inboundRate', 12, 60000, currentTime)) {
+          this.save(ws, session); this.save(target, targetSession); this.error(ws, 'rate-limit', 'Wait before sending another friend request.', message.nonce); return;
+        }
+        session.requestTargets = (session.requestTargets || []).filter(entry => entry[2] > currentTime);
+        const pair = session.requestTargets.find(entry => entry[0] === message.to);
+        if (pair && pair[1] >= 2) { this.save(ws, session); this.save(target, targetSession); this.error(ws, 'rate-limit', 'This friend already received your request. Wait a minute.', message.nonce); return; }
+        if (pair) pair[1]++; else session.requestTargets.push([message.to, 1, currentTime + 60000]);
+      }
+      session.pending.push({n: message.nonce, t: message.to, k: kind, e: message.expires, ...(join ? {r: payload.room} : {})});
+    }
+    session.seen.push([message.nonce, message.expires]);
+    if (!this.save(ws, session) || !this.save(target, targetSession)) return;
+    if (this.send(target, {...message, from: session.id, profile: publicProfile(session)})) this.send(ws, {type: 'social-sent', to: message.to, nonce: message.nonce});
+    else this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce});
   }
 
   async authenticate(ws, session, message) {
@@ -190,16 +351,16 @@ export class FriendDirectory extends DurableObject {
         try { previous.close(4001, 'Identity connected from another session.'); } catch { /* already closed */ }
       }
     }
-    if (this.send(ws, {type: 'ready', id: current.id})) this.presence(current.id);
+    if (this.send(ws, {type: 'ready', id: current.id})) { this.presence(current.id); this.rooms(); }
   }
 
   depart(ws) {
     const session = read(ws);
     if (!session || session.departed) return;
     const authenticated = session.auth;
-    session.departed = true; session.auth = false; session.watch = [];
+    session.departed = true; session.auth = false; session.watch = []; session.room = null; session.pending = []; session.seen = [];
     ws.serializeAttachment(session);
-    if (authenticated) this.presence(session.id);
+    if (authenticated) { this.presence(session.id); this.rooms(); }
   }
 
   webSocketClose(ws, code) {

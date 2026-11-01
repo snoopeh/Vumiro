@@ -67,7 +67,7 @@ namespace ScreenTask.Client
                 {
                     latest = await CheckAsync();
                     message = latest == null ? "No published client update is available yet." : latest.Version > current ?
-                        "ScreenTask " + latest.Version.ToString(3) + " is available." : "You're up to date.";
+                        "Vumiro " + latest.Version.ToString(3) + " is available." : "You're up to date.";
                 }
                 else
                 {
@@ -88,7 +88,7 @@ namespace ScreenTask.Client
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
             var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("ScreenTask-Client/1.14");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Vumiro-Client/1.15");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             return http;
         }
@@ -201,7 +201,7 @@ namespace ScreenTask.Client
             var handedOff = false;
             try
             {
-                message = "Downloading ScreenTask " + release.Version.ToString(3) + "…"; State();
+                message = "Downloading Vumiro " + release.Version.ToString(3) + "…"; State();
                 await DownloadAsync(release.Package, archive);
                 message = "Verifying update…"; State();
                 await Task.Run(() => {

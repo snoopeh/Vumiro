@@ -13,7 +13,7 @@ internal static class Program
         string install = null; bool stopped = false;
         try
         {
-            if (args.Length != 5 || args[0] != "--apply") throw new ArgumentException("Start updates from ScreenTask.");
+            if (args.Length != 5 || args[0] != "--apply") throw new ArgumentException("Start updates from Vumiro.");
             install = Path.GetFullPath(args[1]); var stage = Path.GetFullPath(args[2]);
             var executable = Path.Combine(install, "ScreenTask.Client.exe");
             ClientUpdateInstaller.NoLinks(install); ClientUpdateInstaller.NoLinks(stage);
@@ -22,7 +22,7 @@ internal static class Program
                 if (!String.Equals(parent.MainModule.FileName, executable, StringComparison.OrdinalIgnoreCase))
                     throw new IOException("The updating application does not match the installation.");
                 using (var ready = EventWaitHandle.OpenExisting(args[4])) ready.Set();
-                if (!parent.WaitForExit(60000)) throw new IOException("ScreenTask did not close. Close all its windows and try again.");
+                if (!parent.WaitForExit(60000)) throw new IOException("Vumiro did not close. Close all its windows and try again.");
             }
             stopped = true;
             ClientUpdateInstaller.Apply(stage, install);
@@ -32,7 +32,7 @@ internal static class Program
         }
         catch (Exception error)
         {
-            MessageBox.Show("The update could not finish.\r\n" + error.Message, "ScreenTask update", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show("The update could not finish.\r\n" + error.Message, "Vumiro update", MessageBoxButtons.OK, MessageBoxIcon.Error);
             if (stopped && install != null && File.Exists(Path.Combine(install, "ScreenTask.Client.exe")))
                 try { Start(Path.Combine(install, "ScreenTask.Client.exe"), install); } catch { }
             return 1;

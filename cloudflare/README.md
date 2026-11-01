@@ -1,4 +1,6 @@
-# ScreenTask shared rooms
+# Vumiro coordination service
+
+Client 1.15 adds online profile/username lookup, signed friend requests/acceptance, blocking, event-driven mutual-friend room announcements and request/approval flows. Exact contracts and limits are in [PROTOCOL.md](../docs/plans/vumiro-social/PROTOCOL.md). Guest room entry now requires an owner-signed identity-bound grant as well as current mutual friendship. Chat and profile pictures use direct peer data channels and are never uploaded to this Worker. Profiles remain local; directory metadata and pending requests exist only while sockets are connected.
 
 The root page opens the friends client. Presence and direct invitations require mutual friend subscriptions; one-sided adds do not disclose online status. `/friends-signaling` uses a separate `FRIEND_DIRECTORY` Durable Object for authenticated live presence and signed call invitations. It persists no profile/friend database: identity proofs and presence watches exist only in WebSocket attachments. `/call` and `/call-signaling` retain shared rooms. Only the five client assets are published. Private keys and authoritative contact records remain on devices. The directory currently supports 256 live connections and 128 watched contacts per connection; larger deployments need partitioning.
 

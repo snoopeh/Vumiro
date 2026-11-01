@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../dist/client-1.14.0'))
+param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../dist/client-1.15.0'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $output = [IO.Path]::GetFullPath($OutputDirectory)
@@ -29,10 +29,20 @@ try {
     $sdk = Join-Path $nugetRoot 'microsoft.web.webview2/1.0.4314.35'
     Copy-Item -LiteralPath (Join-Path $sdk 'LICENSE.txt') -Destination (Join-Path $package 'WEBVIEW2-LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $sdk 'NOTICE.txt') -Destination (Join-Path $package 'WEBVIEW2-NOTICE.txt')
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $archive = Join-Path $output 'ScreenTask-client-win-x64.zip'
-    [IO.Compression.ZipFile]::CreateFromDirectory($package, $archive, [IO.Compression.CompressionLevel]::Optimal, $false)
+    $archiveStream = [IO.File]::Open($archive, [IO.FileMode]::CreateNew)
+    $zip = New-Object IO.Compression.ZipArchive $archiveStream, ([IO.Compression.ZipArchiveMode]::Create), $false
+    try {
+        foreach ($file in (Get-ChildItem -LiteralPath $package -Recurse -File | Sort-Object FullName)) {
+            # Windows PowerShell's legacy ZipFile can write backslashes. The
+            # existing updater accepts canonical forward-slash entry names.
+            $entry = $file.FullName.Substring($package.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally { $zip.Dispose(); $archiveStream.Dispose() }
+    Copy-Item -LiteralPath $archive -Destination (Join-Path $output 'Vumiro-win-x64.zip')
     $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Value "$digest  ScreenTask-client-win-x64.zip" -Encoding ascii
-    Write-Output "Client ready: $archive"
+    Set-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') -Value @("$digest  Vumiro-win-x64.zip", "$digest  ScreenTask-client-win-x64.zip") -Encoding ascii
+    Write-Output "Vumiro ready: $archive"
 } finally { Pop-Location }
