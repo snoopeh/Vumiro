@@ -4,6 +4,10 @@
   const $ = id => document.getElementById(id), query = new URLSearchParams(location.search), linuxPlatform=query.get('platform')==='linux'||window.vumiroDesktop?.platform==='linux';
   const clock=window.VumiroServerClock,serverNow=()=>clock?.now()??Date.now();
   const embedded = query.get('embedded') === '1' && parent !== window;
+  const canonicalRoomHost='vumiro-rooms.vumiro-signaling.workers.dev';
+  const legacyRoomHosts=new Set(['screentask-rooms.screentask-room-signaling.workers.dev','screentask-rooms.vumiro-signaling.workers.dev','vumiro-rooms.screentask-room-signaling.workers.dev']);
+  function migrateRoomHost(url) { if(legacyRoomHosts.has(url.hostname.toLowerCase()))url.hostname=canonicalRoomHost;return url; }
+  function canonicalSignalInput(raw) { try{return migrateRoomHost(new URL(raw)).href;}catch{return raw;} }
   document.body.classList.toggle('embedded', embedded);
   const settingsKey='vumiro-stream-settings', encoder=new TextEncoder();
   const defaultSettings={fps:Math.min(120,Math.max(1,Number(query.get('fps')) || 60)),mbps:Math.min(100,Math.max(1,Number(query.get('mbps')) || 20)),resolution:'native',contentHint:'detail',audio:!linuxPlatform,excludeDiscord:true};
@@ -177,7 +181,7 @@
     send({type:'room-policy',revision,policy,blockedIds,signature});await confirmed;ownerPolicy=policy;ownerBlocks=blockedIds.join(',');policyRevision=revision;roomMode=mode;roomName=name.trim().slice(0,60) || 'Your room';renderRoom();roomState();parentMessage({type:'vumiro-room-policy',room,mode:roomMode,name:roomName});
   }
   function signalUrl() {
-    const url = new URL($('signaling').value.trim());
+    const url = migrateRoomHost(new URL($('signaling').value.trim()));
     if(url.protocol==='https:') url.protocol='wss:';else if(url.protocol==='http:') url.protocol='ws:';
     if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password) throw Error('Use a ws:// or wss:// signaling URL.');
     if(url.protocol==='ws:' && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) throw Error('Remote signaling requires wss://.');
@@ -437,8 +441,8 @@
     try {
       const pasted=new URL(raw); raw=pasted.searchParams.get('room') || '';
       roomGrant=grantValue(pasted.searchParams.get('grant'));grantRoom=raw;if(['public','friends','private'].includes(pasted.searchParams.get('mode'))) roomMode=pasted.searchParams.get('mode');
-      if(pasted.searchParams.get('signaling')) $('signaling').value=pasted.searchParams.get('signaling');
-      else if(['http:','https:'].includes(pasted.protocol)) $('signaling').value=(pasted.protocol==='https:'?'wss:':'ws:')+'//'+pasted.host+'/call-signaling';
+      if(pasted.searchParams.get('signaling')) $('signaling').value=canonicalSignalInput(pasted.searchParams.get('signaling'));
+      else if(['http:','https:'].includes(pasted.protocol)) $('signaling').value=canonicalSignalInput((pasted.protocol==='https:'?'wss:':'ws:')+'//'+pasted.host+'/call-signaling');
     } catch { /* plain room code */ }
     if(!validRoom(raw)) { status('Use a new private-room invitation. Older anonymous room links are no longer supported.');return; }
     if(raw!==grantRoom) roomGrant=null;grantRoom=raw;
@@ -454,7 +458,9 @@
     if(embedded) parent.postMessage({type:'vumiro-call-ended'}, location.origin);
   }
   $('name').value=query.get('name')?.slice(0,48) || readSaved('call-name') || 'Guest';$('room').value=query.get('room') || '';
-  $('signaling').value=query.get('signaling') || readSaved('call-signaling') || (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/call-signaling';
+  const savedSignal=readSaved('call-signaling'),querySignal=query.get('signaling');
+  $('signaling').value=canonicalSignalInput(querySignal || savedSignal || (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/call-signaling');
+  if(!querySignal&&savedSignal&&savedSignal!==$('signaling').value)save('call-signaling',$('signaling').value);
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
   $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks().some(track=>track.enabled);microphone.getAudioTracks().forEach(track=>track.enabled=enabled);syncMuteControl();for(const peer of peers.values()) announce(peer); } };
   $('copyInvite').onclick=async()=>{ try { await navigator.clipboard.writeText(invitation());status(roomMode==='private'?'Room link copied. Share the password separately.':roomMode==='public'?'Room link copied. Anyone with a profile can join.':'Room link copied. Mutual friends can join.'); } catch { status('Copy this invitation: '+invitation()); } };

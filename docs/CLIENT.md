@@ -1,4 +1,4 @@
-# Vumiro 1.21
+# Vumiro 1.21.1
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -7,6 +7,8 @@ Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **
 Linux x64 packages are available in the same release: AppImage, deb and rpm. Follow the [Linux guide](LINUX.md). The Linux client shares rooms, profiles, friend requests and chat behavior with Windows, but uses a separate local device identity. Its screen picker and window frame follow the Linux desktop, and updates are downloaded for manual installation. Screen video and microphone are supported; system-audio loopback is unavailable in the Linux client.
 
 Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**.
+
+Version 1.21.1 moves the connection service to **https://vumiro-rooms.vumiro-signaling.workers.dev**. Both peers should update for the new address. Known legacy saved URLs and invitations migrate automatically; custom services and local identity data are preserved. GitHub updates remain available even when an older client cannot reach the retired service hostname.
 
 ## Your profile and friends
 

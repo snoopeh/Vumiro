@@ -34,7 +34,7 @@ namespace Vumiro.Client
         // Keep this origin and ClientBrowser folder stable: IndexedDB stores
         // existing identity keys and contacts under these compatibility names.
         private const string Origin = "https://screentask.local";
-        private const string DefaultSignaling = "wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling";
+        private const string DefaultSignaling = "wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling";
         private Rectangle windowBounds;
         private FormWindowState windowState;
         private bool startupOverlayActive = true;

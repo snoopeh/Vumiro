@@ -10,6 +10,8 @@ For Linux x64, download **Vumiro-linux-x64.AppImage**, **.deb** or **.rpm** from
 
 Profiles, signing keys, friends, pictures and settings stay on your device. The Cloudflare Worker handles online discovery, requests and connection signaling. Screen, audio, chat and profile pictures travel directly between peers. Direct connectivity depends on the network; no TURN relay is configured.
 
+The connection service is **https://vumiro-rooms.vumiro-signaling.workers.dev**. Update to 1.21.1 or newer to use the renamed service. Existing saved production URLs and room invitations migrate automatically; your profile, friends and custom service settings remain intact.
+
 Rooms support public access, mutual friends, or a password. Removing and blocking a contact requires confirmation. Short contact codes preserve the existing device identity, and old contact codes remain readable.
 
 Windows 11 stream audio uses native application capture, with Discord excluded by default while remaining audible locally. Vumiro's room playback is excluded to prevent feedback. Microphone and stream-audio controls are separate. Older Windows versions use browser-provided audio where available; Linux system-audio capture is not included yet. See the [audio guide](docs/CLIENT.md#stream-audio-on-windows).
@@ -23,7 +25,7 @@ dotnet build Vumiro.sln -c Release
 ./scripts/Build-Client.ps1
 ```
 
-The package is written to `dist/vumiro-1.21.0/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
+The package is written to `dist/vumiro-1.21.1/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
 
 Build the Linux packages on a Linux x64 host with Node.js 22 or later, `rpm` and `libarchive-tools` installed:
 
@@ -39,7 +41,7 @@ For signaling development, run `npm ci` and `npm run dev` in `cloudflare/`. See 
 
 ## Releases and updates
 
-Commit and push a matching `client-v1.21.0` tag to publish the Windows and Linux packages after both builds pass. Both Windows project versions and the Linux package version must match the tag. The Windows app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back. Linux checks for releases and opens the download page for manual package installation.
+Commit and push a matching `client-v1.21.1` tag to publish the Windows and Linux packages after both builds pass. Both Windows project versions and the Linux package version must match the tag. The Windows app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back. Linux checks for releases and opens the download page for manual package installation.
 
 **Older 1.14/1.15 clients need one fresh Vumiro installation after the GitHub repository rename.** Their updater pins the old repository API URL and executable layout. From 1.16 onward, updates use the Vumiro repository and filenames. Existing local profiles and contacts are preserved.
 

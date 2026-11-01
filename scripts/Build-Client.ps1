@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../dist/vumiro-1.21.0'))
+param([string]$OutputDirectory = (Join-Path $PSScriptRoot '../dist/vumiro-1.21.1'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $output = [IO.Path]::GetFullPath($OutputDirectory)

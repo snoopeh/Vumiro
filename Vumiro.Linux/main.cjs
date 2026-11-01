@@ -52,8 +52,8 @@ let capturePicker = null;
 let permittedCaptureSources = new Map();
 let finishCapturePicker = null;
 let captureRequestBusy = false;
-const appVersion = app.getVersion() || '1.21.0';
-const DEFAULT_SIGNALING = 'wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling';
+const appVersion = app.getVersion() || '1.21.1';
+const DEFAULT_SIGNALING = 'wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling';
 
 const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'],

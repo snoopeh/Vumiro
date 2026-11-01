@@ -1,6 +1,6 @@
 # Vumiro signaling
 
-The deployed coordination service is **https://screentask-rooms.screentask-room-signaling.workers.dev**. The existing hostname, Worker name and Durable Object bindings remain stable so installed clients keep connecting.
+The coordination service is **https://vumiro-rooms.vumiro-signaling.workers.dev**. Use client 1.21.1 or newer for this address. Updated clients migrate known legacy service URLs and invitations automatically while preserving custom connection services and local profiles.
 
 `/friends-signaling` proves device identities, announces online display names/usernames, handles mutual-friend presence, requests and room snapshots, and routes bounded signed profile-only SDP/ICE exchanges. Pictures themselves travel directly between peers. `/call-signaling` authenticates participants and enforces the owner's room access mode: public, mutual friends, or password. Legacy clients retain the older grant-based friendship policy.
 
@@ -19,6 +19,8 @@ npm run dev
 
 For deployment, authenticate with `npx wrangler login`, set `CLOUDFLARE_ACCOUNT_ID` for the intended account and run `npm run deploy`. OAuth credentials remain in Wrangler's local credential storage, outside the repository/package. `npm run prepare-assets` copies only the six allowlisted web files.
 
-Do not rename the deployed Worker or recreate its Durable Object bindings during cosmetic cleanup: that creates a separate coordination service. The original migration history remains in `wrangler.jsonc`.
+The public Worker is `vumiro-rooms`. Its Durable Object bindings reference the existing `screentask-rooms` storage owner directly, retaining the same namespace IDs and stored friend requests. That legacy resource name is an internal compatibility identifier, not a public service URL. Do not recreate its namespaces. Original migration history lives in `wrangler.storage.jsonc`; the storage owner has no public workers.dev route. `npm run deploy` updates both scripts, with no proxy hop or extra service polling.
+
+The account's workers.dev subdomain is `vumiro-signaling`. Renaming that account subdomain retires the old `screentask-room-signaling` URLs. Older installed clients can still download their GitHub update; both peers should update before using the new address.
 
 Runtime tests are deferred to the user for this iteration. Compilation, JavaScript syntax and deployment checks do not claim an end-to-end/security audit. Service usage remains subject to the account's Cloudflare limits.
