@@ -25,7 +25,7 @@ namespace Vumiro.Client
     internal sealed partial class ClientWindow : Form
     {
         private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
-        private readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Gainsboro, Text = "Opening Vumiro…" };
+        private readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Gainsboro, BackColor = Color.FromArgb(11, 11, 12), Text = "Opening Vumiro…" };
         // Keep this origin and ClientBrowser folder stable: IndexedDB stores
         // existing identity keys and contacts under these compatibility names.
         private const string Origin = "https://screentask.local";

@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace Vumiro.Client
 {
     internal sealed partial class ClientWindow
     {
         private bool contentFullscreen;
+        private bool backdropEnabled;
         private static readonly Dictionary<string, int> ResizeEdges = new Dictionary<string, int> {
             {"w",10}, {"e",11}, {"n",12}, {"nw",13}, {"ne",14}, {"s",15}, {"sw",16}, {"se",17}
         };
@@ -37,6 +39,10 @@ namespace Vumiro.Client
         {
             if (message.Msg == 0x0083) { message.Result = IntPtr.Zero; return; } // WM_NCCALCSIZE
             base.WndProc(ref message);
+            if (message.Msg == 0x001a || message.Msg == 0x031a || message.Msg == 0x031e)
+            {
+                ApplyWindowAppearance(); PublishWindowState();
+            }
             if (message.Msg == 0x0024 && message.LParam != IntPtr.Zero)
             {
                 var monitor = new MonitorInfo { Size = Marshal.SizeOf(typeof(MonitorInfo)) };
@@ -70,8 +76,32 @@ namespace Vumiro.Client
             DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
             DwmSetWindowAttribute(Handle, 33, ref corners, sizeof(int));
             DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
-            var margins = new Margins { Left = 1, Right = 1, Top = 1, Bottom = 1 };
+            // Let DWM blur/tint the desktop, while WebView paints text and media
+            // at full opacity. Unsupported systems retain the solid dark theme.
+            var backdrop = !contentFullscreen && TransparencyAllowed() ? 3 : 1; // Desktop Acrylic / none
+            var enabled = DwmSetWindowAttribute(Handle, 38, ref backdrop, sizeof(int)) == 0 && backdrop == 3;
+            if (enabled != backdropEnabled)
+            {
+                backdropEnabled = enabled;
+                BackColor = enabled ? Color.Black : Color.FromArgb(11, 11, 12);
+                browser.DefaultBackgroundColor = enabled ? Color.Transparent : Color.FromArgb(11, 11, 12);
+                Invalidate();
+            }
+            var extent = enabled ? -1 : 1;
+            var margins = new Margins { Left = extent, Right = extent, Top = extent, Bottom = extent };
             DwmExtendFrameIntoClientArea(Handle, ref margins);
+        }
+
+        private static bool TransparencyAllowed()
+        {
+            if (SystemInformation.HighContrast) return false;
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+                    return !Equals(key?.GetValue("EnableTransparency"), 0);
+            }
+            catch (System.Security.SecurityException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         private bool HandleWindowMessage(Dictionary<string, object> message)
@@ -122,7 +152,7 @@ namespace Vumiro.Client
         private void PublishWindowState()
         {
             if (!IsDisposed && browser != null && browser.CoreWebView2 != null)
-                browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "window-state", maximized = WindowState == FormWindowState.Maximized, fullscreen = contentFullscreen }));
+                browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "window-state", maximized = WindowState == FormWindowState.Maximized, fullscreen = contentFullscreen, backdrop = backdropEnabled }));
         }
 
         [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }

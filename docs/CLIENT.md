@@ -40,6 +40,8 @@ Open **Settings** outside the room or the room's **Stream settings**. FPS, resol
 
 The compact dark title bar supports dragging, double-click maximize/restore, window controls and edge resize.
 
+Version 1.16.1 adds a subtle frosted window background on supported Windows systems. Text and streams keep their normal opacity. The effect follows Windows transparency and high-contrast settings; other systems retain the solid dark theme.
+
 **Updates → Update now** rechecks GitHub release metadata, verifies SHA-256, size and executable identities, then restarts through a separate helper. Leave the room before updating. Failed file copies roll back. Executables are unsigned; publisher-account integrity is the update trust anchor.
 
 ## Local data and connectivity
