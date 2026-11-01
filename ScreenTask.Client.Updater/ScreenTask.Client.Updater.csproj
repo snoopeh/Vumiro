@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget><AssemblyName>ScreenTask.Client.Updater</AssemblyName><Version>1.14.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../ScreenTask.Client/ClientUpdateInstaller.cs" Link="ClientUpdateInstaller.cs" />
+    <Reference Include="System.IO.Compression" /><Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+</Project>

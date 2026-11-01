@@ -1,5 +1,7 @@
 # ScreenTask
 
+**Local friends client:** [Download ScreenTask Client 1.14](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.14.0). Create a local profile, exchange contact codes both ways, and share screens directly. Rooms admit only mutual friends of the room owner. The app checks GitHub for updates; use **Updates → Update now** to install future client versions. See [client instructions](docs/CLIENT.md). Build with `powershell -File scripts/Build-Client.ps1`. The legacy server app remains available below.
+
 Screen sharing, audio and large file transfers straight from your Windows PC to a friend's browser.
 
 **[Download the latest Windows app](https://github.com/snoopeh/ScreenTask/releases/latest/download/ScreenTask-win-x64.zip)** · **[Releases](https://github.com/snoopeh/ScreenTask/releases)** · **[Usage and connection troubleshooting](https://github.com/snoopeh/ScreenTask/blob/main/docs/USAGE.md)**

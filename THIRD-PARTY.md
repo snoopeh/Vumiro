@@ -1,5 +1,7 @@
 # Third-party components
 
+The standalone **local friends client** includes only the WebView2 SDK assemblies/loader and ScreenTask client assets; the FFmpeg, NAudio and self-contained runtime components described below apply to the legacy server package.
+
 ScreenTask derives from [EslaMx7/ScreenTask](https://github.com/EslaMx7/ScreenTask), by Eslam Hamouda, under GPL-3.0-or-later. Original history and notices are preserved. See COPYING.
 
 ## FFmpeg
@@ -23,3 +25,7 @@ The build includes external libraries such as x264, x265 and zimg; their own not
 - [Bootstrap](https://github.com/twbs/bootstrap): MIT; the bundled stylesheet retains its license header.
 
 NuGet packages retain their upstream license metadata. Build the project with `dotnet restore` to obtain original packages and their full notices.
+
+## Embedded calls
+
+The Call tab uses [Microsoft.Web.WebView2 1.0.4314.35](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35) and its x64 loader under Microsoft's WebView2 SDK license, included in the NuGet package metadata. Microsoft Edge WebView2 Runtime is a separate prerequisite. Its native screen/audio picker still requires participant interaction.

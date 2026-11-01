@@ -1,0 +1,12 @@
+{
+  "name": "screentask-room-signaling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-assets": "node prepare-assets.mjs",
+    "dev": "npm run prepare-assets && wrangler dev --ip 127.0.0.1",
+    "deploy": "npm run prepare-assets && wrangler deploy",
+    "test": "node test-worker.mjs"
+  },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}
