@@ -1,0 +1,68 @@
+{
+  "name": "vumiro-linux",
+  "productName": "Vumiro",
+  "version": "1.20.0",
+  "description": "Share your view.",
+  "author": {
+    "name": "Vumiro contributors",
+    "email": "snoopeh@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/snoopeh/Vumiro",
+  "main": "main.cjs",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "scripts": {
+    "prepare-assets": "node build/prepare-assets.mjs",
+    "build:linux": "node ../scripts/Build-Linux.mjs"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.vumiro.client",
+    "productName": "Vumiro",
+    "executableName": "vumiro",
+    "asar": true,
+    "directories": {
+      "output": "../dist/linux-release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.js",
+      "capture-picker.js",
+      "capture-picker-preload.js",
+      "capture-picker.html",
+      "resources/icon.png",
+      "webserver/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/legal",
+        "to": "licenses",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "deb", "rpm"],
+      "category": "Network;InstantMessaging",
+      "icon": "resources/icon.png",
+      "artifactName": "Vumiro-linux-x64.${ext}",
+      "maintainer": "Vumiro contributors <snoopeh@users.noreply.github.com>",
+      "vendor": "Vumiro contributors",
+      "synopsis": "Share your view",
+      "description": "Vumiro desktop client for screen sharing and calls."
+    },
+    "appImage": {
+      "artifactName": "Vumiro-linux-x64.AppImage"
+    },
+    "deb": {
+      "artifactName": "Vumiro-linux-x64.deb",
+      "maintainer": "Vumiro contributors <snoopeh@users.noreply.github.com>"
+    },
+    "rpm": {
+      "artifactName": "Vumiro-linux-x64.rpm"
+    }
+  }
+}

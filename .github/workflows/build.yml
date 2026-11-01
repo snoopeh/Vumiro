@@ -20,7 +20,25 @@ jobs:
       - name: Check JavaScript syntax
         shell: pwsh
         run: |
-          Get-ChildItem Vumiro.Client/WebServer,cloudflare -File | Where-Object { $_.Extension -in '.js','.mjs' } | ForEach-Object {
+          Get-ChildItem Vumiro.Client/WebServer,cloudflare,Vumiro.Linux -File | Where-Object { $_.Extension -in '.js','.mjs','.cjs' } | ForEach-Object {
             node --check $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
           }
+  linux-packaging:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Vumiro.Linux/package-lock.json
+      - name: Install Linux package builders
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rpm libarchive-tools
+      - name: Build Linux packages
+        working-directory: Vumiro.Linux
+        run: |
+          npm ci
+          node ../scripts/Build-Linux.mjs

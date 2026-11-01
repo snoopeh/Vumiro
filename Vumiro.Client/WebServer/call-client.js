@@ -1,15 +1,15 @@
 /* Vumiro room: signaling-only server, direct WebRTC media. No TURN configuration. */
 (() => {
   'use strict';
-  const $ = id => document.getElementById(id), query = new URLSearchParams(location.search);
+  const $ = id => document.getElementById(id), query = new URLSearchParams(location.search), linuxPlatform=query.get('platform')==='linux'||window.vumiroDesktop?.platform==='linux';
   const clock=window.VumiroServerClock,serverNow=()=>clock?.now()??Date.now();
   const embedded = query.get('embedded') === '1' && parent !== window;
   document.body.classList.toggle('embedded', embedded);
   const settingsKey='vumiro-stream-settings', encoder=new TextEncoder();
-  const defaultSettings={fps:Math.min(120,Math.max(1,Number(query.get('fps')) || 60)),mbps:Math.min(100,Math.max(1,Number(query.get('mbps')) || 20)),resolution:'native',contentHint:'detail',audio:true};
+  const defaultSettings={fps:Math.min(120,Math.max(1,Number(query.get('fps')) || 60)),mbps:Math.min(100,Math.max(1,Number(query.get('mbps')) || 20)),resolution:'native',contentHint:'detail',audio:!linuxPlatform};
   function validateSettings(value) {
     if(!value || typeof value!=='object' || !Number.isFinite(value.fps) || !Number.isFinite(value.mbps) || value.fps<1 || value.fps>120 || value.mbps<1 || value.mbps>100 || !['native','720p','1080p','1440p','2160p'].includes(value.resolution) || !['detail','motion'].includes(value.contentHint) || typeof value.audio!=='boolean') return null;
-    return {fps:Math.round(value.fps),mbps:Math.round(value.mbps),resolution:value.resolution,contentHint:value.contentHint,audio:value.audio};
+    return {fps:Math.round(value.fps),mbps:Math.round(value.mbps),resolution:value.resolution,contentHint:value.contentHint,audio:!linuxPlatform&&value.audio};
   }
   let streamSettings={...defaultSettings};
   try { streamSettings=validateSettings(JSON.parse(localStorage.getItem(settingsKey))) || streamSettings; } catch { /* Use migrated query defaults. */ }
@@ -111,7 +111,7 @@
     peer.name=profile.name;cacheProfile(peer.id,profile);showProfile(peer.tile,profile);parentMessage({type:'vumiro-peer-profile',id:peer.id,profile});
     try { if(local.updateContactProfile) await local.updateContactProfile(peer.id,profile); } catch { /* A noncontact participant need not be saved. */ }
   }
-  function syncSettingsControls() { $('settingFps').value=streamSettings.fps;$('settingMbps').value=streamSettings.mbps;$('settingResolution').value=streamSettings.resolution;$('settingContent').value=streamSettings.contentHint;$('settingAudio').checked=streamSettings.audio; }
+  function syncSettingsControls() { $('settingFps').value=streamSettings.fps;$('settingMbps').value=streamSettings.mbps;$('settingResolution').value=streamSettings.resolution;$('settingContent').value=streamSettings.contentHint;$('settingAudio').checked=streamSettings.audio;$('settingAudio').disabled=linuxPlatform;if(linuxPlatform&&!$('linuxRoomAudioHint')){const hint=document.createElement('p');hint.id='linuxRoomAudioHint';hint.className='linux-audio-hint';hint.textContent='Microphone works on Linux, but system audio capture is not supported in this release.';hint.style.cssText='grid-column:1/-1;color:var(--muted);font-size:12px;margin:-8px 0 0';$('settingAudio').setAttribute('aria-describedby',hint.id);$('settingAudio').closest('.settings-grid').append(hint);} }
   function videoConstraints() { const value={frameRate:{ideal:requestedFps,max:requestedFps}};if(streamSettings.resolution!=='native') { const height=Number.parseInt(streamSettings.resolution,10);value.height={max:height};value.width={max:Math.round(height*16/9)}; }return value; }
   function captureInfo() {
     const track=screen?.getVideoTracks()[0];if(!track) return;
@@ -187,9 +187,10 @@
   }
   function invitation() {
     const signal = signalUrl();
-    const url = new URL('/call', location.href);
+    const publicOrigin=(signal.protocol==='wss:'?'https:':'http:')+'//'+signal.host;
+    const url = new URL('/call', linuxPlatform?publicOrigin:location.href);
     // The embedded virtual host exists only on this machine. A public Worker serves the same room page.
-    if (['screentask.local','localhost','127.0.0.1','[::1]'].includes(location.hostname) && !['localhost', '127.0.0.1', '[::1]'].includes(signal.hostname)) {
+    if (!linuxPlatform&&['screentask.local','localhost','127.0.0.1','[::1]'].includes(location.hostname) && !['localhost', '127.0.0.1', '[::1]'].includes(signal.hostname)) {
       url.protocol = signal.protocol === 'wss:' ? 'https:' : 'http:'; url.host = signal.host;
     }
     url.searchParams.set('room', roomValue($('room').value));url.searchParams.set('mode',roomMode);

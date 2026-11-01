@@ -1,8 +1,10 @@
-# Vumiro 1.19
+# Vumiro 1.20
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
 Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed.
+
+Linux x64 packages are available in the same release: AppImage, deb and rpm. Follow the [Linux guide](LINUX.md). The Linux client shares rooms, profiles, friend requests and chat behavior with Windows, but uses a separate local device identity. Its screen picker and window frame follow the Linux desktop, and updates are downloaded for manual installation. Screen video and microphone are supported; system-audio loopback is unavailable in the Linux client.
 
 Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**.
 

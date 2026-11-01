@@ -5,7 +5,7 @@ on:
 permissions:
   contents: write
 jobs:
-  client-release:
+  windows-client:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,13 +20,70 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:GITHUB_REF_NAME -ne "client-v$version") { throw 'Client tag and version differ.' }
           [xml]$helper = Get-Content Vumiro.Client.Updater/Vumiro.Client.Updater.csproj
           if ([string]$helper.Project.PropertyGroup.Version -ne $version) { throw 'Client updater and app versions differ.' }
+          $linuxPackage = Get-Content Vumiro.Linux/package.json -Raw | ConvertFrom-Json
+          if ($linuxPackage.version -ne $version) { throw 'Linux client and Windows client versions differ.' }
       - name: Build portable client and update helper
         shell: pwsh
         run: ./scripts/Build-Client.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/dist/client-release"
-      - name: Publish client download and checksums
-        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-client-release
+          path: |
+            dist/client-release/Vumiro-win-x64.zip
+            dist/client-release/SHA256SUMS.txt
+          if-no-files-found: error
+  linux-client:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Vumiro.Linux/package-lock.json
+      - name: Install Linux package builders
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes rpm libarchive-tools
+      - name: Verify Linux package version matches tag
+        working-directory: Vumiro.Linux
+        run: |
+          node -e "const p=require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'client-v' + p.version) throw new Error('Client tag and Linux package version differ.')"
+      - name: Build Linux packages
+        working-directory: Vumiro.Linux
+        run: |
+          npm ci
+          node ../scripts/Build-Linux.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-client-release
+          path: |
+            dist/linux-release/Vumiro-linux-x64.AppImage
+            dist/linux-release/Vumiro-linux-x64.deb
+            dist/linux-release/Vumiro-linux-x64.rpm
+            dist/linux-release/SHA256SUMS-linux.txt
+          if-no-files-found: error
+  publish-release:
+    needs: [windows-client, linux-client]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-client-release
+          path: dist/release-assets/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-client-release
+          path: dist/release-assets/linux
+      - name: Publish client downloads and checksums
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" dist/client-release/Vumiro-win-x64.zip dist/client-release/SHA256SUMS.txt --title "Vumiro $env:GITHUB_REF_NAME" --generate-notes
-          if ($LASTEXITCODE -ne 0) { throw 'Client release publication failed.' }
+          gh release create "$GITHUB_REF_NAME" \
+            dist/release-assets/windows/Vumiro-win-x64.zip \
+            dist/release-assets/windows/SHA256SUMS.txt \
+            dist/release-assets/linux/Vumiro-linux-x64.AppImage \
+            dist/release-assets/linux/Vumiro-linux-x64.deb \
+            dist/release-assets/linux/Vumiro-linux-x64.rpm \
+            dist/release-assets/linux/SHA256SUMS-linux.txt \
+            --title "Vumiro $GITHUB_REF_NAME" --generate-notes

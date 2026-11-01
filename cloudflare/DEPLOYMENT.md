@@ -1,12 +1,13 @@
 # Active Vumiro deployment
 
 - Published/deployed: 2026-11-01.
-- Source release tag: `client-v1.19.0`.
-- Windows release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.19.0
+- Source release tag: `client-v1.20.0`.
+- Windows and Linux release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.20.0
 - Build/release workflows: https://github.com/snoopeh/Vumiro/actions
-- Local package: `../dist/vumiro-1.19.0/Vumiro-win-x64.zip`. Published checksums accompany the release assets.
-- Both Windows executables use version 1.19.0.0; packaging retains the existing six-web-asset allowlist for updater compatibility.
-- Worker: `screentask-rooms`, version `99fbf554-bd20-4369-9e59-27c40cbbc814`.
+- Local Windows package: `../dist/vumiro-1.20.0-final/Vumiro-win-x64.zip`. Linux AppImage/deb/rpm packages build in Ubuntu CI. Published checksums accompany the release assets.
+- Both Windows executables use version 1.20.0.0; Linux package version is 1.20.0. Windows packaging retains the existing six-web-asset allowlist for updater compatibility.
+- Worker: `screentask-rooms`, version `b2e9af16-3f06-4da1-bf7b-e77bbe05637a`.
+- Linux's exact local origin `vumiro://app` is permitted alongside the existing Windows origin.
 - Service: https://screentask-rooms.screentask-room-signaling.workers.dev
 - Endpoints: `/friends-signaling`, `/call-signaling`.
 - Bindings: `CALL_ROOMS` (CallRoom), `FRIEND_DIRECTORY` (FriendDirectory), `ASSETS` (six client assets).

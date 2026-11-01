@@ -254,7 +254,7 @@ export default {
       const friends=url.pathname==='/friends-signaling';
       if(!FRIEND_ID_PATTERN.test(url.searchParams.get('id') || '') || !friends && !ROOM_PATTERN.test(url.searchParams.get('room') || '')) return new Response('A local profile and protected room code are required. Create a new room in Vumiro.',{status:400});
       const origin=request.headers.get('Origin');
-      if(origin && origin!==url.origin && origin!=='https://screentask.local' && origin!=='https://vumiro.local') {
+      if(origin && origin!==url.origin && origin!=='https://screentask.local' && origin!=='https://vumiro.local' && origin!=='vumiro://app') {
         // Local browser development is allowed only on the local Worker itself.
         let local=false;try { const u=new URL(origin);local=['localhost','127.0.0.1','[::1]'].includes(url.hostname) && ['localhost','127.0.0.1','[::1]'].includes(u.hostname); } catch { /* invalid origin */ }
         if(!local) return new Response('Origin not allowed.',{status:403});

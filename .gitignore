@@ -2,7 +2,10 @@
 **/bin/
 **/obj/
 /dist/
-/node_modules/
+**/node_modules/
+/Vumiro.Linux/assets/
+/Vumiro.Linux/webserver/
+/Vumiro.Linux/resources/legal/
 .vs/
 
 # Local configuration, credentials and recovery copies

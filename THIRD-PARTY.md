@@ -8,6 +8,10 @@ The Windows client includes [Microsoft.Web.WebView2 1.0.4314.35](https://www.nug
 
 The active client no longer bundles the retired native server, FFmpeg, NAudio, Bootstrap or a self-contained .NET audio runtime. Their source and notices remain in Git history and the pre-cleanup backup.
 
+## Electron and Linux packaging
+
+The Linux client bundles [Electron](https://www.electronjs.org/) under the MIT license, along with Chromium and Node.js components under their accompanying licenses. Electron's runtime license and Chromium notices remain in the packaged distribution. [electron-builder](https://www.electron.build/) is a build-time MIT-licensed dependency; the pinned versions and dependency graph are recorded in Vumiro.Linux/package-lock.json. GPL and font notices are also included under the Linux package's licenses resources.
+
 ## Sora font
 
 Vumiro embeds the Sora Latin variable font from Google Fonts (https://fonts.google.com/specimen/Sora). The unmodified font is distributed under the following license.
