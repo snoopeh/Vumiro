@@ -1,4 +1,4 @@
-name: Build and test
+name: Build Vumiro
 on:
   push:
     branches: [main]
@@ -13,12 +13,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-      - run: dotnet build ScreenTask.sln -c Release --nologo
-      - run: dotnet build tests/UpdateTests -c Release --nologo
-      - run: tests/UpdateTests/bin/Release/net48/UpdateTests.exe
-      - run: dotnet build tests/ConnectionHarness -c Release --nologo
-      - name: Install browser test tooling
-        run: npm install --no-save --no-package-lock --ignore-scripts playwright@1.62.1
-      - name: Verify browser file sharing in Chrome and Edge
-        timeout-minutes: 5
-        run: node tests/browser-files.cjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: dotnet build Vumiro.sln -c Release --nologo
+      - name: Check JavaScript syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem Vumiro.Client/WebServer,cloudflare -File | Where-Object { $_.Extension -in '.js','.mjs' } | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
+          }

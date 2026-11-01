@@ -1,0 +1,33 @@
+# Vumiro architecture
+
+## Active projects
+
+- `Vumiro.Client`: .NET Framework 4.8/x64 WinForms host with WebView2, custom window chrome and a trusted update bridge. Produces `Vumiro.exe`.
+- `Vumiro.Client.Updater`: separate replacement process sharing the package validator. Produces `Vumiro.Updater.exe`.
+- `Vumiro.Client/WebServer`: local profile/contact storage, friends UI, direct profile exchange and WebRTC room UI. Exactly these assets are also published by `cloudflare/prepare-assets.mjs`.
+- `cloudflare`: authenticated ephemeral directory and per-room signaling Durable Objects. No account database, chat storage, avatar hosting or media relay.
+- `scripts`: packaging, vector-icon generation and embedding of the locally licensed font.
+
+## Identity and compatibility
+
+The nonextractable P-256 private key stays in IndexedDB. A public identity is the SHA-256 fingerprint of its SPKI public key. The short `vm1.` code encodes the compressed public key; decoding reconstructs the same identity. Older `stfriend1.` codes remain valid.
+
+The existing `https://screentask.local` WebView origin, `%LOCALAPPDATA%/ScreenTask/ClientBrowser`, IndexedDB database and legacy signed protocol domain strings remain intentional compatibility identifiers. Renaming those without a key migration would disconnect users from their identities. User-facing app/project/executable names are Vumiro. The deployed Worker hostname and Durable Object binding names likewise remain stable for installed clients.
+
+Display names and pictures are public peer profile fields. A personal nickname override in one's contact book stays local. Online friends exchange fresh profile metadata over short-lived, authenticated, bounded WebRTC data channels; the Worker carries only the SDP/ICE handshake. Room chat resolves profiles by peer identity and updates when fresh metadata arrives.
+
+## Rooms
+
+Each room binds its random invitation code to the owner identity. Every participant proves its local identity. Modern owner policy admits public participants, mutual friends, or participants proving knowledge of a password. Private-room passwords remain in local memory; PBKDF2-derived challenge responses go through signaling. Signed policy updates and current block/friend state govern ongoing access. The owner stays connected; rooms contain at most eight people.
+
+Screen, voice and chat use direct mesh WebRTC connections. STUN helps find a route; there is no TURN fallback. Room discovery is event driven. Reconnect retains usable local room/capture state; leaving stops capture.
+
+## Update trust and cleanup
+
+Updates pin the Vumiro GitHub repository/release asset, require its SHA-256 digest and executable version, reject unlisted/archive traversal entries and linked paths, and use a separate helper with rollback. User data is outside the install directory and never included in the update allowlist. Publisher-account integrity remains the trust anchor; releases are unsigned.
+
+The pre-cleanup restore tag and full offline backup preserve the retired native server, its dependencies, old build outputs and obsolete guides/harnesses. They are intentionally outside the active application tree. See [RESTORE.md](RESTORE.md).
+
+## Validation policy
+
+The user requested manual runtime feedback instead of automated runtime tests. This iteration uses compilation, JavaScript syntax checks, package inspection and source review. This does not claim a runtime/security audit.

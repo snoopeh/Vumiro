@@ -1,4 +1,4 @@
-param([string]$Output = (Join-Path $PSScriptRoot '../ScreenTask.Client/Brand/vumiro.ico'))
+param([string]$Output = (Join-Path $PSScriptRoot '../Vumiro.Client/Brand/vumiro.ico'))
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $images = @()

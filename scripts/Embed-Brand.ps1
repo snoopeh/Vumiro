@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$font = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $root 'ScreenTask.Client/Brand/Sora-latin.woff2')))
+$font = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $root 'Vumiro.Client/Brand/Sora-latin.woff2')))
 $fontStyle = "/* vumiro-sora:start */`n@font-face{font-family:Sora;font-style:normal;font-weight:400 700;font-display:swap;src:url(data:font/woff2;base64,$font) format('woff2')}`n/* vumiro-sora:end */"
-$icon = [Uri]::EscapeDataString([IO.File]::ReadAllText((Join-Path $root 'ScreenTask.Client/Brand/vumiro.svg')))
+$icon = [Uri]::EscapeDataString([IO.File]::ReadAllText((Join-Path $root 'Vumiro.Client/Brand/vumiro.svg')))
 foreach ($name in @('friends.html','call.html')) {
-    $path = Join-Path $root ('ScreenTask/WebServer/' + $name)
+    $path = Join-Path $root ('Vumiro.Client/WebServer/' + $name)
     $html = [IO.File]::ReadAllText($path)
     if ($html.Contains('/* vumiro-sora:start */')) {
         $html = [regex]::Replace($html, '/\* vumiro-sora:start \*/[\s\S]*?/\* vumiro-sora:end \*/', [Text.RegularExpressions.MatchEvaluator]{ param($match) $fontStyle })

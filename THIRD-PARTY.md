@@ -1,34 +1,12 @@
 # Third-party components
 
-The standalone **local friends client** includes only the WebView2 SDK assemblies/loader and ScreenTask client assets; the FFmpeg, NAudio and self-contained runtime components described below apply to the legacy server package.
+Vumiro continues [Eslam Hamouda's ScreenTask](https://github.com/EslaMx7/ScreenTask) under GPL-3.0-or-later. Original Git history and copyright notices remain in the restore history. See [COPYING](COPYING).
 
-ScreenTask derives from [EslaMx7/ScreenTask](https://github.com/EslaMx7/ScreenTask), by Eslam Hamouda, under GPL-3.0-or-later. Original history and notices are preserved. See COPYING.
+## Microsoft WebView2 and .NET Framework
 
-## FFmpeg
+The Windows client includes [Microsoft.Web.WebView2 1.0.4314.35](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35), its Core/WinForms assemblies and x64 loader. The SDK license and notices are shipped as WEBVIEW2-LICENSE.txt and WEBVIEW2-NOTICE.txt. Microsoft Edge WebView2 Runtime and .NET Framework 4.8 are separate Windows prerequisites.
 
-The portable package includes the unmodified **FFmpeg 9.0.2 essentials build** by Gyan Doshi, built with GPL/version3 enabled. FFmpeg runs as a separate executable. GPLv3 text is included as FFMPEG-LICENSE.txt and COPYING.
-
-- Exact binary distribution and build information: https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2
-- Build provider and dependency list: https://www.gyan.dev/ffmpeg/builds/
-- Corresponding FFmpeg source revision linked by the build provider: https://github.com/FFmpeg/FFmpeg/tree/946fcce07b
-- FFmpeg source archive: https://github.com/FFmpeg/FFmpeg/archive/946fcce07b.tar.gz
-- Dependency source and licenses: https://github.com/GyanD/codexffmpeg (build provider), https://ffmpeg.org/legal.html
-- Tested ffmpeg.exe SHA-256: `3256173f3f8bffd7df12227c68adf68025edb1832273a9530688a7bb1ed8edec`
-
-The build includes external libraries such as x264, x265 and zimg; their own notices/licenses apply. FFmpeg's `-version` and `-buildconf` report the exact configuration.
-
-## .NET and audio
-
-- [NAudio](https://github.com/naudio/NAudio): MIT; 2.2.1 in the desktop app and NAudio.Wasapi 3.0.1 in the audio helper. License: https://github.com/naudio/NAudio/blob/master/license.txt
-- [Microsoft .NET](https://github.com/dotnet/runtime): MIT and third-party notices; the self-contained audio helper contains its runtime. License: https://github.com/dotnet/runtime/blob/main/LICENSE.TXT ; notices: https://github.com/dotnet/runtime/blob/main/THIRD-PARTY-NOTICES.TXT
-- Microsoft System.Resources.Extensions, System.Memory, System.Buffers, System.Numerics.Vectors, System.Runtime.CompilerServices.Unsafe: MIT, https://github.com/dotnet/runtime . Exact dependency versions are pinned in the project files/NuGet resolution.
-- [Bootstrap](https://github.com/twbs/bootstrap): MIT; the bundled stylesheet retains its license header.
-
-NuGet packages retain their upstream license metadata. Build the project with `dotnet restore` to obtain original packages and their full notices.
-
-## Embedded calls
-
-The Call tab uses [Microsoft.Web.WebView2 1.0.4314.35](https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.4314.35) and its x64 loader under Microsoft's WebView2 SDK license, included in the NuGet package metadata. Microsoft Edge WebView2 Runtime is a separate prerequisite. Its native screen/audio picker still requires participant interaction.
+The active client no longer bundles the retired native server, FFmpeg, NAudio, Bootstrap or a self-contained .NET audio runtime. Their source and notices remain in Git history and the pre-cleanup backup.
 
 ## Sora font
 

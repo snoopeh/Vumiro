@@ -15,10 +15,10 @@ jobs:
       - name: Verify client tag matches the application
         shell: pwsh
         run: |
-          [xml]$project = Get-Content ScreenTask.Client/ScreenTask.Client.csproj
+          [xml]$project = Get-Content Vumiro.Client/Vumiro.Client.csproj
           $version = [string]$project.Project.PropertyGroup.Version
           if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:GITHUB_REF_NAME -ne "client-v$version") { throw 'Client tag and version differ.' }
-          [xml]$helper = Get-Content ScreenTask.Client.Updater/ScreenTask.Client.Updater.csproj
+          [xml]$helper = Get-Content Vumiro.Client.Updater/Vumiro.Client.Updater.csproj
           if ([string]$helper.Project.PropertyGroup.Version -ne $version) { throw 'Client updater and app versions differ.' }
       - name: Build portable client and update helper
         shell: pwsh
@@ -28,5 +28,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:GITHUB_REF_NAME" dist/client-release/Vumiro-win-x64.zip dist/client-release/ScreenTask-client-win-x64.zip dist/client-release/SHA256SUMS.txt --title "Vumiro $env:GITHUB_REF_NAME" --generate-notes --latest=false
+          gh release create "$env:GITHUB_REF_NAME" dist/client-release/Vumiro-win-x64.zip dist/client-release/SHA256SUMS.txt --title "Vumiro $env:GITHUB_REF_NAME" --generate-notes
           if ($LASTEXITCODE -ne 0) { throw 'Client release publication failed.' }

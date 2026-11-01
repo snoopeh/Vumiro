@@ -1,41 +1,51 @@
-# Vumiro 1.15
+# Vumiro 1.16
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
-Get [Vumiro 1.15](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.15.0), extract **Vumiro-win-x64.zip**, and run **ScreenTask.Client.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed. Existing 1.14 clients can install through **Updates → Update now**; profiles and friends are preserved.
+Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed.
 
-## Friends and profiles
+Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**.
 
-Create a local display name, then open **Your profile** to choose an optional username and picture. Usernames are online lookup handles, not permanent cloud accounts. Your public identity remains tied to the device key, not its display name.
+## Your profile and friends
 
-Choose **Add friend**, enter their username or contact code, and Vumiro fills their current name automatically. Send a request; they receive **Accept**, **Decline** and **Block** controls. Accepting updates both contact books. Both people must be online; pending requests expire and have no offline cloud mailbox. Reconnect and resend if either person went offline before acceptance.
+Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames are online lookup handles, not permanent cloud accounts; your identity belongs to the device key.
 
-If someone has no username or is offline, **Save code locally** keeps the manual contact-code flow. Names fill from the verified code; both people must add each other's codes before calling. Local nicknames are optional overrides; leave them empty to follow the current name automatically. Blocked identities can be unblocked from your profile.
+Choose **Add friend** and enter their username or short **vm1.** contact code. Vumiro fills the available public name automatically. Both people must be online to send/accept a request. Pending requests expire; there is no offline cloud mailbox. **Save code locally** supports offline/manual contact exchange. Both people must save each other or accept a request to become mutual friends.
 
-Pictures are resized and saved locally. Names/usernames use temporary directory metadata; pictures travel only through a direct peer connection and are cached for known friends. A friend's latest picture appears after connecting in a room, rather than being uploaded to Cloudflare.
+The short code encodes your public key without changing your identity; existing long **stfriend1.** codes still work. A code contains no private key and cannot restore a lost profile. If no public name is available, an optional personal nickname remains a fallback. Personal nickname overrides stay in your contact book; your own profile display name is what others receive.
 
-## Rooms, chat and reconnect
+Online friends exchange current display names and pictures over direct, temporary peer connections and cache them locally. The Worker carries only the connection handshake. A restrictive network may prevent a fresh picture from arriving; cached pictures remain available. Room participants also exchange profiles automatically, and chat author names/pictures update when that profile arrives.
 
-Choose **Create room**. Mutual friends see it under **Rooms → Friends' rooms** and receive an in-app room notification. Lists update when rooms open/close or begin sharing, when friends come online, when you open Rooms, and after reconnecting. No room-discovery polling timer runs.
+Removing or blocking a contact asks for confirmation first. Blocking removes their contact and prevents new social/profile exchanges. You can unblock identities in your profile settings.
 
-Choose **Request to join**; the owner accepts inside Vumiro. A copied invitation also goes through owner approval. Direct call invitations include approval. A room link alone grants no access: guests prove their identity and present an owner-signed grant, and both sides must still be friends. Group participants are friends of the owner; they need not all be friends with one another. The owner must remain connected.
+## Rooms
 
-Either participant can share a screen, enable a microphone, and send **room chat**. Chat and pictures use WebRTC data channels, not the Worker. Chat is bounded, live and local to the open room; there is no cloud history or delivery to disconnected peers. Double-click a stream to toggle fullscreen; **Actual size** remains available for small text.
+Create a room and choose who may join:
 
-Use **Reconnect** in the sidebar for the presence service, or the room's **Reconnect** button for its connection. Automatic backoff remains available. Reconnecting retains the room and an unexpired approval, and can retain an existing capture. You still choose what to share through the system picker. Leaving or closing stops capture. Expired approvals require requesting entry again.
+- **Public:** anyone with the invitation can join after proving their local identity. The room is not listed in a global public directory.
+- **Friends only:** mutual friends of the connected owner may join.
+- **Private:** participants need the room password. Passwords stay out of invitation URLs and are not sent in plaintext to the Worker.
 
-## Stream and window settings
+The owner can change access from inside the room. Signed policy changes update admission and remove participants who no longer qualify. Blocking remains effective in every mode. The owner must remain connected, and a room holds at most eight people. Existing older rooms retain their original owner-approval behavior until recreated with a current client.
 
-Open **Settings** outside the room or **Stream settings** inside it. Changes synchronize and persist locally. Controls: 1–120 FPS, native/720p/1080p/1440p/2160p resolution ceiling, 1–100 Mbps per participant, text/detail or motion preference, and screen audio. FPS/bitrate/resolution apply to the active capture where supported. Enabling screen audio requires choosing audio when capture starts; existing captured audio can be paused/resumed. Actual FPS depends on the device and each connection.
+Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes on connection, room/presence changes, opening Rooms and reconnecting; it does not poll on a timer. Friends may request entry or use an invitation. Password rooms also require the password, even when the owner accepts a request.
 
-Drag the compact dark title bar to move the window, double-click it to maximize/restore, and use minimize/maximize/close. Edges resize; fullscreen restores the same dark frame.
+The room uses a large focused stage with participant thumbnails, a **Chat/People** side pane and bottom call controls. Select a participant/stream to focus it. Double-click a stream for fullscreen. **Actual size** helps read small text. Screen, microphone and screen audio remain off until you enable them through the appropriate controls/picker.
 
-## Updates and local data
+Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving or closing stops capture.
 
-The app checks stable client releases at startup. **Updates → Update now** verifies GitHub's SHA-256 digest, package size and executable versions, then restarts to install. Leave the room first. Failed copies roll back; local profile data is not an update target. Version 1.13 and older need one bootstrap installation to gain the updater. Executables are unsigned; GitHub publisher-account/release integrity is the update trust anchor.
+## Settings and updates
 
-Profiles, nonextractable P-256 signing keys, friends, pictures and blocks stay under `%LOCALAPPDATA%\ScreenTask\ClientBrowser`. The origin and folder keep their existing names so rebranding does not create another identity. Contact codes are public identity cards, not recovery backups. Clearing local profile data loses the identity. Normal browsers use separate storage and identities.
+Open **Settings** outside the room or the room's **Stream settings**. FPS, resolution ceiling, bitrate per participant, text/motion preference and screen audio synchronize and persist on the device. Settings apply to active capture where the browser supports them. Screen audio must have been selected when capture started. Actual FPS depends on capture hardware, CPU and each peer connection.
 
-The Worker handles bounded live public profile/username metadata, requests, room announcements and signaling, without a persistent account database. Screen, voice, chat and pictures stay direct P2P. No TURN/media relay is configured; restrictive networks can prevent connections. Adding a contact grants trust in that identity, not proof of a person's real-world identity. Participants can record what you share; direct connections expose peer network addresses.
+The compact dark title bar supports dragging, double-click maximize/restore, window controls and edge resize.
 
-Build/package: `powershell -File scripts/Build-Client.ps1`. Brand sources and icon/font embedding scripts are included in the repository. Runtime streaming, chat, update-install and security testing for this iteration are left to the user as requested.
+**Updates → Update now** rechecks GitHub release metadata, verifies SHA-256, size and executable identities, then restarts through a separate helper. Leave the room before updating. Failed file copies roll back. Executables are unsigned; publisher-account integrity is the update trust anchor.
+
+## Local data and connectivity
+
+Profiles, nonextractable P-256 signing keys, friends, pictures, blocks and settings remain under `%LOCALAPPDATA%\ScreenTask\ClientBrowser`. That compatibility folder and the existing WebView origin deliberately keep their old internal names to preserve identities. Normal browsers use separate identities. Clearing that data loses the local key/contact book.
+
+The Worker handles temporary online metadata, requests, room discovery and signaling. Media, messages and pictures remain direct P2P. There is no TURN relay; restrictive NAT/firewall combinations can prevent direct connections even when signaling succeeds. Participants receive peer network addresses and may record shared content.
+
+Build/package: `./scripts/Build-Client.ps1`. The [restore guide](RESTORE.md) records the committed baseline and complete pre-cleanup backup. Runtime behavior in this iteration awaits your feedback; compilation/syntax checks are not an end-to-end security audit.

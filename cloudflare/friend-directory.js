@@ -54,6 +54,18 @@ function grantShape(grant, now) {
   return onlyFields(grant, ['nonce', 'expires', 'signature']) && typeof grant.nonce === 'string' && NONCE_PATTERN.test(grant.nonce) && Number.isSafeInteger(grant.expires) &&
     grant.expires > now && grant.expires <= now + 86400000 && decoded(grant.signature, 64)?.length === 64;
 }
+function profileSignal(value) {
+  if(onlyFields(value,['refresh'])) return value.refresh===true;
+  if(onlyFields(value,['description'])) return onlyFields(value.description,['type','sdp']) && ['offer','answer'].includes(value.description.type) &&
+    typeof value.description.sdp==='string' && value.description.sdp.length<=12000 && !/\btyp\s+relay\b/i.test(value.description.sdp);
+  if(!onlyFields(value,['candidate'])) return false;
+  const candidate=value.candidate;
+  return candidate===null || onlyFields(candidate,['candidate'],['sdpMid','sdpMLineIndex','usernameFragment']) &&
+    typeof candidate.candidate==='string' && candidate.candidate.length<=4096 && !/\btyp\s+relay\b/i.test(candidate.candidate) &&
+    (candidate.sdpMid==null || typeof candidate.sdpMid==='string'&&candidate.sdpMid.length<=256) &&
+    (candidate.sdpMLineIndex==null || Number.isInteger(candidate.sdpMLineIndex)&&candidate.sdpMLineIndex>=0&&candidate.sdpMLineIndex<=64) &&
+    (candidate.usernameFragment==null || typeof candidate.usernameFragment==='string'&&candidate.usernameFragment.length<=256);
+}
 
 export class FriendDirectory extends DurableObject {
   save(ws, session) {
@@ -68,7 +80,7 @@ export class FriendDirectory extends DurableObject {
     const sessions = this.authenticated().map(ws => ({ws, session: read(ws)}));
     for (const watcher of sessions) {
       const rooms = sessions.filter(other => other !== watcher && other.session.room && mutual(watcher.session, other.session))
-        .map(other => { const s = other.session; return {owner: s.id, room: s.room, live: !!s.live}; });
+        .map(other => { const s = other.session; return {owner: s.id, room: s.room, live: !!s.live, mode:s.roomMode||'legacy'}; });
       if (!this.send(watcher.ws, {type: 'rooms', rooms})) return;
     }
   }
@@ -130,7 +142,7 @@ export class FriendDirectory extends DurableObject {
   }
   presenceEvent(session, id, owner) {
     const value = owner && read(owner), online = !!value && mutual(session, value);
-    return {type: 'presence', id, online, ...(online && value.name ? {profile: publicProfile(value)} : {})};
+    return {type: 'presence', id, online, ...(online && value.name ? {profile: publicProfile(value)} : {}), ...(online&&value.room?{mode:value.roomMode||'legacy'}:{})};
   }
 
   async webSocketMessage(ws, text) {
@@ -140,7 +152,7 @@ export class FriendDirectory extends DurableObject {
     if (!session || session.departed) return;
     const now = Date.now();
     if (now - session.window >= 10000) { session.window = now; session.count = 0; }
-    if (++session.count > (session.auth ? 120 : 4)) { this.reject(ws, 'Too many presence messages.'); return; }
+    if (++session.count > (session.auth ? 384 : 4)) { this.reject(ws, 'Too many presence messages.'); return; }
     if (!this.save(ws, session)) return;
     let message;
     try { message = JSON.parse(text); } catch { this.reject(ws, 'Invalid presence JSON.'); return; }
@@ -156,12 +168,14 @@ export class FriendDirectory extends DurableObject {
     if (message?.type === 'profile-announce') { this.profile(ws, session, message); return; }
     if (message?.type === 'lookup') { this.lookup(ws, session, message); return; }
     if (message?.type === 'social') { await this.social(ws, session, message); return; }
+    if (message?.type === 'profile-signal') { await this.relayProfile(ws, session, message); return; }
     if (message?.type === 'room-state') {
-      if (!onlyFields(message, ['type', 'room', 'live']) || typeof message.live !== 'boolean' ||
+      if (!onlyFields(message, ['type', 'room', 'live'], ['mode']) || typeof message.live !== 'boolean' ||
+        message.mode!==undefined && !['public','friends','private','legacy'].includes(message.mode) ||
         message.room !== null && (typeof message.room !== 'string' || !ROOM_PATTERN.test(message.room) || message.room.slice(0, 43) !== session.id) || message.room === null && message.live) {
         this.error(ws, 'invalid-room', 'Only your own protected room can be published.'); return;
       }
-      session.room = message.room; session.live = message.live;
+      session.room = message.room; session.live = message.live; session.roomMode=message.mode||'legacy';
       if (this.save(ws, session)) this.rooms(); return;
     }
     if (onlyFields(message, ['type', 'ids']) && message.type === 'watch') {
@@ -316,6 +330,22 @@ export class FriendDirectory extends DurableObject {
     if (!this.save(ws, session) || !this.save(target, targetSession)) return;
     if (this.send(target, {...message, from: session.id, profile: publicProfile(session)})) this.send(ws, {type: 'social-sent', to: message.to, nonce: message.nonce});
     else this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce});
+  }
+
+  async relayProfile(ws, session, message) {
+    const now=Date.now();
+    if(!onlyFields(message,['type','to','nonce','expires','payload','signature']) || typeof message.to!=='string' || !FRIEND_ID_PATTERN.test(message.to) || message.to===session.id ||
+      typeof message.nonce!=='string' || !NONCE_PATTERN.test(message.nonce) || !Number.isSafeInteger(message.expires) || message.expires<=now || message.expires>now+15000 || !profileSignal(message.payload)) {
+      this.error(ws,'invalid-profile-signal','Invalid direct profile signaling message.',message.nonce);return;
+    }
+    if(!budget(session,'profileRate',256,10000,now)) {this.save(ws,session);this.error(ws,'rate-limit','Wait before starting more direct profile connections.',message.nonce);return;}
+    if(!this.save(ws,session)) return;
+    const valid=await verify(session.key,message.signature,`vumiro-profile-signal-v1\n${session.id}\n${message.to}\n${message.nonce}\n${message.expires}\n${JSON.stringify(message.payload)}`);
+    session=read(ws);if(!session?.auth || session.departed || this.owner(session.id)!==ws) return;
+    if(!valid) {this.reject(ws,'Invalid direct profile signaling signature.');return;}
+    const target=this.owner(message.to);
+    if(message.expires<=Date.now() || !target || !mutual(session,read(target))) {this.send(ws,{type:'unavailable',to:message.to,nonce:message.nonce});return;}
+    if(!this.send(target,{...message,from:session.id})) this.send(ws,{type:'unavailable',to:message.to,nonce:message.nonce});
   }
 
   async authenticate(ws, session, message) {

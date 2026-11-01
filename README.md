@@ -1,79 +1,36 @@
 # Vumiro
 
-**Vumiro desktop:** [Download Vumiro 1.15](https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.15.0). Local profiles, friend requests and online usernames, private live rooms, P2P screen/voice/chat, profile pictures and stream settings. Existing clients update through **Updates → Update now**. See [the Vumiro guide](docs/CLIENT.md). Build with `powershell -File scripts/Build-Client.ps1`. The legacy ScreenTask server remains available below.
+Share your view. A small Windows app for friends, live screen/voice rooms and direct peer chat.
 
-Screen sharing, audio and large file transfers straight from your Windows PC to a friend's browser.
+**[Download Vumiro](https://github.com/snoopeh/Vumiro/releases/latest)** · [User guide](docs/CLIENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Restore point](docs/RESTORE.md)
 
-**[Download the latest Windows app](https://github.com/snoopeh/ScreenTask/releases/latest/download/ScreenTask-win-x64.zip)** · **[Releases](https://github.com/snoopeh/ScreenTask/releases)** · **[Usage and connection troubleshooting](https://github.com/snoopeh/ScreenTask/blob/main/docs/USAGE.md)**
+Extract the Windows package and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed.
 
-## Run it
+Profiles, signing keys, friends, pictures and settings stay on your device. The Cloudflare Worker handles online discovery, requests and connection signaling. Screen, audio, chat and profile pictures travel directly between peers. Direct connectivity depends on the network; no TURN relay is configured.
 
-1. Download the Windows app above, extract the whole folder, and run **ScreenTask.exe**. Keep the included files together. Windows 10/11 x64 with .NET Framework 4.8 is required. The audio helper includes its .NET runtime.
-2. Select your adapter and port on **Network**, then start the server. Open the displayed address in a browser. Windows may request administrator access to configure its HTTP reservation and firewall on first use.
-3. To share files, enable **File transfers only** on Network if you do not need screen/audio, then click **Open browser file sharing**. Any visitor can choose files from their own device, click **Create share links**, and send a link. The sender keeps the browser page open; the recipient downloads straight to disk with the browser download manager. Both pages show progress and telemetry.
-4. For remote friends, use a reachable VPN address, HTTPS proxy, or your router's forwarded external TCP port in the invitation/link address. A wrong port prevents the page from loading. File transfers use the TCP listener; STUN does not make that port reachable. Direct WebRTC media also requires a working peer path; no TURN relay is configured.
+Rooms support public access, mutual friends, or a password. Removing and blocking a contact requires confirmation. Short contact codes preserve the existing device identity, and old contact codes remain readable.
 
-## Updates
+## Build
 
-Open the desktop app's **Updates** tab:
-
-- **Check for updates** checks this repository's latest stable release.
-- **Update now** downloads the Windows build, verifies GitHub's SHA-256 digest and its application version, installs it, and restarts ScreenTask. Active streams and transfers stop. Preferences in `%LOCALAPPDATA%\ScreenTask` and unrelated files stay in place. Failed file copies trigger rollback to the previous application files. Recovery copies remain in `.screentask-backup-*` beside the app.
-- **Download latest source** saves the current `main` branch's source archive. It does not install or build that source; this can contain changes newer than the latest release.
-
-Keep ScreenTask in a folder you can write to, such as Documents or Downloads. Updates reject linked installation paths. Update errors are shown in the tab or saved under `%TEMP%/ScreenTask-update-error-*.txt` by the installer. Releases are currently unsigned; get them from this repository.
-
-## Live configuration and automatic HDR
-
-Video, audio and privacy settings apply while the server runs. Video encoding reconnects automatically when a setting needs a new encoder; enabled browser audio reconnects when its source changes. File transfers and the HTTP listener stay running. Network address/port changes rebind the listener automatically; share a fresh address when a port changes.
-
-**HDR colors → Automatic** detects the selected display’s active Windows HDR mode and reads its calibrated luminance metadata. SDR colors stay unchanged on SDR displays. Manual exposure and peak brightness remain under **Manual / advanced**. Automatic mode follows monitor/HDR changes without changing Windows settings.
-
-Preferences save automatically and atomically to `%LOCALAPPDATA%\ScreenTask\appsettings.xml`, so switching folders or updating keeps your setup. Existing settings beside the executable migrate on first run. Shared browser files are session-only and are revoked when their sender page closes.
-
-## Features
-
-Version 1.12 adds an embedded **Call** tab with shared rooms, simultaneous screen sharing, optional microphones, invitations and per-peer decoded FPS. Participants connect to one signaling service and do not start their own servers. The configured service is [ScreenTask Rooms](https://screentask-rooms.screentask-room-signaling.workers.dev); deployment details are in [cloudflare/README.md](cloudflare/README.md). Media remains direct WebRTC without TURN. The desktop tab requires Microsoft Edge WebView2 Runtime.
-
-Reconnects and catch-up retain the last decoded frame and crossfade into its replacement. Development runs resolve the bundled FFmpeg instead of unnecessarily falling back to large JPEG frames; compatible NVIDIA GPUs use NVENC before Media Foundation/software fallbacks. Direct sharing honors the selected frame rate, subject to device and network capacity.
-
-- Direct WebRTC sharing with pairing links, browser codec negotiation, reconnects and useful address/port diagnostics.
-- Native DirectX capture with H.264 playback and JPEG compatibility fallback.
-- HDR to SDR color correction, exposure and peak-brightness controls.
-- Playback-device audio and per-application include/exclude capture. Per-application capture requires Windows build 20348 or newer.
-- One browser viewer for video, chat and files, with fullscreen Fit/Fill/percentage zoom and mobile layouts.
-- Browser file selection and share links, sender/receiver progress, speed and ETA, download resuming, revocation, private-session authentication and a file-only mode.
-
-Use trusted networks or HTTPS for sensitive data: plain HTTP does not encrypt files or Basic Authentication credentials. Browser files stream in small requested slices through the ScreenTask server, with no disk staging or whole-file buffering. The sender page must stay open. There is no hosted storage service; your connection, disks and any proxy determine practical limits. See [the detailed guide](https://github.com/snoopeh/ScreenTask/blob/main/docs/USAGE.md) for controls, HDR, audio, networking and browser compatibility.
-
-## Build and test
-
-Install the .NET 9 SDK and .NET Framework 4.8 developer/targeting pack on Windows, or Visual Studio with desktop .NET development tools.
+Install the .NET 9 SDK and .NET Framework 4.8 targeting pack on Windows:
 
 ```powershell
-dotnet build ScreenTask.sln -c Release
-dotnet build tests/UpdateTests -c Release
-./tests/UpdateTests/bin/Release/net48/UpdateTests.exe
-./scripts/Build-Release.ps1
+dotnet build Vumiro.sln -c Release
+./scripts/Build-Client.ps1
 ```
 
-The packaging script downloads a pinned FFmpeg 9.0.2 build, verifies its executable SHA-256, publishes the audio helper self-contained, and checks the actual update archive. Pass `-FfmpegPath <path>` to reuse the matching FFmpeg executable. Outputs go under ignored `dist/`. User settings, shared files and credentials are excluded from source control and releases.
+The package is written to `dist/vumiro-1.16.0/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
 
-Browser regression tests require Node, Playwright, installed Chrome and Edge, and a packaged `dist/*/ffmpeg.exe`. Set `SCREENTASK_NODE_MODULES` if Playwright is installed outside this repository:
+For signaling development, run `npm ci` and `npm run dev` in `cloudflare/`. See [service deployment](cloudflare/README.md).
 
-```powershell
-./tests/run-connection-tests.ps1
-./tests/run-connection-tests.ps1 -Hdr
-./tests/run-connection-tests.ps1 -Layout
-node tests/file-transfers.cjs
-node tests/browser-files.cjs
-node tests/live-settings.cjs
-```
+## Releases and updates
 
-The tests use an isolated listener and temporary fixtures without loading user settings or changing firewall rules. The file suite covers a sparse 6 GiB file and bounded-memory transfers.
+Commit and push a matching `client-v1.16.0` tag to publish the Windows package. Both project versions must match the tag. The app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back.
 
-Push code to `main` for automated build checks. To publish, bump the assembly version in `ScreenTask/Properties/AssemblyInfo.cs`, commit, and push a matching tag such as `v1.11.0`. The release workflow builds and publishes `ScreenTask-win-x64.zip` and `SHA256SUMS.txt`; existing apps then discover it through Updates.
+**Older 1.14/1.15 clients need one fresh Vumiro installation after the GitHub repository rename.** Their updater pins the old repository API URL and executable layout. From 1.16 onward, updates use the Vumiro repository and filenames. Existing local profiles and contacts are preserved.
 
-## Attribution and license
+Runtime/streaming tests for this iteration are left to the user as requested. Builds and JavaScript syntax checks do not establish end-to-end behavior or a security audit.
 
-This project continues [Eslam Hamouda's ScreenTask](https://github.com/EslaMx7/ScreenTask), retaining its Git history and copyright notices. ScreenTask is GPL version 3 or later; see [COPYING](COPYING). Bundled components and their source/license links are listed in [THIRD-PARTY.md](THIRD-PARTY.md).
+## License
+
+This project continues [Eslam Hamouda's ScreenTask](https://github.com/EslaMx7/ScreenTask), retaining its history and attribution. GPL-3.0-or-later; see [COPYING](COPYING) and [third-party notices](THIRD-PARTY.md).
