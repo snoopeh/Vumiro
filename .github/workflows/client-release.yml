@@ -86,4 +86,4 @@ jobs:
             dist/release-assets/linux/Vumiro-linux-x64.deb \
             dist/release-assets/linux/Vumiro-linux-x64.rpm \
             dist/release-assets/linux/SHA256SUMS-linux.txt \
-            --title "Vumiro $GITHUB_REF_NAME" --generate-notes
+            --repo "$GITHUB_REPOSITORY" --title "Vumiro $GITHUB_REF_NAME" --generate-notes
