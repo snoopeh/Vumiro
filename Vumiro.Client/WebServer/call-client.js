@@ -6,10 +6,10 @@
   const embedded = query.get('embedded') === '1' && parent !== window;
   document.body.classList.toggle('embedded', embedded);
   const settingsKey='vumiro-stream-settings', encoder=new TextEncoder();
-  const defaultSettings={fps:Math.min(120,Math.max(1,Number(query.get('fps')) || 60)),mbps:Math.min(100,Math.max(1,Number(query.get('mbps')) || 20)),resolution:'native',contentHint:'detail',audio:!linuxPlatform};
+  const defaultSettings={fps:Math.min(120,Math.max(1,Number(query.get('fps')) || 60)),mbps:Math.min(100,Math.max(1,Number(query.get('mbps')) || 20)),resolution:'native',contentHint:'detail',audio:!linuxPlatform,excludeDiscord:true};
   function validateSettings(value) {
     if(!value || typeof value!=='object' || !Number.isFinite(value.fps) || !Number.isFinite(value.mbps) || value.fps<1 || value.fps>120 || value.mbps<1 || value.mbps>100 || !['native','720p','1080p','1440p','2160p'].includes(value.resolution) || !['detail','motion'].includes(value.contentHint) || typeof value.audio!=='boolean') return null;
-    return {fps:Math.round(value.fps),mbps:Math.round(value.mbps),resolution:value.resolution,contentHint:value.contentHint,audio:!linuxPlatform&&value.audio};
+    return {fps:Math.round(value.fps),mbps:Math.round(value.mbps),resolution:value.resolution,contentHint:value.contentHint,audio:!linuxPlatform&&value.audio,excludeDiscord:value.excludeDiscord!==false};
   }
   let streamSettings={...defaultSettings};
   try { streamSettings=validateSettings(JSON.parse(localStorage.getItem(settingsKey))) || streamSettings; } catch { /* Use migrated query defaults. */ }
@@ -78,6 +78,7 @@
   let selfId = '', socket = null, joined = false, reconnectTimer = 0, retry = 0, generation = 0;
   let profileRequestId='', profileRequestTimer=0, profileAddBusy=false;
   let screen = null, microphone = null, localTile = null, joining = false;
+  let nativeAudioSupported=false,nativeAudioSession=null,nativeAudioGeneration=0,audioContext=null,audioDestination=null,nativeAudioTrack=null;
   const readSaved = key => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
   const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* optional */ } };
   function code() { return identity.id + '_' + Array.from(crypto.getRandomValues(new Uint8Array(24)), n => n.toString(16).padStart(2, '0')).join(''); }
@@ -111,20 +112,20 @@
     peer.name=profile.name;cacheProfile(peer.id,profile);showProfile(peer.tile,profile);parentMessage({type:'vumiro-peer-profile',id:peer.id,profile});
     try { if(local.updateContactProfile) await local.updateContactProfile(peer.id,profile); } catch { /* A noncontact participant need not be saved. */ }
   }
-  function syncSettingsControls() { $('settingFps').value=streamSettings.fps;$('settingMbps').value=streamSettings.mbps;$('settingResolution').value=streamSettings.resolution;$('settingContent').value=streamSettings.contentHint;$('settingAudio').checked=streamSettings.audio;$('settingAudio').disabled=linuxPlatform;if(linuxPlatform&&!$('linuxRoomAudioHint')){const hint=document.createElement('p');hint.id='linuxRoomAudioHint';hint.className='linux-audio-hint';hint.textContent='Microphone works on Linux, but system audio capture is not supported in this release.';hint.style.cssText='grid-column:1/-1;color:var(--muted);font-size:12px;margin:-8px 0 0';$('settingAudio').setAttribute('aria-describedby',hint.id);$('settingAudio').closest('.settings-grid').append(hint);} }
+  function syncSettingsControls() { $('settingFps').value=streamSettings.fps;$('settingMbps').value=streamSettings.mbps;$('settingResolution').value=streamSettings.resolution;$('settingContent').value=streamSettings.contentHint;$('settingAudio').checked=streamSettings.audio;$('settingAudio').disabled=linuxPlatform;$('settingExcludeDiscord').checked=streamSettings.excludeDiscord;$('settingExcludeDiscordLabel').hidden=!nativeAudioSupported;$('settingExcludeDiscord').disabled=!nativeAudioSupported;$('excludeDiscordHelp').hidden=!nativeAudioSupported;$('roomAudioCapability').hidden=nativeAudioSupported;$('roomAudioCapability').textContent=linuxPlatform?'Microphone works on Linux, but system audio capture is not supported in this release.':'This device cannot filter the Discord desktop app from browser-captured audio. The capture picker may still offer system audio.'; }
   function videoConstraints() { const value={frameRate:{ideal:requestedFps,max:requestedFps}};if(streamSettings.resolution!=='native') { const height=Number.parseInt(streamSettings.resolution,10);value.height={max:height};value.width={max:Math.round(height*16/9)}; }return value; }
   function captureInfo() {
     const track=screen?.getVideoTracks()[0];if(!track) return;
-    const actual=track.getSettings();$('captureInfo').textContent=`Capturing ${actual.width || '?'} × ${actual.height || '?'} · ${actual.frameRate ? Math.round(actual.frameRate) : '?'} FPS source · ${requestedFps} FPS requested · up to ${bitrateMbps} Mbps per participant. Screen audio ${screen.getAudioTracks().length?(streamSettings.audio?'included':'paused'):'not selected'}.`;
+    const actual=track.getSettings(),audioSelected=!!nativeAudioSession?.started||!!screen.getAudioTracks().length;$('captureInfo').textContent=`Capturing ${actual.width || '?'} × ${actual.height || '?'} · ${actual.frameRate ? Math.round(actual.frameRate) : '?'} FPS source · ${requestedFps} FPS requested · up to ${bitrateMbps} Mbps per participant. Screen audio ${audioSelected?(streamSettings.audio?'included':'paused'):'not selected'}.${nativeAudioSession?.started&&streamSettings.excludeDiscord?' Discord and Vumiro playback excluded.':''}`;
   }
   let settingsQueue=Promise.resolve();
   async function applySettings(value,notify=true) {
-    const clean=validateSettings(value);if(!clean) return;streamSettings=clean;requestedFps=clean.fps;bitrateMbps=clean.mbps;save(settingsKey,JSON.stringify(clean));syncSettingsControls();if(notify) parentMessage({type:'vumiro-stream-settings',settings:clean});
+    const previous=streamSettings,clean=validateSettings(value);if(!clean) return;streamSettings=clean;requestedFps=clean.fps;bitrateMbps=clean.mbps;save(settingsKey,JSON.stringify(clean));syncSettingsControls();if(notify) parentMessage({type:'vumiro-stream-settings',settings:clean});
     settingsQueue=settingsQueue.then(async()=>{
       const track=screen?.getVideoTracks()[0];
-      screen?.getAudioTracks().forEach(audio=>{ audio.enabled=streamSettings.audio; });
+      if(screen){if(nativeAudioSupported&&!linuxPlatform){screen.getAudioTracks().forEach(audio=>audio.stop());if(!streamSettings.audio)stopNativeAudioCapture();else if(!nativeAudioSession||previous.excludeDiscord!==streamSettings.excludeDiscord) { if(nativeAudioSession)stopNativeAudioCapture();startNativeAudioCapture(); }}else{screen.getAudioTracks().forEach(audio=>{audio.enabled=streamSettings.audio;});if(streamSettings.audio&&!screen.getAudioTracks().length)status('Screen audio was not selected. Stop sharing and choose a source with audio.');}}
       if(track) { track.contentHint=streamSettings.contentHint;try { await track.applyConstraints(videoConstraints()); } catch(error) { status('This capture could not apply every quality setting: '+error.message); } }
-      await Promise.all([...peers.values()].map(peer=>peer.slots[0] ? tune(peer.slots[0].sender) : Promise.resolve()));captureInfo();
+      await replaceTracks();await Promise.all([...peers.values()].map(peer=>peer.slots[0] ? tune(peer.slots[0].sender) : Promise.resolve()));captureInfo();
     }).catch(error=>status(error.message));
     await settingsQueue;
   }
@@ -238,7 +239,12 @@
   function send(message) { if(socket && socket.readyState===WebSocket.OPEN) socket.send(JSON.stringify(message)); }
   const relay = candidate => candidate && /\btyp\s+relay\b/i.test(typeof candidate==='string'?candidate:candidate.candidate || '');
   function validDescription(description) { return description && ['offer','answer'].includes(description.type) && typeof description.sdp==='string' && description.sdp.length<=60000 && !relay(description.sdp); }
-  function currentTrack(slot) { return slot===0 ? screen?.getVideoTracks()[0] : slot===1 ? screen?.getAudioTracks()[0] : microphone?.getAudioTracks()[0]; }
+  function currentTrack(slot) { return slot===0 ? screen?.getVideoTracks()[0] : slot===1 ? (nativeAudioSupported&&!linuxPlatform?(nativeAudioSession?.started?nativeAudioTrack:null):screen?.getAudioTracks()[0]) : microphone?.getAudioTracks()[0]; }
+  async function ensureNativeAudioGraph(){if(!audioContext||audioContext.state==='closed'){const Context=window.AudioContext||window.webkitAudioContext;if(!Context)throw Error('This browser cannot play the native audio stream.');audioContext=new Context({sampleRate:48000,latencyHint:'interactive'});audioDestination=audioContext.createMediaStreamDestination();nativeAudioTrack=audioDestination.stream.getAudioTracks()[0];}if(audioContext.state!=='running')await audioContext.resume();return audioContext;}
+  function stopNativeAudioCapture(notify=true){const session=nativeAudioSession;if(!session)return;nativeAudioSession=null;++nativeAudioGeneration;if(notify&&embedded)parentMessage({type:'vumiro-stream-audio',action:'stop',id:session.id});for(const source of session.sources){try{source.stop();}catch{}try{source.disconnect();}catch{}}session.sources.clear();if(nativeAudioTrack)nativeAudioTrack.enabled=false;}
+  function startNativeAudioCapture(){if(linuxPlatform||!nativeAudioSupported||!embedded||!screen||!streamSettings.audio||nativeAudioSession)return;const session={id:Array.from(crypto.getRandomValues(new Uint8Array(24)),byte=>byte.toString(16).padStart(2,'0')).join(''),generation:++nativeAudioGeneration,started:false,lastSequence:-1,nextTime:0,sources:new Set()};nativeAudioSession=session;ensureNativeAudioGraph().then(()=>{if(nativeAudioSession!==session||!screen||!streamSettings.audio)return;nativeAudioTrack.enabled=true;parentMessage({type:'vumiro-stream-audio',action:'start',id:session.id,excludeDiscord:streamSettings.excludeDiscord});}).catch(error=>{if(nativeAudioSession!==session)return;nativeAudioSession=null;status('System audio could not start: '+error.message);replaceTracks().catch(()=>{});captureInfo();});}
+  function playNativeAudio(message){const session=nativeAudioSession;if(!session||session.id!==message.id||!session.started||!screen||!streamSettings.audio||message.sampleRate!==48000||message.channels!==2||message.frames!==1920||!(message.pcm instanceof ArrayBuffer)||message.pcm.byteLength!==message.frames*message.channels*4||!Number.isSafeInteger(message.sequence)||message.sequence<=session.lastSequence)return;session.lastSequence=message.sequence;if(!audioContext||audioContext.state!=='running'||session.sources.size>=5)return;const now=audioContext.currentTime;if(!session.nextTime||session.nextTime<now+0.004)session.nextTime=now+0.06;if(session.nextTime-now>0.22)return;const samples=new Float32Array(message.pcm),buffer=audioContext.createBuffer(2,message.frames,message.sampleRate),left=buffer.getChannelData(0),right=buffer.getChannelData(1);for(let i=0,j=0;i<message.frames;i++,j+=2){left[i]=samples[j];right[i]=samples[j+1];}const source=audioContext.createBufferSource();source.buffer=buffer;source.connect(audioDestination);session.sources.add(source);source.onended=()=>{session.sources.delete(source);try{source.disconnect();}catch{}};source.start(session.nextTime);session.nextTime+=message.frames/message.sampleRate;}
+  function receiveNativeAudio(message){if(message.action==='state'){nativeAudioSupported=message.supported===true;syncSettingsControls();if(nativeAudioSupported&&screen){screen.getAudioTracks().forEach(track=>track.stop());if(streamSettings.audio)startNativeAudioCapture();}else if(!nativeAudioSupported&&nativeAudioSession){stopNativeAudioCapture();replaceTracks().catch(()=>{});}return;}const session=nativeAudioSession;if(!session||message.id!==session.id)return;if(message.action==='started'){if(message.sampleRate!==48000||message.channels!==2)return;session.started=true;session.nextTime=0;if(nativeAudioTrack)nativeAudioTrack.enabled=streamSettings.audio;replaceTracks().then(captureInfo).catch(error=>status(error.message));}else if(message.action==='stopped'){session.started=false;}else if(message.action==='error'){stopNativeAudioCapture(false);replaceTracks().catch(()=>{});status(typeof message.message==='string'?message.message:'System audio capture stopped. Your microphone is still available.');captureInfo();}else if(message.action==='samples')playNativeAudio(message);}
   function announce(peer) { channelSend(peer,{sharing:!!screen,mic:!!microphone && microphone.getAudioTracks().some(t=>t.enabled)}); }
   async function tune(sender) {
     if(sender.track?.kind!=='video') return;
@@ -349,24 +355,28 @@
     }));
   }
   async function stopShare() {
-    const previous=screen; screen=null; if(previous) for(const track of previous.getTracks()) track.stop();
+    const previous=screen; screen=null; stopNativeAudioCapture();if(previous) for(const track of previous.getTracks()) track.stop();
     if(localTile) { localTile.show(false); localTile.video.srcObject=null; }
     try { await replaceTracks(); } catch(error) { status(error.message); }
+    if(audioContext?.state==='running')audioContext.suspend().catch(()=>{});
     updateControls();
   }
   async function share() {
     $('share').disabled=true; const thisGeneration=generation;
     try {
-      const capture=await navigator.mediaDevices.getDisplayMedia({video:videoConstraints(),audio:streamSettings.audio});
+      const nativeWanted=nativeAudioSupported&&!linuxPlatform&&streamSettings.audio;if(embedded&&!linuxPlatform&&streamSettings.audio)ensureNativeAudioGraph().catch(error=>status('System audio could not start: '+error.message));
+      const options={video:videoConstraints(),audio:streamSettings.audio&&!nativeWanted};if(streamSettings.audio&&!nativeWanted&&!linuxPlatform)options.systemAudio='include';
+      const capture=await navigator.mediaDevices.getDisplayMedia(options);
       if(!joined || generation!==thisGeneration) { capture.getTracks().forEach(t=>t.stop()); return; }
       const track=capture.getVideoTracks()[0]; if(!track) { capture.getTracks().forEach(t=>t.stop()); throw Error('No screen video was selected.'); }
       track.contentHint=streamSettings.contentHint; screen=capture; track.onended=()=>{ if(screen===capture) stopShare(); };
+      if(nativeAudioSupported&&streamSettings.audio)startNativeAudioCapture();
       localTile.video.srcObject=new MediaStream([track]);localTile.show(true);play(localTile.video);
       await replaceTracks();
       captureInfo();
       status('Sharing your screen. Everyone can share at the same time.');
     } catch(error) { status(error.name==='NotAllowedError'?'Screen sharing was cancelled or denied.':error.message); }
-    finally { updateControls(); }
+    finally { if(!screen&&audioContext?.state==='running')audioContext.suspend().catch(()=>{});updateControls(); }
   }
   async function enableMic() {
     $('mic').disabled=true; const thisGeneration=generation;
@@ -439,7 +449,7 @@
   }
   async function leave() {
     generation++;disconnected=false;if(policyAck) policyAck.reject(Error('You left the room.'));password='';if(passwordResolve) { passwordResolve('');passwordResolve=null; }clearTimeout(reconnectTimer);const old=socket;socket=null;joined=false;joining=false;if(old) old.close(1000,'Left room');
-    clearPeers();await stopShare();if(microphone) microphone.getTracks().forEach(t=>t.stop());microphone=null;
+    clearPeers();await stopShare();if(microphone) microphone.getTracks().forEach(t=>t.stop());microphone=null;if(audioContext){try{await audioContext.close();}catch{}audioContext=null;audioDestination=null;nativeAudioTrack=null;}
     if(localTile) localTile.element.remove();localTile=null;selfId='';syncMuteControl();updateControls();status('You left the room.');chatLine('You left the room.');
     if(embedded) parent.postMessage({type:'vumiro-call-ended'}, location.origin);
   }
@@ -449,7 +459,7 @@
   $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks().some(track=>track.enabled);microphone.getAudioTracks().forEach(track=>track.enabled=enabled);syncMuteControl();for(const peer of peers.values()) announce(peer); } };
   $('copyInvite').onclick=async()=>{ try { await navigator.clipboard.writeText(invitation());status(roomMode==='private'?'Room link copied. Share the password separately.':roomMode==='public'?'Room link copied. Anyone with a profile can join.':'Room link copied. Mutual friends can join.'); } catch { status('Copy this invitation: '+invitation()); } };
   $('enableAudio').onclick=()=>{ $('enableAudio').hidden=true;for(const peer of peers.values()) { play(peer.tile.video);for(const audio of peer.tile.audios) play(audio); } };
-  addEventListener('beforeunload',()=>{ generation++;if(socket) socket.close();for(const stream of [screen,microphone]) stream?.getTracks().forEach(t=>t.stop());clearPeers(); });
+  addEventListener('beforeunload',()=>{ generation++;stopNativeAudioCapture();if(socket) socket.close();for(const stream of [screen,microphone]) stream?.getTracks().forEach(t=>t.stop());clearPeers(); });
   addEventListener('message',event=>{
     if(!embedded || event.origin!==location.origin || event.source!==parent) return;
     if(event.data?.type==='vumiro-friend-status') friendStatus(event.data);
@@ -457,6 +467,7 @@
     else if(event.data?.type==='vumiro-call-leave') leave();
     else if(event.data?.type==='vumiro-call-reconnect') reconnect();
     else if(event.data?.type==='vumiro-stream-settings') applySettings(event.data.settings,false);
+    else if(event.data?.type==='vumiro-stream-audio') receiveNativeAudio(event.data);
     else if(event.data?.type==='vumiro-profile') refreshProfile();
     else if(event.data?.type==='vumiro-room-access' && event.data.room===roomValue($('room').value) && ['public','friends','private'].includes(event.data.mode)) {
       if(accessReceived) return;accessReceived=true;roomMode=event.data.mode;ownerPolicy={mode:roomMode};if(typeof event.data.name==='string') roomName=event.data.name.trim().slice(0,60) || roomName;if(typeof event.data.password==='string' && event.data.password.length<=128) password=event.data.password;renderRoom();accessResolve?.();
@@ -465,7 +476,7 @@
   addEventListener('vumiro-friends-changed',()=>{ if(profileRequestId) parentMessage({type:'vumiro-friend-status-query',id:profileRequestId});updateRoomFriends().catch(error=>status(error.message)); });
   function reconnect() { clearTimeout(reconnectTimer);generation++;if(policyAck) policyAck.reject(Error('Reconnecting before room access was confirmed.'));const old=socket;socket=null;if(old) old.close(1000,'Reconnecting');joined=false;joining=false;disconnected=true;clearPeers();status('Reconnecting to the room…');join(); }
   async function refreshProfile() { try { const current=await local.initialize();if(!current) return;identity=current; } catch { return; }const profile=ownProfile();if(!profile) return;$('name').value=profile.name;cacheProfile(identity.id,profile);if(localTile) showProfile(localTile,profile,true);for(const peer of peers.values()) announceProfile(peer); }
-  for(const id of ['settingFps','settingMbps','settingResolution','settingContent','settingAudio']) $(id).onchange=()=>{ const value={fps:Number($('settingFps').value),mbps:Number($('settingMbps').value),resolution:$('settingResolution').value,contentHint:$('settingContent').value,audio:$('settingAudio').checked};if(validateSettings(value)) applySettings(value);else { syncSettingsControls();status('Choose 1–120 FPS and 1–100 Mbps.'); } };
+  for(const id of ['settingFps','settingMbps','settingResolution','settingContent','settingAudio','settingExcludeDiscord']) $(id).onchange=()=>{ const value={fps:Number($('settingFps').value),mbps:Number($('settingMbps').value),resolution:$('settingResolution').value,contentHint:$('settingContent').value,audio:$('settingAudio').checked,excludeDiscord:$('settingExcludeDiscord').checked};if(validateSettings(value)){if(nativeAudioSupported&&screen&&value.audio)ensureNativeAudioGraph().catch(error=>status('System audio could not start: '+error.message));applySettings(value);}else { syncSettingsControls();status('Choose 1–120 FPS and 1–100 Mbps.'); } };
   $('chatForm').onsubmit=event=>{
     event.preventDefault();const text=$('chatText').value.trim(),now=Date.now();if(!joined || !text || text.length>2000 || !openChannels().length) return;
     if(now-lastChatSent<500) { $('chatStatus').textContent='Wait a moment before sending another message.';return; }

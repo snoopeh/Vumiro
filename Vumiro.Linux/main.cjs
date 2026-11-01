@@ -52,7 +52,7 @@ let capturePicker = null;
 let permittedCaptureSources = new Map();
 let finishCapturePicker = null;
 let captureRequestBusy = false;
-const appVersion = app.getVersion() || '1.20.0';
+const appVersion = app.getVersion() || '1.21.0';
 const DEFAULT_SIGNALING = 'wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling';
 
 const MIME = new Map([

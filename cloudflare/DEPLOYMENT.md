@@ -1,12 +1,13 @@
 # Active Vumiro deployment
 
 - Published/deployed: 2026-11-01.
-- Source release tag: `client-v1.20.0`.
-- Windows and Linux release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.20.0
+- Source release tag: `client-v1.21.0`.
+- Windows and Linux release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.0
 - Build/release workflows: https://github.com/snoopeh/Vumiro/actions
-- Local Windows package: `../dist/vumiro-1.20.0-final/Vumiro-win-x64.zip`. Linux AppImage/deb/rpm packages build in Ubuntu CI. Published checksums accompany the release assets.
-- Both Windows executables use version 1.20.0.0; Linux package version is 1.20.0. Windows packaging retains the existing six-web-asset allowlist for updater compatibility.
-- Worker: `screentask-rooms`, version `b2e9af16-3f06-4da1-bf7b-e77bbe05637a`.
+- Local Windows package: `../dist/vumiro-1.21.0-release/Vumiro-win-x64.zip`. Linux AppImage/deb/rpm packages build in Ubuntu CI. Published checksums accompany the release assets.
+- Both Windows executables use version 1.21.0.0; Linux package version is 1.21.0. Windows packaging retains the existing six-web-asset allowlist for updater compatibility.
+- Worker: `screentask-rooms`, version `9c3f9d6d-0b42-49d3-8e79-3bdd7d4b0ccc`.
+- Windows stream audio is captured locally using WASAPI; audio and Discord filtering add no service endpoints or cloud polling.
 - Linux's exact local origin `vumiro://app` is permitted alongside the existing Windows origin.
 - Service: https://screentask-rooms.screentask-room-signaling.workers.dev
 - Endpoints: `/friends-signaling`, `/call-signaling`.

@@ -58,6 +58,7 @@ namespace Vumiro.Client
             loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => {
+                StopStreamAudio();
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
                 trayMenu.Dispose();
@@ -126,6 +127,7 @@ namespace Vumiro.Client
                 browser.CoreWebView2.NavigationStarting += (s, e) => {
                     Uri target;
                     if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out target) || target.GetLeftPart(UriPartial.Authority) != Origin) e.Cancel = true;
+                    if (!e.Cancel) StopStreamAudio();
                 };
                 browser.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; };
                 browser.CoreWebView2.WebMessageReceived += async (s, e) => {
@@ -134,6 +136,7 @@ namespace Vumiro.Client
                     try
                     {
                         var message = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
+                        if (HandleStreamAudioMessage(message)) return;
                         if (HandleWindowMessage(message)) return;
                         object type, action;
                         if (message != null && message.Count == 2 && message.TryGetValue("type", out type) && type as string == "updates" && message.TryGetValue("action", out action) && action is string)

@@ -27,6 +27,8 @@ Each room binds its random invitation code to the owner identity. Every particip
 
 Screen, voice and chat use direct mesh WebRTC connections. STUN helps find a route; there is no TURN fallback. Room discovery is event driven. Reconnect retains usable local room/capture state; leaving stops capture.
 
+On Windows build 20348+, stream audio uses embedded WASAPI process loopback. Local output-session discovery selects application process trees while excluding Vumiro/WebView playback and optionally Discord. Bounded stereo float PCM passes through read-only WebView2 shared buffers to the trusted friends page, then to its current room iframe and a Web Audio MediaStreamDestination. One in-flight buffer plus the latest pending block bounds delivery; no local HTTP server or cloud audio endpoint is introduced. RTC screen audio and microphone occupy separate transceivers. Linux and unsupported hosts do not advertise the Windows native audio capability.
+
 ## Update trust and cleanup
 
 Updates pin the Vumiro GitHub repository/release asset, require its SHA-256 digest and executable version, reject unlisted/archive traversal entries and linked paths, and use a separate helper with rollback. User data is outside the install directory and never included in the update allowlist. Publisher-account integrity remains the trust anchor; releases are unsigned.

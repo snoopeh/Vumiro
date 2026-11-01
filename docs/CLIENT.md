@@ -1,4 +1,4 @@
-# Vumiro 1.20
+# Vumiro 1.21
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -35,6 +35,12 @@ Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes
 The room uses a large focused stage with participant thumbnails, a **Chat/People** side pane and bottom call controls. Select a participant/stream to focus it. Double-click a stream for fullscreen. **Actual size** helps read small text. Screen, microphone and screen audio remain off until you enable them through the appropriate controls/picker.
 
 Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving the room or quitting Vumiro stops capture. Closing the window keeps the room connected in the system tray.
+
+### Stream audio on Windows
+
+Turn on **Include screen audio** to share application sound alongside your screen. On supported Windows versions (build 20348 and newer, including Windows 11), Vumiro captures audio natively instead of depending on the screen picker's optional audio track. **Exclude Discord from stream audio** defaults on: you still hear the Discord desktop app locally, but viewers do not hear its voices repeated through your stream. Vumiro's own playback is excluded to avoid feeding room audio back to participants. These settings do not mute your microphone.
+
+You can switch stream audio or Discord exclusion while sharing. Stopping your share or leaving the room stops the native capture. Older Windows versions use the browser picker's available audio option and do not offer native Discord filtering. Linux system-audio capture remains unavailable in this release.
 
 ## Settings and updates
 
