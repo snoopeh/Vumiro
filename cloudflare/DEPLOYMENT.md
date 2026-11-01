@@ -5,9 +5,10 @@
 - Signaling: wss://screentask-rooms.screentask-room-signaling.workers.dev/call-signaling
 - Worker: screentask-rooms
 - Presence/invitations: wss://screentask-rooms.screentask-room-signaling.workers.dev/friends-signaling
-- Version: ad15380e-f4cc-46bd-b200-5d1e2809072d
+- Version: 7a397414-36e1-48ec-91ef-96876a3c9345
 - Bindings: CALL_ROOMS (CallRoom), FRIEND_DIRECTORY (FriendDirectory), ASSETS (five public client assets).
 - Migration v2 adds FriendDirectory; its state is limited to live WebSocket attachments, without persistent profile or friend-book records.
 - Root opens the friends client; /call retains room invitations. Desktop client uses packaged local assets at https://screentask.local.
 - Client 1.13.1 adds Create room to the toolbar and Rooms menu; room codes are generated on-device and use the existing signaling route.
+- Client 1.14.0 requires mutual friends for presence/invitations and identity-proven room membership. Guest admission requires mutual friendship with the connected room owner. Signed policy revisions revoke removed friends. Legacy anonymous rooms are rejected. GitHub client release: https://github.com/snoopeh/ScreenTask/releases/tag/client-v1.14.0.
 - No TURN/media relay. End-to-end streaming feedback is left to the user as requested.
