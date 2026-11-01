@@ -19,3 +19,7 @@ git -C Vumiro-restored switch --detach restore/pre-vumiro-cleanup-2026-11-01
 The same tag is available from [the GitHub repository](https://github.com/snoopeh/Vumiro/tree/restore/pre-vumiro-cleanup-2026-11-01). Old ignored executables are available in the local folder snapshot.
 
 The current profile directory was left untouched. Restore the `LocalProfile` snapshot only with all app/WebView processes closed and after saving another copy of the current directory. That backup contains private identity data; keep it local. Contact codes do not back up the private signing key.
+
+## Before the window backdrop update
+
+The 1.16.0 desktop state is also preserved by `restore/pre-window-backdrop-1.16.0` (commit `7be184a`). Its verified all-history bundle and previous published Windows package are in `../Restore Points/2026-11-01-pre-window-backdrop`. The backdrop change does not modify local profile storage.
