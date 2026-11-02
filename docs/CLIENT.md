@@ -1,4 +1,4 @@
-# Vumiro 1.21.1
+# Vumiro 1.21.2
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -9,6 +9,8 @@ Linux x64 packages are available in the same release: AppImage, deb and rpm. Fol
 Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**.
 
 Version 1.21.1 moves the connection service to **https://vumiro-rooms.vumiro-signaling.workers.dev**. Both peers should update for the new address. Known legacy saved URLs and invitations migrate automatically; custom services and local identity data are preserved. GitHub updates remain available even when an older client cannot reach the retired service hostname.
+
+Version 1.21.2 fixes a Windows startup rendering issue that could leave the loading spinner visible over the loaded interface.
 
 ## Your profile and friends
 

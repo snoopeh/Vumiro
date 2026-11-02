@@ -191,10 +191,14 @@ namespace Vumiro.Client
             loading.Dispose();
 
             // Removing the covering WinForms control invalidates the child
-            // window region. Refresh the existing WebView2 surface so its
-            // compositor presents the already-loaded page immediately.
+            // window region. Now that the native loading surface is gone,
+            // enable the DWM backdrop and repaint the parent before asking
+            // WebView2 to present its already-loaded page.
             PerformLayout();
             browser.BringToFront();
+            ApplyWindowAppearance();
+            Invalidate(true);
+            Update();
             browser.Invalidate();
             browser.Refresh();
         }

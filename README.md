@@ -25,7 +25,7 @@ dotnet build Vumiro.sln -c Release
 ./scripts/Build-Client.ps1
 ```
 
-The package is written to `dist/vumiro-1.21.1/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
+The package is written to `dist/vumiro-1.21.2/`. Only the two desktop projects and six web assets are shipped. The retired capture server, FFmpeg/audio helper, old browser UI and obsolete harnesses are preserved in Git history and the verified restore backup rather than the active tree.
 
 Build the Linux packages on a Linux x64 host with Node.js 22 or later, `rpm` and `libarchive-tools` installed:
 
@@ -41,7 +41,7 @@ For signaling development, run `npm ci` and `npm run dev` in `cloudflare/`. See 
 
 ## Releases and updates
 
-Commit and push a matching `client-v1.21.1` tag to publish the Windows and Linux packages after both builds pass. Both Windows project versions and the Linux package version must match the tag. The Windows app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back. Linux checks for releases and opens the download page for manual package installation.
+Commit and push a matching `client-v1.21.2` tag to publish the Windows and Linux packages after both builds pass. Both Windows project versions and the Linux package version must match the tag. The Windows app validates package SHA-256, size, permitted files and executable versions before installation; failed file replacement rolls back. Linux checks for releases and opens the download page for manual package installation.
 
 **Older 1.14/1.15 clients need one fresh Vumiro installation after the GitHub repository rename.** Their updater pins the old repository API URL and executable layout. From 1.16 onward, updates use the Vumiro repository and filenames. Existing local profiles and contacts are preserved.
 

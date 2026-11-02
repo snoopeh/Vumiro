@@ -81,7 +81,7 @@ namespace Vumiro.Client
             DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
             // Let DWM blur/tint the desktop, while WebView paints text and media
             // at full opacity. Unsupported systems retain the solid dark theme.
-            var backdrop = !contentFullscreen && TransparencyAllowed() ? 3 : 1; // Desktop Acrylic / none
+            var backdrop = !startupOverlayActive && !contentFullscreen && TransparencyAllowed() ? 3 : 1; // Desktop Acrylic / none
             var enabled = DwmSetWindowAttribute(Handle, 38, ref backdrop, sizeof(int)) == 0 && backdrop == 3;
             if (enabled != backdropEnabled)
             {
