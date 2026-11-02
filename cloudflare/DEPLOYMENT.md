@@ -28,6 +28,8 @@ The dashboard confirmed the new subdomain and Wrangler deployed the canonical ro
 
 ## Account sync implementation status (2026-11-02)
 
+The latest account-launch source/deployment evidence is in [ACCOUNT-LAUNCH.md](../.planning/ACCOUNT-LAUNCH.md). On 2026-11-02, source `1c3a907` deployed to public Worker version `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d` and storage owner version `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. All six account migrations are applied remotely. The Worker has the account edge rate-limit binding and redacted observability enabled. Accounts remain disabled: Supabase project creation, SMTP, secrets, operator inputs, and hosted acceptance are outstanding. The older bullets below record earlier implementation stages and are superseded by this status and the linked handoff.
+
 - Created the separate D1 database `vumiro-account-data` (`eac4972c-d270-4931-8308-59fc851337f8`) in Cloudflare region `ENAM` and applied migrations `0001` through `0004`.
 - Applied migration `0005_device_credentials_and_deletion_state.sql` remotely. It adds hashed per-device credentials and retryable deletion state; Wrangler reports no pending migrations.
 - Migration `0006_account_operations.sql` passed a full local migration run but has not been applied remotely. It adds durable deletion retry metadata, notice-acceptance evidence, and fixed-window account rate-limit state.

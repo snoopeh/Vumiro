@@ -19,6 +19,12 @@
 - Prepared `cloudflare/supabase-email.html` for OTP confirmation/recovery templates. It is excluded from the public web-asset allowlist.
 - Backend suite: 16/16 pass. Combined account/client/identity/OAuth suite before the final edge/integration additions: 37/37 pass. Native OAuth callback checks: 18/18 pass. Public Worker dry-run with rate-limit binding passes.
 
+## Published source and Worker
+
+- Source `1c3a9073fda4b9be07fbe3f3bfdf2e9cf50efef4` pushed to main. Build CI `41539684948` is in progress at this handoff; no new desktop tag/release was created.
+- Public Worker `vumiro-rooms` deployed as `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d`; internal storage owner `screentask-rooms` deployed as `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. Original Durable Object bindings retained.
+- Live smoke checks: account config 503 with service/registration false; desktop CORS preflight 204; untrusted origin 403; changed pending-deletion client asset is served. This deploy publishes hardening, **not usable hosted accounts**.
+
 ## Continue
 
 1. Submit the prepared Supabase project after the pending action-time confirmation; capture its actual project reference and region.
