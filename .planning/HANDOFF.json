@@ -2,13 +2,13 @@
   "version": "1.0",
   "timestamp": "2026-11-02T17:27:13.711Z",
   "active_user_fixes": {
-    "status": "desktop_fixes_validated_release_in_progress",
+    "status": "desktop_released_hosted_accounts_pending",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
     "implemented": ["visible selectable invite link", "screen and voice volume controls", "source-build updater helper dependency", "conventional vector captions", "DWM inactive border fix", "dedicated first-run sign-in/signup/recovery screens", "Worker identity asset allowlist"],
     "validation": "27 JS,18 native callback,9 backend tests pass. Windows build/package checks pass. Full actual Windows loopback->WebView shared buffers->production parent/iframe->WebRTC remote decode passes RMS0.007350 with156packets. Auth page maximize/restore and browser UI checks pass. Remote migration0006 and both Worker deployments completed with accounts disabled.",
-    "remaining": ["push final commits and monitor CI", "release/install1.21.4 desktop client", "hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs"],
-    "git": "source1.21.4 validated; actual commit/push/release results in USER-FIXES-HANDOFF latest section",
-    "processes": "Local Worker8799 exec79938; isolated native test app dist/native-auth-validation/Vumiro.exe last PID34084. No user app was running before isolated tests. Stop only verified test processes."
+    "remaining": ["hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs", "hosted signup, verification, recovery, provider round trips, refresh, second-device restore and deletion acceptance checks"],
+    "git": "main pushed; source49e0ffb tagged/published client-v1.21.4; main CI41494815454 and releaseCI41495376140 green. Actual published updater passed both stages, local identity preserved and22/22files match released complete archive.",
+    "processes": "User app source-build1.21.4 observedPID16036; do not overwrite while in use. Isolated audio/updater test apps and local Worker stopped. No user app debug listener."
   },
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",

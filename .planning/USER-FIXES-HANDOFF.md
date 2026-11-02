@@ -24,8 +24,12 @@ The user resumed work after the credit pause. Source now targets **1.21.4**. Thi
 
 - Remote D1 migration **0006 applied successfully** (12commands).
 - Both Workers deployed successfully, preserving existing namespaces. Storage-owner version `afef822c-2206-4025-b6ae-6f2525c572de`; public `vumiro-rooms` version `9ede29d3-cc23-4da0-ac73-1e097245bf73`. Account service/registration/provider flags remain absent/disabled.
-- Git commit/push and client release are the final active steps. At validation time origin/main remained426107b with3prior local commits. Record actual results here after pushing; do not infer publication from a local build.
-- Local native test app path `dist/native-auth-validation/Vumiro.exe`, last test PID34084; stop only after checking exact path. Local Wrangler on8799 uses exec session79938. No user app was running before isolated tests.
+- **Git pushed successfully**: implementation45c690d and deterministic signature-tamper test correction49e0ffb, including all three previously unpushed commits. Main matches origin. Final handoff/test-script commit follows these source commits.
+- **Release published**: [client-v1.21.4](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.4), tag points at49e0ffb. All7expected assets exist: Windows legacy+completeZIPs, LinuxAppImage/deb/rpm, and both checksum manifests. Release notes explicitly state online accounts are disabled and explain the two-step legacy update.
+- **CI green**: main build run41494815454 and publish run41495376140, both Windows and Linux jobs passed. Initial run41494413455 caught a pre-existing flaky test that could replace a signature byte with itself; fixed by changing an actual decoded signature byte, then reran successfully.
+- **Actual published updater passed**: checksum-verified published1.21.2 →1.21.4 legacy bridge → same-version complete v2 package. App restarted successfully at both stages and preserved the isolated local identity. Compared every installed file against the actual published v2 archive: **22/22files identical**. Reproducer `scripts/Test-UpdaterNative.mjs`, ignored evidence `dist/updater-validation/result.json`.
+- Published Windows complete SHA256 `2a497aad0a88708846bc9a3661e854ed925d39b39d1025184a157978ee896215`; legacy `6675245b74e6f9002255d965f1fb3a1d2db81cc5bf9ca73cf973a2181d29b90f`.
+- The original source-build folder was rebuilt normally to1.21.4, including its formerly missing updater helper. User app is now running from `Vumiro.Client/bin/Release/net48/Vumiro.exe`, observedPID16036. **Do not close/overwrite it during active room use.** Native/audio/updater test processes and local Wrangler were stopped; isolated fixtures are ignored under dist. No debug listener was enabled for the user's app.
 
 ## Remaining after desktop release
 
