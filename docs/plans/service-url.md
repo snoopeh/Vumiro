@@ -17,12 +17,12 @@ Ownership: root Cloudflare infrastructure/deploy/account rename, native app defa
 
 Official references: Cloudflare workers.dev routing, workers subdomain API, Wrangler external Durable Object script_name bindings.
 
-## Pending dashboard authentication
+## Completed cutover
 
-Client 1.21.1 is built/pushed (`c558047`, release CI `41341372589` succeeded). All six assets are uploaded. It is temporarily marked prerelease so stable updaters continue using working 1.21.0 until the hostname cutover.
+Client 1.21.1 is built/pushed (`c558047`, release CI `41341372589` succeeded). All six assets are uploaded, and the release is stable/latest after the hostname cutover.
 
-New public Worker `vumiro-rooms` is provisioned under the current account subdomain; version `2b86803b-35a1-420c-b339-bd077d31e867`. API metadata confirms its binding namespace IDs exactly match both original IDs above. Existing production Worker/service remains unchanged and working.
+Public Worker `vumiro-rooms` is deployed at `vumiro-rooms.vumiro-signaling.workers.dev`, version `45b506db-b76e-4aa7-85b4-0be93079571f`. The internal storage owner is version `cbc3d285-c3ec-4d2e-b1cf-7613b3a1f864` with its public route disabled. API metadata confirms both namespace IDs above remain unchanged.
 
 The API PUT to `/accounts/.../workers/subdomain` returns 10036 (account already has an associated subdomain). That API is create-only. Do not repeat it or unregister the current subdomain as a workaround. Use the documented dashboard Change operation.
 
-The in-app browser tab is open on Cloudflare's Google sign-in. User has been asked to sign in and reply Signed in; this is required authentication, not permission for the rename. After sign-in: Workers & Pages → Change next to Your subdomain → `vumiro-signaling`; then `npm run deploy` in cloudflare, verify subdomain and both namespace IDs via Cloudflare metadata, mark 1.21.1 stable/latest, and update DEPLOYMENT.md with both final Worker version IDs. Only then report full completion. No live app tests.
+After the user signed in, the dashboard Change account subdomain flow applied `vumiro-signaling` successfully. Both Workers were then deployed via `npm run deploy`; metadata confirmed the public route enabled, internal route disabled and original namespaces retained. Release 1.21.1 was promoted from prerelease to stable/latest. No live app tests.
