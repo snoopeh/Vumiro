@@ -37,6 +37,7 @@ namespace Vumiro.Client
         {
             var install = AppDomain.CurrentDomain.BaseDirectory;
             return File.Exists(Path.Combine(install, "WebServer", "account-client.js")) &&
+                File.Exists(Path.Combine(install, "WebServer", "auth.html")) &&
                 File.Exists(Path.Combine(install, "WebServer", "identity-recovery.js")) &&
                 File.Exists(Path.Combine(install, "PRIVACY.md"));
         }

@@ -1,8 +1,8 @@
-# Vumiro 1.21.3
+# Vumiro 1.21.4
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
-Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed.
+Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64-v2.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed. The **Vumiro-win-x64.zip** asset is a compatibility bridge for older automatic updaters; after installing it, use Update now again to finish installing the complete package.
 
 Linux x64 packages are available in the same release: AppImage, deb and rpm. Follow the [Linux guide](LINUX.md). The Linux client shares rooms, profiles, friend requests and chat behavior with Windows, but uses a separate local device identity. Its screen picker and window frame follow the Linux desktop, and updates are downloaded for manual installation. Screen video and microphone are supported; system-audio loopback is unavailable in the Linux client.
 
@@ -14,15 +14,19 @@ Version 1.21.2 fixes a Windows startup rendering issue that could leave the load
 
 Version 1.21.3 adds the gated Vumiro account client, secure persistent sessions, friend/profile backup, linked-device controls, export and deletion, password recovery, and encrypted contact-identity recovery. Account registration remains unavailable until the authentication provider and operational privacy details are configured.
 
+Version 1.21.4 makes invitation links visible and selectable, adds separate screen/voice volume sliders inside each received stream, includes the updater helper in development builds, and uses conventional Windows caption controls without an inactive gray frame. Dedicated Sign in, Create account, Verify email, and Password recovery screens are available from Account and first-run setup. Online accounts are not enabled yet because the authentication service has not been provisioned.
+
 ## Your profile and friends
 
 Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames remain online lookup handles for device identities.
 
 ## Vumiro account
 
-Open **Your profile → Vumiro account** to create an account, verify your email, or sign in. Password recovery sends a one-time email code. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured.
+The dedicated welcome page opens on first launch. It offers **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. You can also choose **Continue with a local profile**. Existing local users can open the page from **Account** in the sidebar. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
 
-The account can back up and restore the profile, friend contact book, blocks, and stream preferences. Choose which direction to sync when both this device and the account already have data. Concurrent edits use a revision check; if another device has uploaded first, automatic sync pauses and asks you to restore or deliberately replace the saved copy. Your signing key stays on the device, so a new installation restores saved contacts but creates a different identity. Ask existing friends to accept a new request for the new identity. **Export my data**, linked-device revocation, sign-out, and account deletion are in the same panel. Deleting the account removes synced account data; it leaves the local device profile and signing key on the device.
+Online sign-in and registration remain unavailable until the authentication service and individual providers are configured; local profiles and rooms work independently. Once accounts are enabled, a signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device.
+
+The account can back up and restore the profile, friend contact book, blocks, stream preferences, and client-encrypted signing identity. Save the identity recovery code offline when enabling backup. Existing nonextractable local identities require a one-time signed migration; updated friends verify it when both peers are online, while older clients may require a new friend acceptance. Choose which direction to sync when both this device and the account already have data. Concurrent edits use a revision check; automatic sync pauses on conflict. **Export my data**, linked-device revocation, sign-out, and account deletion are in the same panel. Deleting the account removes synced account data; it leaves the local device profile and signing key on the device.
 
 Account registration is available only after the account provider and Worker configuration are enabled. The [privacy notice](PRIVACY.md) describes synced fields and current infrastructure location. The signing-identity envelope is encrypted in the client; other account snapshot fields are not end-to-end encrypted.
 
@@ -43,6 +47,8 @@ Create a room and choose who may join:
 - **Private:** participants need the room password. Passwords stay out of invitation URLs and are not sent in plaintext to the Worker.
 
 The owner can change access from inside the room. Signed policy changes update admission and remove participants who no longer qualify. Blocking remains effective in every mode. The owner must remain connected, and a room holds at most eight people. Existing older rooms retain their original owner-approval behavior until recreated with a current client.
+
+Choose **Invite** to display the complete selectable room link and copy it. Use Public or Private when inviting people who are not mutual friends; share a private room's password separately. Each received stream has independent **Screen** and **Voice** playback sliders, including in fullscreen. Set a slider to zero to mute that track.
 
 Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes on connection, room/presence changes, opening Rooms and reconnecting; it does not poll on a timer. Friends may request entry or use an invitation. Password rooms also require the password, even when the owner accepts a request.
 

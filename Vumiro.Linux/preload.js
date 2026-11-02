@@ -14,7 +14,7 @@ function allowedMessage(message) {
   const keys = Object.keys(message).sort();
   if (keys.join(',') !== 'action,type' || typeof message.action !== 'string') return false;
   if (message.type === 'updates') return ['state', 'check', 'install', 'download'].includes(message.action);
-  return message.type === 'window' && message.action === 'notify';
+  return message.type === 'window' && ['state', 'close', 'minimize', 'maximize', 'notify'].includes(message.action);
 }
 
 contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
@@ -33,5 +33,10 @@ contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
     async get() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'get' }); },
     async set(value) { return ipcRenderer.invoke('vumiro:secure-store', { action: 'set', value }); },
     async delete() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'delete' }); }
+  }),
+  oauth: Object.freeze({
+    async signIn(request) {
+      return ipcRenderer.invoke('vumiro:oauth', { authUrl: request?.authUrl, provider: request?.provider, codeChallenge: request?.codeChallenge });
+    }
   })
 }));

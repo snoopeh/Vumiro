@@ -26,7 +26,7 @@ class Element {
 
 function response(status,value){return {ok:status>=200&&status<300,status,async json(){return value;}};}
 
-function harness({stored='',route}={}) {
+function harness({stored='',route,authPage=false,oauth,href='https://vumiro.local/friends.html'}={}) {
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
   const listeners=new Map();
@@ -34,17 +34,18 @@ function harness({stored='',route}={}) {
   const secure={value:stored,writes:[],async get(){return this.value;},async set(value){this.value=value;this.writes.push(value);},async delete(){this.value='';this.writes.push('');}};
   const calls=[];
   const fetch=async(url,options={})=>{calls.push({url:String(url),options});return route?route(String(url),options,calls):response(200,{});};
+  const navigations=[];
   const sandbox={
-    window:{vumiroDesktop:{secureStore:secure},VumiroLocalProfile:{profile:()=>null,accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
-    document:{getElementById:element,createElement:()=>new Element()},location:{search:''},fetch,
-    crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID},TextEncoder,Blob,URL,
+    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>null,accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
+    document:{body:{dataset:{page:authPage?'auth':'friends'}},getElementById:element,createElement:()=>new Element()},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,
+    crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
     addEventListener:(type,callback)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(callback);},
     dispatchEvent(){},Event,StorageEvent:class {},setTimeout,clearTimeout,confirm:()=>true,console
   };
   sandbox.window.window=sandbox.window;sandbox.window.chrome=undefined;
   vm.runInNewContext(source,sandbox,{filename:'account-client.js'});
-  return {elements,element,listeners,secure,calls,storage,sandbox,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
+  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
 }
 
 const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-01'};
@@ -100,7 +101,7 @@ test('password recovery changes the password before activating and enrolling',as
 
 test('pending signup verification resumes without storing the password',async()=>{
   const pending={version:2,pendingSignup:{email:'pending@example.com',acceptedAt:'2026-11-01T12:00:00.000Z',noticeVersion:'2026-11-01'}};
-  const app=harness({stored:JSON.stringify(pending),route:url=>url.endsWith('/api/v1/account/config')?response(200,config):response(404,{error:'not found'})});await app.start();
+  const app=harness({authPage:true,stored:JSON.stringify(pending),route:url=>url.endsWith('/api/v1/account/config')?response(200,config):response(404,{error:'not found'})});await app.start();
   assert.equal(app.element('accountVerifyForm').hidden,false);
   assert.equal(app.element('accountEmail').value,'pending@example.com');
   assert.equal(app.secure.value.includes('password'),false);
@@ -129,23 +130,20 @@ test('reauthentication targets the existing reauth form id',()=>{
   assert.match(source,/\$\('accountReauthForm'\)/);
 });
 
-test('account screens are accessible before creating a local profile and close returns to setup',async()=>{
-  const app=harness({route:commonRoute});await app.start();
-  app.element('setupDialog').showModal();
+test('dedicated account page shows signup and keeps local profile access available',async()=>{
+  const app=harness({route:commonRoute,authPage:true,href:'https://vumiro.local/auth.html?room=invite#shared'});await app.start();
   app.sandbox.window.VumiroAccount.open('signup');
-  assert.equal(app.element('setupDialog').open,false);
-  assert.equal(app.element('accountDialog').open,true);
   assert.equal(app.element('accountHeading').textContent,'Make yourself at home.');
   assert.equal(app.element('accountSignUp').hidden,false);
   assert.equal(app.element('accountSignIn').hidden,true);
   assert.equal(app.element('accountResetRequestForm').hidden,true);
   assert.equal(app.element('accountPassword').minLength,12);
-  app.element('accountClose').onclick();
-  assert.equal(app.element('setupDialog').open,true);
+  app.element('continueLocal').onclick();
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html?room=invite&view=local#shared');
 });
 
 test('signup validates matching passwords then enters a dedicated verification screen',async()=>{
-  const app=harness({route:(url)=>url.endsWith('/auth/v1/signup')?response(200,{}):commonRoute(url)});await app.start();
+  const app=harness({authPage:true,route:(url)=>url.endsWith('/auth/v1/signup')?response(200,{}):commonRoute(url)});await app.start();
   app.sandbox.window.VumiroAccount.open('signup');
   app.element('accountEmail').value='new@example.com';app.element('accountPassword').value='a safe password 123';app.element('accountPasswordConfirm').value='wrong';app.element('accountPrivacyAck').checked=true;
   await app.element('accountForm').onsubmit({preventDefault(){}});
@@ -160,7 +158,7 @@ test('signup validates matching passwords then enters a dedicated verification s
 });
 
 test('forgot password only shows the request screen and recovery errors stay visible',async()=>{
-  const app=harness({route:url=>url.endsWith('/auth/v1/recover')?response(429,{message:'Please try again shortly.'}):commonRoute(url)});await app.start();
+  const app=harness({authPage:true,route:url=>url.endsWith('/auth/v1/recover')?response(429,{message:'Please try again shortly.'}):commonRoute(url)});await app.start();
   app.sandbox.window.VumiroAccount.open('signin');app.element('accountEmail').value='person@example.com';app.element('accountForgotPassword').onclick();
   assert.equal(app.element('accountResetRequestForm').hidden,false);
   assert.equal(app.element('accountForm').hidden,true);
@@ -172,11 +170,72 @@ test('forgot password only shows the request screen and recovery errors stay vis
 
 test('unprovisioned account service shows an honest message and can retry without losing local profile access',async()=>{
   let available=false;
-  const app=harness({route:url=>url.endsWith('/api/v1/account/config')?response(available?200:404,available?config:{}):commonRoute(url)});await app.start();
+  const app=harness({authPage:true,route:url=>url.endsWith('/api/v1/account/config')?response(available?200:404,available?config:{}):commonRoute(url)});await app.start();
   app.sandbox.window.VumiroAccount.open('signin');
-  assert.match(app.element('accountError').textContent,/Accounts are not available yet/);
+  assert.match(app.element('accountFeedback').textContent,/Accounts are not available yet/);
   available=true;await app.element('accountRetry').onclick();
   assert.equal(app.element('accountError').textContent,'');
   assert.equal(app.element('accountFeedback').textContent,'Account service connected.');
   assert.equal(app.element('accountSignIn').disabled,false);
+});
+
+test('first run and signed-out account entry route to a dedicated page without dropping invitation parameters',async()=>{
+  const app=harness({route:commonRoute,href:'https://vumiro.local/friends.html?invite=room-code&password=secret#room'});await app.start();
+  assert.equal(app.navigations[0],'https://vumiro.local/auth.html?invite=room-code&password=secret#room');
+  app.sandbox.window.VumiroAccount.open();
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?invite=room-code&password=secret#room');
+});
+
+test('Google uses a fresh PKCE challenge and persists only the app refresh token',async()=>{
+  let bridgeInput;
+  const app=harness({authPage:true,oauth:{signIn:async input=>{bridgeInput=input;return {code:'single-use-code'};}},route:(url,options)=>{
+    if(url.endsWith('/api/v1/account/config'))return response(200,{...config,oauthProviders:['google','azure']});
+    if(url.endsWith('/auth/v1/token?grant_type=pkce'))return response(200,{...session,provider_token:'private-google-token',provider_refresh_token:'private-google-refresh',user:{...session.user,app_metadata:{providers:['google']}}});
+    if(url.endsWith('/api/v1/account/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    return commonRoute(url,options);
+  }});await app.start();app.element('accountPrivacyAck').checked=true;
+  await app.element('accountGoogle').onclick();
+  assert.equal(bridgeInput.provider,'google');assert.equal(bridgeInput.authUrl,config.authUrl);assert.match(bridgeInput.codeChallenge,/^[A-Za-z0-9_-]{43}$/);
+  const request=app.calls.find(call=>call.url.endsWith('/token?grant_type=pkce'));
+  const body=JSON.parse(request.options.body);assert.equal(body.auth_code,'single-use-code');assert.match(body.code_verifier,/^[A-Za-z0-9_-]{43}$/);
+  const digest=await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(body.code_verifier));
+  assert.equal(Buffer.from(digest).toString('base64url'),bridgeInput.codeChallenge);
+  assert.equal(JSON.parse(app.secure.value).refreshToken,session.refresh_token);
+  assert.doesNotMatch(app.secure.value,/private-google|code_verifier|single-use-code/);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+});
+
+test('OAuth waits for privacy acknowledgement, rejects invalid callbacks, and shows disabled providers truthfully',async()=>{
+  let calls=0;
+  const app=harness({authPage:true,oauth:{signIn:async()=>{calls++;return {code:''};}},route:url=>url.endsWith('/api/v1/account/config')?response(200,{...config,oauthProviders:['azure']}):commonRoute(url)});await app.start();
+  assert.equal(app.element('accountGoogle').disabled,true);assert.equal(app.element('accountMicrosoft').disabled,false);
+  await app.element('accountMicrosoft').onclick();assert.equal(calls,0);assert.match(app.element('accountError').textContent,/privacy/);
+  app.element('accountPrivacyAck').checked=true;await app.element('accountMicrosoft').onclick();
+  assert.equal(calls,1);assert.match(app.element('accountError').textContent,/valid sign-in code/);assert.equal(app.secure.value,'');
+});
+
+test('social security confirmation rejects a different user even when emails match',async()=>{
+  const socialSession={...session,user:{...session.user,app_metadata:{providers:['google']}}};
+  const app=harness({stored:saved,oauth:{signIn:async()=>({code:'confirmation-code'})},route:url=>{
+    if(url.endsWith('/api/v1/account/config'))return response(200,{...config,oauthProviders:['google']});
+    if(url.includes('grant_type=refresh_token'))return response(200,socialSession);
+    if(url.includes('grant_type=pkce'))return response(200,{...socialSession,user:{...socialSession.user,id:'other-user'}});
+    return commonRoute(url);
+  }});await app.start();app.element('accountDelete').onclick();
+  await app.element('accountReauthgoogle').onclick();
+  assert.match(app.element('accountFeedback').textContent,/same account/);
+  assert.equal(app.calls.some(call=>call.url.endsWith('/api/v1/account/data')&&call.options.method==='DELETE'),false);
+});
+
+test('restored social session stays on encrypted identity unlock before entering friends',async()=>{
+  const app=harness({authPage:true,stored:saved,route:url=>{
+    if(url.endsWith('/api/v1/account/config'))return response(200,{...config,oauthProviders:['google']});
+    if(url.includes('grant_type=refresh_token'))return response(200,session);
+    if(url.endsWith('/api/v1/account/data'))return response(200,{account:{email:session.user.email},revision:1,devices:[],data:{identityRecovery:{identityId:'saved-identity'}}});
+    throw Error(`Unexpected request ${url}`);
+  }});await app.start();
+  assert.equal(app.element('accountUnlockForm').hidden,false);
+  assert.equal(app.element('accountActions').hidden,true);
+  assert.equal(app.element('accountHeading').textContent,'Bring your friends with you.');
+  assert.equal(app.navigations.length,0);
 });

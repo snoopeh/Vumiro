@@ -12,6 +12,7 @@ const expectedAssets = [
   'call.html',
   'friends-client.js',
   'friends.html',
+  'auth.html',
   'local-profile.js',
   'peer-profile.js',
   'account-client.js',

@@ -99,7 +99,7 @@ export async function authenticate(request, env) {
       !Number.isInteger(claims.iat) || claims.iat > now + 60 || !Number.isInteger(claims.exp) || claims.exp <= now || claims.exp <= claims.iat || claims.exp > now + 7200 ||
       (claims.nbf !== undefined && (!Number.isInteger(claims.nbf) || claims.nbf > now + 60)) || claims.role !== 'authenticated') return null;
     const email = typeof claims.email === 'string' && claims.email.length <= 254 ? claims.email : '';
-    return { id: claims.sub, email, recentPasswordAuth: recentAuth(claims, ['password'], now), recentEnrollmentAuth: recentAuth(claims, ['password', 'otp', 'recovery', 'email', 'signup', 'email/signup'], now) };
+    return { id: claims.sub, email, recentPasswordAuth: recentAuth(claims, ['password'], now), recentSecurityAuth: recentAuth(claims, ['password', 'oauth'], now), recentEnrollmentAuth: recentAuth(claims, ['password', 'oauth', 'otp', 'recovery', 'email', 'signup', 'email/signup'], now) };
   } catch { return null; }
 }
 
@@ -230,7 +230,8 @@ export async function handleAccountRequest(request, env) {
   if (url.pathname === '/api/v1/account/config' && request.method === 'GET') {
     const base = String(env.SUPABASE_URL || '').replace(/\/$/, ''), publishable = String(env.SUPABASE_PUBLISHABLE_KEY || '');
     if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || !/^(?:sb_publishable_[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(publishable)) return json({ error: 'Account service is not configured yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
-    return json({ authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', privacyNoticeVersion: PRIVACY_NOTICE_VERSION }, 200, cors);
+    const oauthProviders = [env.ACCOUNT_OAUTH_GOOGLE_ENABLED === 'true' ? 'google' : null, env.ACCOUNT_OAUTH_MICROSOFT_ENABLED === 'true' ? 'azure' : null].filter(Boolean);
+    return json({ authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: PRIVACY_NOTICE_VERSION }, 200, cors);
   }
   if (!env.ACCOUNT_DB) return json({ error: 'Account storage is not configured yet.' }, 503, cors);
   const user = await authenticate(request, env);
@@ -245,7 +246,7 @@ export async function handleAccountRequest(request, env) {
     const deletePath = url.pathname === '/api/v1/account/data' && request.method === 'DELETE';
     if (tombstone?.state === 'pending') {
       if (deletePath) {
-        if (!user.recentPasswordAuth) return json({ error: 'Sign in again before retrying account deletion.' }, 401, cors);
+        if (!user.recentSecurityAuth) return json({ error: 'Sign in again before retrying account deletion.' }, 401, cors);
         return finishDeletion(user.id, env, cors);
       }
       return json({ error: 'This account deletion is pending. Vumiro will keep retrying identity deletion.' }, 410, cors);
@@ -275,7 +276,7 @@ export async function handleAccountRequest(request, env) {
     await env.ACCOUNT_DB.prepare('UPDATE account_devices SET last_seen = ? WHERE account_id = ? AND device_id = ?').bind(now, user.id, deviceId).run();
     if (url.pathname === '/api/v1/account/devices' && request.method === 'GET') return json({ devices: await devicesForAccount(env, user.id), currentDevice: deviceId }, 200, cors);
     if (url.pathname === '/api/v1/account/devices/revoke' && request.method === 'POST') {
-      if (!user.recentPasswordAuth) return json({ error: 'Sign in again before revoking a device.' }, 401, cors);
+      if (!user.recentSecurityAuth) return json({ error: 'Sign in again before revoking a device.' }, 401, cors);
       const body = await readBody(request), target = body?.deviceId;
       if (!onlyKeys(body, ['deviceId']) || !DEVICE_ID.test(target || '') || target === deviceId) return json({ error: 'Choose another linked device to revoke.' }, 400, cors);
       const result = await env.ACCOUNT_DB.prepare('UPDATE account_devices SET revoked_at = ?, credential_hash = NULL WHERE account_id = ? AND device_id = ? AND revoked_at IS NULL').bind(now, user.id, target).run();
@@ -283,7 +284,7 @@ export async function handleAccountRequest(request, env) {
       return json({ ok: true, revokedAt: now }, 200, cors);
     }
     if (url.pathname === '/api/v1/account/devices/revoke-all' && request.method === 'POST') {
-      if (!user.recentPasswordAuth) return json({ error: 'Sign in again before revoking every device.' }, 401, cors);
+      if (!user.recentSecurityAuth) return json({ error: 'Sign in again before revoking every device.' }, 401, cors);
       const result = await env.ACCOUNT_DB.prepare('UPDATE account_devices SET revoked_at = ?, credential_hash = NULL WHERE account_id = ? AND revoked_at IS NULL').bind(now, user.id).run();
       return json({ ok: true, revokedAt: now, revokedDevices: result.meta?.changes || 0 }, 200, cors);
     }
@@ -309,7 +310,7 @@ export async function handleAccountRequest(request, env) {
       return json({ ok: true, revision: expectedRevision + 1, updatedAt: timestamp }, 200, cors);
     }
     if (deletePath) {
-      if (!user.recentPasswordAuth) return json({ error: 'Sign in again before deleting your account.' }, 401, cors);
+      if (!user.recentSecurityAuth) return json({ error: 'Sign in again before deleting your account.' }, 401, cors);
       if (!env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'Account deletion is not configured. Contact Vumiro support.' }, 503, cors);
       const pendingExpiry = '9999-12-31T23:59:59.999Z';
       const results = await env.ACCOUNT_DB.batch([

@@ -37,12 +37,13 @@ try {
     const page=await context.newPage();page.on('pageerror',error=>errors.push(`${name}: ${error.message}`));
     await page.route('https://vumiro-rooms.vumiro-signaling.workers.dev/api/v1/account/config',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Accounts are temporarily unavailable. You can continue with your local profile.',serviceEnabled:false,registrationEnabled:false})}));
     await page.goto(origin+'/friends.html');
-    await page.waitForFunction(()=>!!window.VumiroLocalProfile);
+    await page.waitForURL('**/auth.html');
+    await page.locator('#accountForm').waitFor({state:'visible'});
     if(name==='Audio host') {
-      await page.locator('#setupDialog').waitFor({state:'visible'});
-      await page.locator('.accountSetupActions').getByRole('button',{name:'Sign in',exact:true}).click();
-      await page.locator('#accountDialog').waitFor({state:'visible'});
       assert.equal(await page.locator('#accountForm').isVisible(),true);
+      assert.equal(await page.locator('#accountGoogle').isDisabled(),true);
+      assert.equal(await page.locator('#accountMicrosoft').isDisabled(),true);
+      await page.waitForFunction(()=>document.getElementById('accountSignIn').disabled);
       await page.screenshot({path:path.join(output,'account-signin.png')});
       await page.locator('#accountSignUpTab').click();
       assert.equal(await page.locator('#accountPasswordConfirm').isVisible(),true);
@@ -50,9 +51,10 @@ try {
       await page.locator('#accountForgotPassword').click();
       assert.equal(await page.locator('#accountResetRequestForm').isVisible(),true);
       await page.screenshot({path:path.join(output,'account-recovery.png')});
-      await page.locator('#accountClose').click();
-      await page.locator('#setupDialog').waitFor({state:'visible'});
     }
+    await page.locator('#continueLocal').click();
+    await page.waitForURL('**/friends.html?view=local');
+    await page.locator('#setupDialog').waitFor({state:'visible'});
     const profile=await page.evaluate(async name=>{await VumiroLocalProfile.initialize();return VumiroLocalProfile.createProfile(name);},name);
     return {context,page,profile};
   }
@@ -127,7 +129,7 @@ try {
   await hostUi.locator('#inviteClose').click();
   await host.page.screenshot({path:path.join(output,'host-room.png')});
   await guest.page.screenshot({path:path.join(output,'guest-room.png')});
-  const result={source:nativeSamples?'actual native loopback PCM':'generated calibration PCM',...measurement,invitation,volumeChecks:'25 percent, mute at zero, unmute at 70 percent',accountScreens:'sign in, create account, recovery, return to local setup',errors};
+  const result={source:nativeSamples?'actual native loopback PCM':'generated calibration PCM',...measurement,invitation,volumeChecks:'25 percent, mute at zero, unmute at 70 percent',accountScreens:'dedicated first-run sign in, Google/Microsoft truthful availability, create account, recovery, continue to local setup',errors};
   await writeFile(path.join(output,'result.json'),JSON.stringify(result,null,2));
   assert.deepEqual(errors,[],'Browser pages must have no uncaught errors');
   console.log(JSON.stringify(result,null,2));

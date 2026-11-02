@@ -2,13 +2,13 @@
   "version": "1.0",
   "timestamp": "2026-11-02T17:27:13.711Z",
   "active_user_fixes": {
-    "status": "paused_by_user_credit_limit",
+    "status": "desktop_fixes_validated_release_in_progress",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
     "implemented": ["visible selectable invite link", "screen and voice volume controls", "source-build updater helper dependency", "conventional vector captions", "DWM inactive border fix", "dedicated first-run sign-in/signup/recovery screens", "Worker identity asset allowlist"],
-    "validation": "19 JS tests pass; isolated Windows build and dual-package validation pass; real 880Hz native loopback captured and decoded over production iframe/WebRTC path with RMS0.00730 and152packets; actual browser account navigation passed.",
-    "remaining": ["inspect last account-worker unavailable-feedback polish", "maximize aria/title switching", "CI include invite-volume suite", "final assets/docs/checks", "push local commits to GitHub", "release/install updated client", "no Supabase project exists; user confirmed"],
-    "git": "main was ahead of origin/main by2 at session start; new fixes checkpoint local only until push is verified; latest public release1.21.2, source1.21.3",
-    "processes": "Wrangler local port8799 started via exec session31348 but ID no longer recognized at pause; check port before restart. Browser tests close contexts. Running user Vumiro PID5592 must not be overwritten."
+    "validation": "27 JS,18 native callback,9 backend tests pass. Windows build/package checks pass. Full actual Windows loopback->WebView shared buffers->production parent/iframe->WebRTC remote decode passes RMS0.007350 with156packets. Auth page maximize/restore and browser UI checks pass. Remote migration0006 and both Worker deployments completed with accounts disabled.",
+    "remaining": ["push final commits and monitor CI", "release/install1.21.4 desktop client", "hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs"],
+    "git": "source1.21.4 validated; actual commit/push/release results in USER-FIXES-HANDOFF latest section",
+    "processes": "Local Worker8799 exec79938; isolated native test app dist/native-auth-validation/Vumiro.exe last PID34084. No user app was running before isolated tests. Stop only verified test processes."
   },
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",

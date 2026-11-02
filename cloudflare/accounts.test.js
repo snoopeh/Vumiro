@@ -97,7 +97,27 @@ test('service and signup availability are independent config flags', async () =>
   const config = await enabled.json();
   assert.equal(config.serviceEnabled, true);
   assert.equal(config.registrationEnabled, false);
+  assert.deepEqual(config.oauthProviders, []);
   assert.equal(config.privacyNoticeVersion, '2026-11-01');
+});
+
+test('social providers are explicitly enabled independently of registration', async () => {
+  const response = await handleAccountRequest(new Request('https://accounts.example/api/v1/account/config'), {
+    ACCOUNT_SERVICE_ENABLED: 'true', ACCOUNT_REGISTRATION_ENABLED: 'false',
+    ACCOUNT_OAUTH_GOOGLE_ENABLED: 'true', ACCOUNT_OAUTH_MICROSOFT_ENABLED: 'true',
+    SUPABASE_URL: 'https://account-test.supabase.co',
+    SUPABASE_PUBLISHABLE_KEY: `sb_publishable_${'a'.repeat(24)}`
+  });
+  const config = await response.json();
+  assert.deepEqual(config.oauthProviders, ['google', 'azure']);
+  assert.equal(config.registrationEnabled, false);
+});
+
+test('fresh OAuth allows security reauthentication but stale and arbitrary AMR do not', () => {
+  const now = 1_800_000_000;
+  assert.equal(recentAuth({ amr: [{ method: 'oauth', timestamp: now - 10 }] }, ['password', 'oauth'], now), true);
+  assert.equal(recentAuth({ amr: [{ method: 'oauth', timestamp: now - 301 }] }, ['password', 'oauth'], now), false);
+  assert.equal(recentAuth({ amr: [{ method: 'otp', timestamp: now }] }, ['password', 'oauth'], now), false);
 });
 
 test('JWT verification accepts a signed Supabase token and rejects extra segments', async () => {

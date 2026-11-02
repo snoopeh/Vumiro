@@ -42,6 +42,7 @@ namespace Vumiro.Client
         private bool startupOverlayActive = true;
         private readonly ClientUpdates updates;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
+        private readonly OAuthLogin oauthLogin = new OAuthLogin();
 
         internal ClientWindow()
         {
@@ -60,6 +61,7 @@ namespace Vumiro.Client
             loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => {
+                oauthLogin.Dispose();
                 StopStreamAudio();
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
@@ -129,23 +131,27 @@ namespace Vumiro.Client
                 browser.CoreWebView2.NavigationStarting += (s, e) => {
                     Uri target;
                     if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out target) || target.GetLeftPart(UriPartial.Authority) != Origin) e.Cancel = true;
-                    if (!e.Cancel) StopStreamAudio();
+                    if (!e.Cancel) { StopStreamAudio(); oauthLogin.Cancel(); }
                 };
                 browser.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; };
                 browser.CoreWebView2.WebMessageReceived += async (s, e) => {
                     Uri source;
-                    if (!Uri.TryCreate(e.Source, UriKind.Absolute, out source) || source.GetLeftPart(UriPartial.Authority) != Origin || source.AbsolutePath != "/friends.html") return;
+                    if (!Uri.TryCreate(e.Source, UriKind.Absolute, out source) || source.GetLeftPart(UriPartial.Authority) != Origin ||
+                        !(source.AbsolutePath == "/friends.html" || source.AbsolutePath == "/auth.html")) return;
                     try
                     {
                         var message = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
                         if (HandleSecureStoreMessage(message)) return;
-                        if (HandleStreamAudioMessage(message)) return;
+                        if (await HandleOAuthMessageAsync(message, source)) return;
                         if (HandleWindowMessage(message)) return;
+                        if (source.AbsolutePath != "/friends.html") return;
+                        if (HandleStreamAudioMessage(message)) return;
                         object type, action;
                         if (message != null && message.Count == 2 && message.TryGetValue("type", out type) && type as string == "updates" && message.TryGetValue("action", out action) && action is string)
                             await updates.HandleAsync((string)action);
                     }
                     catch (ArgumentException) { /* Ignore malformed page messages. */ }
+                    catch (Exception) { /* A malformed message or closing browser must not escape this async event handler. */ }
                 };
                 browser.CoreWebView2.NavigationCompleted += async (s, e) => {
                     if (IsDisposed) return;
@@ -183,6 +189,27 @@ namespace Vumiro.Client
             {
                 if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }
+        }
+
+        private async Task<bool> HandleOAuthMessageAsync(Dictionary<string, object> message, Uri source)
+        {
+            object type, action, requestValue, authUrl, provider, challenge;
+            if (message == null || !message.TryGetValue("type", out type) || type as string != "oauth") return false;
+            if (message.Count != 6 || !message.TryGetValue("action", out action) || action as string != "start" ||
+                !message.TryGetValue("requestId", out requestValue) || !(requestValue is string) ||
+                String.IsNullOrEmpty((string)requestValue) || ((string)requestValue).Length > 64 ||
+                !message.TryGetValue("authUrl", out authUrl) || !(authUrl is string) ||
+                !message.TryGetValue("provider", out provider) || !(provider is string) ||
+                !message.TryGetValue("codeChallenge", out challenge) || !(challenge is string)) return true;
+            string code = null, error = null;
+            try { code = await oauthLogin.SignInAsync((string)authUrl, (string)provider, (string)challenge); }
+            catch (InvalidOperationException failure) { error = failure.Message; }
+            catch (Exception) { error = "Vumiro could not open account sign-in in your browser. Try again."; }
+            if (!IsDisposed && browser.CoreWebView2 != null && browser.Source != null && browser.Source.AbsoluteUri == source.AbsoluteUri)
+                browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> {
+                    ["type"] = "oauth-result", ["requestId"] = (string)requestValue, ["code"] = code, ["error"] = error
+                }));
+            return true;
         }
 
         private bool HandleSecureStoreMessage(Dictionary<string, object> message)

@@ -1,4 +1,39 @@
-# Resume user-facing fixes — 2026-11-02
+# Latest update — dedicated login and desktop fixes, 2026-11-02
+
+The user resumed work after the credit pause. Source now targets **1.21.4**. This section supersedes the historical checkpoint below.
+
+## Completed
+
+- New `auth.html`: dedicated dark full-page welcome/sign-in, own email/password registration, verification/resend and password recovery, Google/Microsoft buttons, continue locally. First run routes here; existing profiles and saved sessions remain supported. Invitation/search parameters survive navigation.
+- Windows and Electron external-browser OAuth bridges: Supabase `google`/`azure`, PKCE, random per-transaction loopback path on `127.0.0.1:43821`, strict callback validation, timeout/cancellation and sanitized responses. Provider access/refresh tokens are not persisted. Sensitive social confirmation compares immutable account IDs. Social users can add a Vumiro password for encrypted identity backup; new-device identity unlock is explicit and survives restart.
+- Caption controls work on both friends and auth pages. Conventional vector icons, restore labels, inactive-frame correction; Linux retains native frame.
+- Earlier invite/selectable-link, independent Screen/Voice volume, source-build updater dependency and v2 completion fixes retained.
+- Packaging includes auth page in Windows complete archive, Linux assets, Worker allowlist and updater manifests. Legacy bridge still uses frozen file list and cannot redirect to unavailable auth assets.
+- CI now runs invite/volume, frontend, identity, desktop OAuth and native callback checks, with explicit PowerShell exit checks.
+- Provider setup documented in `docs/ACCOUNT-OPERATIONS.md`. No Supabase project exists; user explicitly answered **No project yet**. Accounts stay disabled. Registration/privacy/operator prerequisites remain real blockers; do not claim LGPD compliance or live sign-in works.
+
+## Latest validation
+
+- **27 client/identity/invite/OAuth Node tests**, **18 Windows callback checks**, **9 backend tests** pass.
+- Fresh Windows packages at ignored `dist/final-1214` build with zero warnings/errors. Dual-package validator passes.
+- Browser integration passes dedicated first-run page, signup/recovery/local continuation, invite link and volume/mute/unmute. Real captured native PCM decodes at RMS0.007296 over WebRTC,151packets,8580bytes, no page errors.
+- **Full native integration now also passes**: real sibling-process880Hz tone → production Windows loopback → actual WebView shared buffers → production friends/iframe forwarding → real WebRTC → remote decoded RMS**0.007350**,156packets,10743bytes. Auth-page native maximize/restore pass. No uncaught page errors. Script `scripts/Test-StreamNative.mjs`; outputs/screenshots ignored under `dist/native-stream-validation`. It uses an isolated WebView user-data directory, synthetic video only, actual captured audio. Still not a second physical computer/speaker test.
+- Linux asset prep and syntax pass; both Worker dry-run bundles pass with9assets.
+
+## Remote/Git/release
+
+- Remote D1 migration **0006 applied successfully** (12commands).
+- Both Workers deployed successfully, preserving existing namespaces. Storage-owner version `afef822c-2206-4025-b6ae-6f2525c572de`; public `vumiro-rooms` version `9ede29d3-cc23-4da0-ac73-1e097245bf73`. Account service/registration/provider flags remain absent/disabled.
+- Git commit/push and client release are the final active steps. At validation time origin/main remained426107b with3prior local commits. Record actual results here after pushing; do not infer publication from a local build.
+- Local native test app path `dist/native-auth-validation/Vumiro.exe`, last test PID34084; stop only after checking exact path. Local Wrangler on8799 uses exec session79938. No user app was running before isolated tests.
+
+## Remaining after desktop release
+
+Provision Supabase + transactional email + Google/Entra app registrations, callback allowlist, secrets and rate limits; supply controller/privacy contact, lawful bases, age/retention/transfer decisions; exercise hosted signup/verification/recovery/refresh, real Google/Microsoft round trips, second-device identity restore and deletion/retries. Keep service disabled until ready. Do not fake working social login or store private provider keys in clients.
+
+---
+
+# Historical credit-pause checkpoint — 2026-11-02
 
 The user asked to pause because credits/context were running out. Resume this work before treating the older account-completion handoff as the current task. Call yourself Machine Spirit. The user authorizes autonomous fixes and delegation and dislikes repeated permission requests.
 

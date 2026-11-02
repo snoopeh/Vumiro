@@ -14,6 +14,7 @@ WEBVIEW2-NOTICE.txt
 WebServer/call.html
 WebServer/call-client.js
 WebServer/friends.html
+WebServer/auth.html
 WebServer/friends-client.js
 WebServer/local-profile.js
 WebServer/peer-profile.js

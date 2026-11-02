@@ -26,6 +26,18 @@ The privacy checkbox records acknowledgement of the notice. Do not describe it a
 6. Configure Cloudflare rate limits for `/api/v1/account/*`, security-event logging, alerts, and an account-service dashboard. Logs must avoid tokens, passwords, OTPs, profile payloads, and device credentials.
 7. Keep account service availability separate from new registration. Existing users must retain export, deletion, and sync access if registration is paused.
 
+### Google and Microsoft sign-in
+
+The dedicated desktop sign-in page supports Google, Microsoft, and Vumiro email/password accounts. The social buttons stay disabled until the account service advertises the corresponding provider. No provider client secret belongs in a client package.
+
+1. Configure a Google OAuth web client and the Google consent screen. Set its authorized redirect URI to `https://<project-ref>.supabase.co/auth/v1/callback`, then enter its client ID and secret in the Supabase Google provider settings. Request only `openid email profile`.
+2. Register the Microsoft application in Entra. Choose the supported personal/work account and tenant policy deliberately. Add the same Supabase callback as a **Web** redirect URI, then configure the application ID, secret and tenant in the Supabase Azure provider. Supabase calls this provider `azure`; Vumiro requests its required `email` scope.
+3. In the Supabase redirect allowlist, add `http://127.0.0.1:43821/vumiro-auth/**`. Vumiro binds only IPv4 loopback on this port and generates a random callback path for each transaction. Provider credentials are entered in the external system browser. Only a one-use authorization code returns to the app, which exchanges it with an in-memory PKCE verifier.
+4. Keep `ACCOUNT_OAUTH_GOOGLE_ENABLED` and `ACCOUNT_OAUTH_MICROSOFT_ENABLED` false until each provider has passed a real desktop round trip. Then set the corresponding Worker flag to `"true"`. Keep new-user creation restrictions aligned in Supabase as well as `ACCOUNT_REGISTRATION_ENABLED`; disabling the Vumiro registration UI alone does not prevent provider-side account creation.
+5. Test consent denied, timeout, occupied callback port, browser closed, wrong account during sensitive-action reauthentication, restart persistence, and both new and existing accounts. A social account needs a separate Vumiro backup password or its identity recovery code to restore the encrypted signing identity on another device.
+
+Provider setup references: [Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [Microsoft](https://supabase.com/docs/guides/auth/social-sign-in/auth-azure), [redirect allowlists](https://supabase.com/docs/guides/auth/redirect-urls), and [PKCE](https://supabase.com/docs/guides/auth/sessions/pkce-flow).
+
 ## Release evidence
 
 Before enabling accounts, retain evidence for:

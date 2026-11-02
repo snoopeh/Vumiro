@@ -27,10 +27,14 @@ jobs:
       - name: Run account and identity tests
         shell: pwsh
         run: |
-          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs
+          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs tests/invite-volume.test.mjs tests/oauth-desktop.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Client regression tests failed.' }
+          dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native OAuth callback checks failed.' }
           Push-Location cloudflare
           npm ci
           npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Account API tests failed.' }
           Pop-Location
       - name: Build and validate Windows update transition
         shell: pwsh

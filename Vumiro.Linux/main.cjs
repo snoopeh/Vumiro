@@ -3,7 +3,8 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomBytes } = require('node:crypto');
+const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 
 const APP_SCHEME = 'vumiro';
@@ -13,6 +14,7 @@ const WEB_ROOT = path.join(app.getAppPath(), 'webserver');
 const RELEASES_API = 'https://api.github.com/repos/snoopeh/Vumiro/releases/latest';
 const RELEASE_URL = 'https://github.com/snoopeh/Vumiro/releases/tag/';
 const ASSET_PATHS = new Map([
+  ['/auth.html', 'text/html; charset=utf-8'],
   ['/friends.html', 'text/html; charset=utf-8'],
   ['/friends-client.js', 'text/javascript; charset=utf-8'],
   ['/call.html', 'text/html; charset=utf-8'],
@@ -55,6 +57,7 @@ let capturePicker = null;
 let permittedCaptureSources = new Map();
 let finishCapturePicker = null;
 let captureRequestBusy = false;
+let cancelOAuth = null;
 const appVersion = app.getVersion() || '1.21.1';
 const DEFAULT_SIGNALING = 'wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling';
 
@@ -98,7 +101,7 @@ function response(body, status = 200, contentType = 'text/plain; charset=utf-8')
 async function serveAppAsset(request) {
   const url = parseAppUrl(request.url);
   if (!url || !['GET', 'HEAD'].includes(request.method)) return response('Not found', 404);
-  if (!['/friends.html', '/call.html'].includes(url.pathname) && url.search) return response('Not found', 404);
+  if (!['/auth.html', '/friends.html', '/call.html'].includes(url.pathname) && url.search) return response('Not found', 404);
   const contentType = ASSET_PATHS.get(url.pathname);
   if (!contentType) return response('Not found', 404);
   const filename = path.join(WEB_ROOT, path.basename(url.pathname));
@@ -116,10 +119,77 @@ function validMainFrame(contents, senderFrame = contents && contents.mainFrame, 
   return !!frame && senderFrame === frame && isTrustedPage(frame.url, pathname);
 }
 
+function validAccountFrame(contents, senderFrame) {
+  return validMainFrame(contents, senderFrame, '/friends.html') || validMainFrame(contents, senderFrame, '/auth.html');
+}
+
+function startOAuth(request) {
+  if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).sort().join(',') !== 'authUrl,codeChallenge,provider' ||
+      !['google', 'azure'].includes(request.provider) || typeof request.codeChallenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(request.codeChallenge) ||
+      typeof request.authUrl !== 'string' || !/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(request.authUrl))
+    return Promise.reject(new Error('Invalid account sign-in request.'));
+  if (cancelOAuth) return Promise.reject(new Error('An account sign-in is already open in your browser.'));
+  return new Promise((resolve, reject) => {
+    const callbackPath = `/vumiro-auth/${randomBytes(24).toString('base64url')}/`;
+    const sockets = new Set();
+    let finished = false;
+    const finish = (error, code) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      if (cancelOAuth === cancel) cancelOAuth = null;
+      server.close();
+      for (const socket of sockets) socket.destroy();
+      if (error) reject(new Error(error)); else resolve({ code });
+    };
+    const cancel = () => finish('Account sign-in expired or was cancelled. Try again.');
+    const server = http.createServer({ maxHeaderSize: 8192 }, (incoming, outgoing) => {
+      const hostCount = incoming.rawHeaders.filter((_value, index) => index % 2 === 0 && incoming.rawHeaders[index].toLowerCase() === 'host').length;
+      let code, error, valid = false;
+      if (incoming.method === 'GET' && hostCount === 1 && incoming.headers.host === '127.0.0.1:43821' &&
+          typeof incoming.url === 'string' && incoming.url.startsWith(`${callbackPath}?`) && incoming.url.length <= 8192 && !incoming.url.includes('#')) {
+        const params = new URLSearchParams(incoming.url.slice(callbackPath.length + 1));
+        const duplicate = [...params.keys()].some(key => params.getAll(key).length !== 1);
+        code = params.get('code'); error = params.get('error');
+        valid = !duplicate && !(code !== null && error !== null) &&
+          ((code !== null && /^[A-Za-z0-9._~-]{1,2048}$/.test(code)) || (error !== null && error.length > 0 && error.length <= 2048));
+      }
+      outgoing.writeHead(valid ? 200 : 400, {
+        'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
+        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'", 'Connection': 'close'
+      });
+      outgoing.end(valid ? '<!doctype html><meta charset=utf-8><title>Vumiro sign-in</title><p>You can return to Vumiro and close this tab.</p>' : 'Invalid callback.');
+      if (valid) outgoing.once('finish', () => finish(error ? 'The account provider cancelled or declined sign-in. Return to Vumiro and try again.' : null, code));
+    });
+    server.headersTimeout = 5000;
+    server.requestTimeout = 5000;
+    server.on('connection', socket => {
+      sockets.add(socket);
+      socket.setTimeout(5000, () => socket.destroy());
+      socket.once('close', () => sockets.delete(socket));
+    });
+    server.on('error', () => finish('The sign-in callback port is busy. Close other Vumiro sign-in windows and try again.'));
+    const timer = setTimeout(cancel, 5 * 60 * 1000);
+    cancelOAuth = cancel;
+    server.listen(43821, '127.0.0.1', async () => {
+      const authorize = new URL('/auth/v1/authorize', request.authUrl);
+      authorize.search = new URLSearchParams({ provider: request.provider, redirect_to: `http://127.0.0.1:43821${callbackPath}`,
+        code_challenge: request.codeChallenge, code_challenge_method: 's256', scopes: request.provider === 'azure' ? 'email' : 'openid email profile' }).toString();
+      try { await shell.openExternal(authorize.href); }
+      catch { finish('Vumiro could not open account sign-in in your browser. Try again.'); }
+    });
+  });
+}
+
 function sendToPage(message) {
   if (mainWindow && !mainWindow.isDestroyed() && validMainFrame(mainWindow.webContents)) {
     mainWindow.webContents.send('vumiro:message', message);
   }
+}
+
+function sendWindowState() {
+  if (mainWindow && !mainWindow.isDestroyed() && validAccountFrame(mainWindow.webContents, mainWindow.webContents.mainFrame))
+    mainWindow.webContents.send('vumiro:message', { type: 'window-state', maximized: mainWindow.isMaximized(), fullscreen: mainWindow.isFullScreen(), backdrop: false });
 }
 
 function setUpdateState(patch) {
@@ -334,8 +404,12 @@ function configureDisplayCapture() {
 }
 
 function registerIpc() {
+  ipcMain.handle('vumiro:oauth', async (event, request) => {
+    if (!validAccountFrame(event.sender, event.senderFrame)) throw new Error('Account sign-in is available only to Vumiro.');
+    return startOAuth(request);
+  });
   ipcMain.handle('vumiro:secure-store', async (event, request) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame || !request || !['get', 'set', 'delete'].includes(request.action)) throw new Error('Secure account storage is available only to Vumiro.');
+    if (!validAccountFrame(event.sender, event.senderFrame) || !request || !['get', 'set', 'delete'].includes(request.action)) throw new Error('Secure account storage is available only to Vumiro.');
     if (!safeStorage.isEncryptionAvailable()) throw new Error('The operating system secure storage service is unavailable.');
     if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') throw new Error('Set up GNOME Keyring or KWallet to keep your account session securely on this device.');
     const file = path.join(app.getPath('userData'), 'account-session.bin');
@@ -365,8 +439,18 @@ function registerIpc() {
     return true;
   });
   ipcMain.on('vumiro:post-message', (event, message) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || !validMainFrame(event.sender, event.senderFrame) || !message || typeof message !== 'object' || Array.isArray(message)) return;
+    if (!mainWindow || event.sender !== mainWindow.webContents || !validAccountFrame(event.sender, event.senderFrame) || !message || typeof message !== 'object' || Array.isArray(message)) return;
     const keys = Object.keys(message).sort();
+    if (message.type === 'window' && keys.join(',') === 'action,type' && ['state', 'close', 'minimize', 'maximize'].includes(message.action)) {
+      if (message.action === 'close') mainWindow.close();
+      else if (message.action === 'minimize') mainWindow.minimize();
+      else if (message.action === 'maximize' && !mainWindow.isFullScreen()) {
+        if (mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();
+      }
+      sendWindowState();
+      return;
+    }
+    if (!validMainFrame(event.sender, event.senderFrame)) return;
     if (message.type === 'updates' && keys.join(',') === 'action,type' && ['state', 'check', 'install', 'download'].includes(message.action)) {
       void handleUpdateAction(message.action);
       return;
@@ -430,14 +514,15 @@ async function createWindows() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-frame-navigate', event => {
     const url = parseAppUrl(event.url);
-    if (!url || !['/friends.html', '/call.html'].includes(url.pathname)) event.preventDefault();
+    if (!url || !['/friends.html', '/auth.html', '/call.html'].includes(url.pathname)) event.preventDefault();
+    else if (event.isMainFrame && cancelOAuth) cancelOAuth();
   });
   window.webContents.on('did-finish-load', () => {
-    if (window !== mainWindow || window.isDestroyed() || !validMainFrame(window.webContents)) return;
+    if (window !== mainWindow || window.isDestroyed() || !validAccountFrame(window.webContents, window.webContents.mainFrame)) return;
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     splashWindow = null;
     window.show();
-    sendToPage({ type: 'window-state', maximized: window.isMaximized(), fullscreen: window.isFullScreen(), backdrop: false });
+    sendWindowState();
     void handleUpdateAction('check');
   });
   window.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
@@ -448,10 +533,10 @@ async function createWindows() {
       void dialog.showMessageBox(window, { type: 'error', title: 'Vumiro could not start', message: 'Vumiro could not load its local interface.', detail: `${description}\n${validatedURL}` });
     }
   });
-  window.on('enter-full-screen', () => sendToPage({ type: 'window-state', maximized: window.isMaximized(), fullscreen: true, backdrop: false }));
-  window.on('leave-full-screen', () => sendToPage({ type: 'window-state', maximized: window.isMaximized(), fullscreen: false, backdrop: false }));
-  window.on('maximize', () => sendToPage({ type: 'window-state', maximized: true, fullscreen: window.isFullScreen(), backdrop: false }));
-  window.on('unmaximize', () => sendToPage({ type: 'window-state', maximized: false, fullscreen: window.isFullScreen(), backdrop: false }));
+  window.on('enter-full-screen', sendWindowState);
+  window.on('leave-full-screen', sendWindowState);
+  window.on('maximize', sendWindowState);
+  window.on('unmaximize', sendWindowState);
 
   splashWindow = new BrowserWindow({
     width: 360,
@@ -492,7 +577,7 @@ if (!hasLock) {
   app.quit();
 } else {
   app.on('second-instance', restoreWindow);
-  app.on('before-quit', () => { quitting = true; });
+  app.on('before-quit', () => { quitting = true; if (cancelOAuth) cancelOAuth(); });
   app.on('will-quit', () => {
     if (tray) tray.destroy();
   });

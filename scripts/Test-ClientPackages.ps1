@@ -51,7 +51,7 @@ Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $legacyManifest = Read-Manifest 'windows-package-v1.txt'
 $completeManifest = Read-Manifest 'windows-package-v2.txt'
 Assert-SameEntries 'The frozen 1.21.1 bridge manifest' $legacyManifest $frozenV1211
-Assert-SameEntries 'The complete-only additions' @($completeManifest | Where-Object { $_ -notin $legacyManifest }) @('PRIVACY.md','WebServer/account-client.js','WebServer/identity-recovery.js')
+Assert-SameEntries 'The complete-only additions' @($completeManifest | Where-Object { $_ -notin $legacyManifest }) @('PRIVACY.md','WebServer/account-client.js','WebServer/identity-recovery.js','WebServer/auth.html')
 
 $installer = Get-Content -Raw -LiteralPath (Join-Path $root 'Vumiro.Client/ClientUpdateInstaller.cs')
 $allowlist = [regex]::Match($installer, '(?s)Allowed\s*=.*?new\[\]\s*\{(?<body>.*?)\}\s*,\s*StringComparer\.Ordinal').Groups['body'].Value
@@ -93,6 +93,7 @@ try {
     $legacy = Join-Path $temporaryRoot 'legacy'
     if (Test-Path -LiteralPath (Join-Path $legacy 'WebServer/account-client.js') -PathType Leaf) { throw 'Legacy bridge unexpectedly contains account-client.js.' }
     if (Test-Path -LiteralPath (Join-Path $legacy 'WebServer/identity-recovery.js') -PathType Leaf) { throw 'Legacy bridge unexpectedly contains identity-recovery.js.' }
+    if (Test-Path -LiteralPath (Join-Path $legacy 'WebServer/auth.html') -PathType Leaf) { throw 'Legacy bridge unexpectedly contains auth.html.' }
     if (Test-Path -LiteralPath (Join-Path $legacy 'PRIVACY.md') -PathType Leaf) { throw 'Legacy bridge unexpectedly contains PRIVACY.md.' }
     $legacyHtml = Get-Content -Raw -LiteralPath (Join-Path $legacy 'WebServer/friends.html')
     if ($legacyHtml.Contains('<script src="/account-client.js"></script>') -or
@@ -101,6 +102,7 @@ try {
     $complete = Join-Path $temporaryRoot 'complete'
     if (!(Test-Path -LiteralPath (Join-Path $complete 'WebServer/account-client.js') -PathType Leaf) -or
         !(Test-Path -LiteralPath (Join-Path $complete 'WebServer/identity-recovery.js') -PathType Leaf) -or
+        !(Test-Path -LiteralPath (Join-Path $complete 'WebServer/auth.html') -PathType Leaf) -or
         !(Test-Path -LiteralPath (Join-Path $complete 'PRIVACY.md') -PathType Leaf)) { throw 'Complete package is missing its completion markers.' }
     $completeHtml = Get-Content -Raw -LiteralPath (Join-Path $complete 'WebServer/friends.html')
     if (!$completeHtml.Contains('<script src="/account-client.js"></script>') -or
