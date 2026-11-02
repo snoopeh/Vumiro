@@ -214,6 +214,20 @@ namespace Vumiro.Client
         {
             var install = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             ClientUpdateInstaller.NoLinks(install);
+            // A developer build must ship its replacement helper too. Detect an
+            // incomplete folder before spending time downloading a package.
+            foreach (var file in new[] { "Vumiro.Updater.exe", "Vumiro.Updater.exe.config" })
+                if (!File.Exists(Path.Combine(install, file)))
+                    throw new IOException("This app folder is missing its update helper. Extract the complete Windows package into a writable folder, then start Vumiro there.");
+            try
+            {
+                if (AssemblyName.GetAssemblyName(Path.Combine(install, "Vumiro.Updater.exe")).Name != "Vumiro.Updater")
+                    throw new InvalidDataException("The installed update helper is invalid. Extract the complete Windows package again.");
+            }
+            catch (BadImageFormatException)
+            {
+                throw new InvalidDataException("The installed update helper is damaged. Extract the complete Windows package again.");
+            }
             var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vumiro", "Updates", Guid.NewGuid().ToString("N"));
             ClientUpdateInstaller.NoLinks(Path.GetDirectoryName(cache)); Directory.CreateDirectory(cache);
             var archive = Path.Combine(cache, AssetName); var stage = Path.Combine(cache, "stage");

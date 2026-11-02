@@ -193,11 +193,8 @@
   function invitation() {
     const signal = signalUrl();
     const publicOrigin=(signal.protocol==='wss:'?'https:':'http:')+'//'+signal.host;
-    const url = new URL('/call', linuxPlatform?publicOrigin:location.href);
-    // The embedded virtual host exists only on this machine. A public Worker serves the same room page.
-    if (!linuxPlatform&&['screentask.local','localhost','127.0.0.1','[::1]'].includes(location.hostname) && !['localhost', '127.0.0.1', '[::1]'].includes(signal.hostname)) {
-      url.protocol = signal.protocol === 'wss:' ? 'https:' : 'http:'; url.host = signal.host;
-    }
+    // Invitations use the room service, never the desktop's private virtual host.
+    const url = new URL('/call', publicOrigin);
     url.searchParams.set('room', roomValue($('room').value));url.searchParams.set('mode',roomMode);
     const clean = new URL(signal); clean.searchParams.delete('room'); clean.searchParams.delete('name'); clean.searchParams.delete('id');
     url.searchParams.set('signaling', clean.href); url.searchParams.set('fps', requestedFps); url.searchParams.set('mbps', bitrateMbps);
@@ -205,6 +202,16 @@
     return url.href;
   }
   function syncMuteControl() { const muted=!!microphone&&!microphone.getAudioTracks().some(track=>track.enabled);$('muteLabel').textContent=muted?'Unmute mic':'Mute mic';$('mute').setAttribute('aria-pressed',String(muted));$('mute').setAttribute('aria-label',muted?'Unmute microphone':'Mute microphone');$('mute').classList.toggle('active',!muted&&!!microphone);$('muteIcon').setAttribute('href',muted?'#i-mic-off':'#i-mic'); }
+  function renderInvitation() {
+    const value=invitation();$('inviteLink').value=value;
+    $('inviteHint').textContent=roomMode==='private'?'Share the room password separately.':roomMode==='public'?'Anyone with a Vumiro profile can join with this link.':'Only mutual friends can join. To invite someone new, change Room access to Public or Private.';
+    return value;
+  }
+  async function copyInvitation() {
+    const value=renderInvitation();
+    try { await navigator.clipboard.writeText(value);$('inviteCopyStatus').textContent='Invitation link copied.'; }
+    catch { $('inviteCopyStatus').textContent='Select the link and copy it with Ctrl+C, or press and hold on mobile.';$('inviteLink').focus();$('inviteLink').select(); }
+  }
   function updateControls() {
     document.body.classList.toggle('in-room', joined || joining || !!localTile);
     $('join').disabled = joined || joining || !!localTile; $('leave').disabled = !joined && !joining && !localTile && !disconnected;
@@ -214,8 +221,8 @@
     $('copyInvite').disabled = !joined;
     $('reconnect').hidden=!disconnected && ![...peers.values()].some(peer=>['failed','disconnected'].includes(peer.pc.connectionState));$('reconnect').disabled=joining;chatControls();roomState();
     $('mic').hidden=!!microphone;$('mute').hidden=!microphone;$('share').hidden=!!screen;$('stopShare').hidden=!screen;renderRoom();refreshLayout();
-    if (joined) { $('invite').href = invitation(); $('invite').textContent = 'Open invitation'; }
-    else { $('invite').removeAttribute('href'); $('invite').textContent = ''; }
+    if(joined && $('inviteDialog').open) renderInvitation();
+    if(!joined && $('inviteDialog').open) $('inviteDialog').close();
   }
   function tile(name, local) {
     const element = document.createElement('article'); element.className = 'tile';element.tabIndex=0;element.setAttribute('aria-label','Focus '+name);
@@ -225,7 +232,7 @@
     for (const [value, label] of [['fit','Fit'],['actual','Actual size']]) { const option = document.createElement('option'); option.value=value; option.textContent=label; view.append(option); }
     const full = document.createElement('button'); full.textContent = 'Fullscreen'; tools.append(view, full); header.append(identityBox, tools);
     const stage = document.createElement('div'); stage.className='stage';
-    const video = document.createElement('video'); video.autoplay=true; video.playsInline=true; video.muted=local;
+    const video = document.createElement('video'); video.autoplay=true; video.playsInline=true; video.muted=true;
     const placeholder=document.createElement('div'); placeholder.className='placeholder'; const placeholderAvatar=document.createElement('div'),placeholderLabel=document.createElement('small');placeholderAvatar.className='placeholder-avatar';placeholderAvatar.textContent=Array.from(name)[0] || '?';placeholderLabel.textContent='Here with you · not sharing a screen';placeholder.append(placeholderAvatar,placeholderLabel);
     const stats=document.createElement('div'); stats.className='stats'; stats.textContent=local?'Your screen preview':'Waiting for direct connection…';
     stage.append(video,placeholder); element.append(header,stage,stats); $('tiles').append(element);
@@ -234,8 +241,27 @@
     async function fullscreen() { try { if(document.fullscreenElement) await document.exitFullscreen();else await stage.requestFullscreen(); } catch(error) { status('Fullscreen: '+error.message); } }
     video.onresize=resize;full.onclick=fullscreen;stage.ondblclick=event=>{ event.preventDefault();fullscreen(); };
     const result={element,video,stats,placeholder,heading,avatar,placeholderAvatar,audios:[],sharing:false};
+    if(!local) {
+      const controls=document.createElement('div');controls.className='audio-controls';controls.setAttribute('aria-label','Playback volume for '+name);
+      const slots=new Map();
+      for(const [slot,label] of [[1,'Screen'],[2,'Voice']]) {
+        const row=document.createElement('label'),text=document.createElement('span'),slider=document.createElement('input'),level=document.createElement('output');
+        text.textContent=label;slider.type='range';slider.min='0';slider.max='100';slider.step='1';slider.value='100';slider.disabled=true;slider.setAttribute('aria-label',label+' volume for '+name);slider.setAttribute('aria-valuetext','100 percent');level.textContent='100%';
+        row.append(text,slider,level);controls.append(row);slots.set(slot,{slider,level,audio:null});
+        slider.oninput=()=>{ const value=Math.min(100,Math.max(0,Number(slider.value)||0));slider.value=String(value);level.textContent=value+'%';slider.setAttribute('aria-valuetext',value===0?'Muted':value+' percent');const audio=slots.get(slot).audio;if(audio){audio.volume=value/100;audio.muted=value===0;} };
+      }
+      controls.onclick=event=>event.stopPropagation();controls.ondblclick=event=>event.stopPropagation();stage.append(controls);
+      result.attachAudio=(slot,track)=>{
+        const control=slots.get(slot);if(!control) return;
+        let audio=control.audio;
+        if(!audio) { audio=document.createElement('audio');audio.autoplay=true;control.audio=audio;element.append(audio);result.audios.push(audio); }
+        audio.srcObject=new MediaStream([track]);audio.volume=Number(control.slider.value)/100;audio.muted=audio.volume===0;
+        const available=()=>{ if(audio.srcObject?.getAudioTracks()[0]!==track)return;control.slider.disabled=track.readyState==='ended'||track.muted;control.slider.title=control.slider.disabled?'Waiting for '+(slot===1?'screen audio':'voice'):'Set to 0 to mute'; };
+        track.onunmute=available;track.onmute=available;track.onended=available;available();play(audio);
+      };
+    }
     result.show = sharing => { result.sharing=sharing; placeholder.hidden=sharing; video.style.visibility=sharing?'visible':'hidden';refreshLayout(); };
-    element.onclick=event=>{ if(event.target.closest('button,select')) return;const found=[...peers.values()].find(peer=>peer.tile===result);focusedId=found?.id || selfId || identity?.id || '';manualFocus=true;refreshLayout(); };
+    element.onclick=event=>{ if(event.target.closest('button,select,input,.audio-controls')) return;const found=[...peers.values()].find(peer=>peer.tile===result);focusedId=found?.id || selfId || identity?.id || '';manualFocus=true;refreshLayout(); };
     element.onkeydown=event=>{ if(event.target===element && ['Enter',' '].includes(event.key)) { event.preventDefault();element.click(); } };
     result.show(false);return result;
   }
@@ -305,8 +331,8 @@
         else if('playoutDelayHint' in event.receiver) event.receiver.playoutDelayHint=0.05;
       } catch { /* Optional browser latency controls. */ }
       if(track.kind==='video') { peer.tile.video.srcObject=new MediaStream([track]); play(peer.tile.video); track.onunmute=()=>{ if(!peer.channel || peer.channel.readyState!=='open') peer.tile.show(true); }; }
-      else { const audio=document.createElement('audio'); audio.autoplay=true; audio.srcObject=new MediaStream([track]); peer.tile.element.append(audio);peer.tile.audios.push(audio); play(audio); }
-      track.onended=()=>{ if(index===0) peer.tile.show(false); };
+      else peer.tile.attachAudio(index,track);
+      if(track.kind==='video') track.onended=()=>peer.tile.show(false);
     };
     pc.onicecandidate=event=>{ if(!relay(event.candidate)) send({type:'signal',to:id,candidate:event.candidate?.toJSON() ?? null}); };
     pc.onnegotiationneeded=()=>{
@@ -463,7 +489,12 @@
   if(!querySignal&&savedSignal&&savedSignal!==$('signaling').value)save('call-signaling',$('signaling').value);
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
   $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks().some(track=>track.enabled);microphone.getAudioTracks().forEach(track=>track.enabled=enabled);syncMuteControl();for(const peer of peers.values()) announce(peer); } };
-  $('copyInvite').onclick=async()=>{ try { await navigator.clipboard.writeText(invitation());status(roomMode==='private'?'Room link copied. Share the password separately.':roomMode==='public'?'Room link copied. Anyone with a profile can join.':'Room link copied. Mutual friends can join.'); } catch { status('Copy this invitation: '+invitation()); } };
+  $('copyInvite').onclick=()=>{ if(!joined)return;renderInvitation();$('inviteCopyStatus').textContent='';$('inviteDialog').showModal();$('inviteLink').focus();$('inviteLink').select();copyInvitation(); };
+  $('inviteCopy').onclick=copyInvitation;
+  $('inviteClose').onclick=()=>$('inviteDialog').close();
+  $('inviteDialog').addEventListener('click',event=>{if(event.target===$('inviteDialog'))$('inviteDialog').close();});
+  $('inviteDialog').addEventListener('close',()=>$('copyInvite').focus());
+  $('inviteLink').onclick=()=>$('inviteLink').select();
   $('enableAudio').onclick=()=>{ $('enableAudio').hidden=true;for(const peer of peers.values()) { play(peer.tile.video);for(const audio of peer.tile.audios) play(audio); } };
   addEventListener('beforeunload',()=>{ generation++;stopNativeAudioCapture();if(socket) socket.close();for(const stream of [screen,microphone]) stream?.getTracks().forEach(t=>t.stop());clearPeers(); });
   addEventListener('message',event=>{

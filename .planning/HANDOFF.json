@@ -1,6 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-02T06:09:54.2692670Z",
+  "timestamp": "2026-11-02T17:27:13.711Z",
+  "active_user_fixes": {
+    "status": "paused_by_user_credit_limit",
+    "handoff": ".planning/USER-FIXES-HANDOFF.md",
+    "implemented": ["visible selectable invite link", "screen and voice volume controls", "source-build updater helper dependency", "conventional vector captions", "DWM inactive border fix", "dedicated first-run sign-in/signup/recovery screens", "Worker identity asset allowlist"],
+    "validation": "19 JS tests pass; isolated Windows build and dual-package validation pass; real 880Hz native loopback captured and decoded over production iframe/WebRTC path with RMS0.00730 and152packets; actual browser account navigation passed.",
+    "remaining": ["inspect last account-worker unavailable-feedback polish", "maximize aria/title switching", "CI include invite-volume suite", "final assets/docs/checks", "push local commits to GitHub", "release/install updated client", "no Supabase project exists; user confirmed"],
+    "git": "main was ahead of origin/main by2 at session start; new fixes checkpoint local only until push is verified; latest public release1.21.2, source1.21.3",
+    "processes": "Wrangler local port8799 started via exec session31348 but ID no longer recognized at pause; check port before restart. Browser tests close contexts. Running user Vumiro PID5592 must not be overwritten."
+  },
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
   "phase_dir": ".planning",
@@ -154,6 +163,6 @@
     "tests/account-client.test.mjs",
     "tests/identity-recovery.test.mjs"
   ],
-  "next_action": "Obtain the Supabase/SMTP staging project and operator privacy decisions, configure provider policies and Worker secrets, run the hosted flow matrix in docs/ACCOUNT-OPERATIONS.md, then apply remote migration 0006 immediately before a reviewed Worker deployment. Keep registration disabled until legal/operator evidence is complete.",
+  "next_action": "Read .planning/USER-FIXES-HANDOFF.md first, finish final UI/CI/package checks, then push Git and deliver the invite/volume/updater/chrome/account-screen fixes. User confirms no Supabase project; hosted auth remains separately blocked.",
   "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete."
 }

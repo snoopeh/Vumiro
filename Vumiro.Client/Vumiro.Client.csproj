@@ -9,6 +9,7 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Vumiro.Client.Updater/Vumiro.Client.Updater.csproj" ReferenceOutputAssembly="false" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Security" />
@@ -18,4 +19,10 @@
     <Reference Include="System.IO.Compression.FileSystem" />
     <Content Include="WebServer/*.html;WebServer/*.js" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <Target Name="CopyUpdaterForLocalLaunch" AfterTargets="Build">
+    <MSBuild Projects="../Vumiro.Client.Updater/Vumiro.Client.Updater.csproj" Targets="GetTargetPath" Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)">
+      <Output TaskParameter="TargetOutputs" ItemName="_VumiroUpdaterPath" />
+    </MSBuild>
+    <Copy SourceFiles="@(_VumiroUpdaterPath);@(_VumiroUpdaterPath->'%(FullPath).config')" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

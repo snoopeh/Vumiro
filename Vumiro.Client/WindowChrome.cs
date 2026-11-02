@@ -41,6 +41,13 @@ namespace Vumiro.Client
         protected override void WndProc(ref Message message)
         {
             if (message.Msg == 0x0083) { message.Result = IntPtr.Zero; return; } // WM_NCCALCSIZE
+            if (message.Msg == 0x0086 && WindowState != FormWindowState.Minimized) // WM_NCACTIVATE
+            {
+                // Keep native activation/shadow behavior without repainting a
+                // classic inactive frame over the custom WebView caption.
+                message.Result = DefWindowProc(Handle, (uint)message.Msg, message.WParam, new IntPtr(-1));
+                return;
+            }
             base.WndProc(ref message);
             if (message.Msg == 0x001a || message.Msg == 0x031a || message.Msg == 0x031e)
             {
@@ -75,7 +82,7 @@ namespace Vumiro.Client
         {
             if (!IsHandleCreated || IsDisposed) return;
             var dark = 1; var corners = contentFullscreen || WindowState == FormWindowState.Maximized ? 1 : 2;
-            var border = 0x00272729;
+            var border = unchecked((int)0xfffffffe); // DWMWA_COLOR_NONE, including inactive windows.
             DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
             DwmSetWindowAttribute(Handle, 33, ref corners, sizeof(int));
             DwmSetWindowAttribute(Handle, 34, ref border, sizeof(int));
@@ -90,7 +97,7 @@ namespace Vumiro.Client
                 browser.DefaultBackgroundColor = enabled ? Color.Transparent : Color.FromArgb(11, 11, 12);
                 Invalidate();
             }
-            var extent = enabled ? -1 : 1;
+            var extent = enabled ? -1 : 0;
             var margins = new Margins { Left = extent, Right = extent, Top = extent, Bottom = extent };
             DwmExtendFrameIntoClientArea(Handle, ref margins);
         }
@@ -166,6 +173,7 @@ namespace Vumiro.Client
         [StructLayout(LayoutKind.Sequential)] private struct FlashInfo { public uint Size; public IntPtr Window; public uint Flags, Count, Timeout; }
         [DllImport("user32.dll")] private static extern bool ReleaseCapture();
         [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr DefWindowProc(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
         [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
         [DllImport("user32.dll")] private static extern bool FlashWindowEx(ref FlashInfo info);

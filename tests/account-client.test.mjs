@@ -7,10 +7,15 @@ import { webcrypto, randomUUID } from 'node:crypto';
 const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/account-client.js',import.meta.url),'utf8');
 
 class Element {
-  constructor(id=''){this.id=id;this.hidden=false;this.value='';this.checked=false;this.disabled=false;this.textContent='';this.className='';this.classList={toggle(){}};}
+  constructor(id=''){this.id=id;this.hidden=false;this.value='';this.checked=false;this.disabled=false;this.textContent='';this.className='';this.attributes={};this.listeners=new Map();this.classList={toggle(){},add(){}};}
   append(...children){this.children=(this.children||[]).concat(children);}
   appendChild(child){this.append(child);return child;}
   after(){}
+  before(){}
+  setAttribute(name,value){this.attributes[name]=value;}
+  addEventListener(type,callback){this.listeners.set(type,callback);}
+  showModal(){this.open=true;}
+  close(){this.open=false;this.listeners.get('close')?.();}
   focus(){}
   reportValidity(){return true;}
   querySelector(){return null;}
@@ -122,4 +127,56 @@ test('manual backup and export share one serialized account-operation queue',asy
 test('reauthentication targets the existing reauth form id',()=>{
   assert.doesNotMatch(source,/\$\('accountReauth'\)/);
   assert.match(source,/\$\('accountReauthForm'\)/);
+});
+
+test('account screens are accessible before creating a local profile and close returns to setup',async()=>{
+  const app=harness({route:commonRoute});await app.start();
+  app.element('setupDialog').showModal();
+  app.sandbox.window.VumiroAccount.open('signup');
+  assert.equal(app.element('setupDialog').open,false);
+  assert.equal(app.element('accountDialog').open,true);
+  assert.equal(app.element('accountHeading').textContent,'Make yourself at home.');
+  assert.equal(app.element('accountSignUp').hidden,false);
+  assert.equal(app.element('accountSignIn').hidden,true);
+  assert.equal(app.element('accountResetRequestForm').hidden,true);
+  assert.equal(app.element('accountPassword').minLength,12);
+  app.element('accountClose').onclick();
+  assert.equal(app.element('setupDialog').open,true);
+});
+
+test('signup validates matching passwords then enters a dedicated verification screen',async()=>{
+  const app=harness({route:(url)=>url.endsWith('/auth/v1/signup')?response(200,{}):commonRoute(url)});await app.start();
+  app.sandbox.window.VumiroAccount.open('signup');
+  app.element('accountEmail').value='new@example.com';app.element('accountPassword').value='a safe password 123';app.element('accountPasswordConfirm').value='wrong';app.element('accountPrivacyAck').checked=true;
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(app.element('accountError').textContent,'Your passwords do not match.');
+  assert.equal(app.calls.filter(call=>call.url.endsWith('/auth/v1/signup')).length,0);
+  app.element('accountPasswordConfirm').value='a safe password 123';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(app.element('accountHeading').textContent,'Check your email.');
+  assert.equal(app.element('accountVerifyForm').hidden,false);
+  assert.equal(app.element('accountForm').hidden,true);
+  assert.equal(app.secure.value.includes('a safe password 123'),false);
+});
+
+test('forgot password only shows the request screen and recovery errors stay visible',async()=>{
+  const app=harness({route:url=>url.endsWith('/auth/v1/recover')?response(429,{message:'Please try again shortly.'}):commonRoute(url)});await app.start();
+  app.sandbox.window.VumiroAccount.open('signin');app.element('accountEmail').value='person@example.com';app.element('accountForgotPassword').onclick();
+  assert.equal(app.element('accountResetRequestForm').hidden,false);
+  assert.equal(app.element('accountForm').hidden,true);
+  assert.equal(app.element('accountResetEmail').value,'person@example.com');
+  await app.element('accountResetRequestForm').onsubmit({preventDefault(){}});
+  assert.equal(app.element('accountFeedback').textContent,'Please try again shortly.');
+  assert.equal(app.element('accountResetForm').hidden,true);
+});
+
+test('unprovisioned account service shows an honest message and can retry without losing local profile access',async()=>{
+  let available=false;
+  const app=harness({route:url=>url.endsWith('/api/v1/account/config')?response(available?200:404,available?config:{}):commonRoute(url)});await app.start();
+  app.sandbox.window.VumiroAccount.open('signin');
+  assert.match(app.element('accountError').textContent,/Accounts are not available yet/);
+  available=true;await app.element('accountRetry').onclick();
+  assert.equal(app.element('accountError').textContent,'');
+  assert.equal(app.element('accountFeedback').textContent,'Account service connected.');
+  assert.equal(app.element('accountSignIn').disabled,false);
 });

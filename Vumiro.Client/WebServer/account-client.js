@@ -23,6 +23,63 @@
   let deviceId = '', deviceToken = '', deviceAccountId = '';
   let identityRecovery = null, identityRecoveryCode = '', identityUnlock = null, identityRewrapPending = false;
   let operationTail = Promise.resolve();
+  let accountScreen='signin', identityRecoveryAccountId='';
+
+  function setupAccountScreens() {
+    const dialog=$('accountDialog'),details=$('accountDetails');
+    if(!dialog||!details)return;
+    const profileEntry=document.createElement('button');profileEntry.type='button';profileEntry.className='accountEntry';profileEntry.textContent='Vumiro account · sign in, sync and recovery';
+    details.before(profileEntry);profileEntry.onclick=()=>openAccount();
+    $('accountContent').append(details);details.open=true;
+    const error=$('accountError');$('accountFeedback').after(error);
+    const privacy=details.querySelector('details');if(privacy){privacy.id='accountPrivacyNotice';privacy.classList.add('accountPrivacy');}
+    const ack=$('accountPrivacyAck')?.closest?.('label');if(ack)ack.id='accountPrivacyRow';
+    const confirmLabel=document.createElement('label');confirmLabel.id='accountPasswordConfirmLabel';confirmLabel.htmlFor='accountPasswordConfirm';confirmLabel.textContent='Confirm password';
+    const confirmInput=document.createElement('input');confirmInput.id='accountPasswordConfirm';confirmInput.type='password';confirmInput.autocomplete='new-password';confirmInput.maxLength=128;
+    $('accountPassword').after(confirmLabel,confirmInput);
+    const nav=document.querySelector?.('.nav');
+    if(nav){const button=document.createElement('button');button.id='accountNav';button.type='button';const icon=document.createElement('span');icon.className='navIcon';icon.textContent='@';const label=document.createElement('span');label.className='navText';label.textContent='Account';button.append(icon,label);button.onclick=()=>openAccount();nav.append(button);}
+    const setup=$('setupForm');
+    if(setup){const row=document.createElement('div');row.className='accountSetupActions';for(const [screen,text]of[['signin','Sign in'],['signup','Create account']]){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>openAccount(screen);row.append(button);}setup.before(row);}
+    $('accountClose').onclick=()=>dialog.close();
+    dialog.addEventListener('close',()=>{if(!window.VumiroLocalProfile?.profile()&&!$('setupDialog').open)$('setupDialog').showModal();});
+    $('accountSignInTab').onclick=()=>setAccountScreen('signin');$('accountSignUpTab').onclick=()=>setAccountScreen('signup');
+    $('accountForgotPassword').onclick=()=>{$('accountResetEmail').value=$('accountEmail').value;setAccountScreen('recover');};
+    $('accountVerificationNav').onclick=()=>{if(pendingSignup)setAccountScreen('verify');else setAccountScreen('resume');};
+    $('accountBack').onclick=()=>setAccountScreen('signin');
+    $('accountRetry').onclick=async()=>{authConfig=null;$('accountRetry').disabled=true;try{await loadAccountAvailability();$('accountError').textContent='';status('Account service connected.');}catch(error){$('accountError').textContent=error.message;}finally{$('accountRetry').disabled=false;}};
+  }
+  function openAccount(screen) {
+    for(const id of ['setupDialog','profileDialog'])if($(id)?.open)$(id).close();
+    setAccountScreen(session?'manage':screen||(pendingSignup?'verify':'signin'));
+    if(!$('accountDialog').open)$('accountDialog').showModal();
+    const field=['recover','reset'].includes(accountScreen)?$('accountResetEmail'):accountScreen==='verify'?$('accountVerifyCode'):$('accountEmail');
+    if(!session)field.focus();
+  }
+  function setAccountScreen(screen) {
+    accountScreen=session?'manage':screen;
+    const copy={signin:['Welcome back.','Sign in to restore your profile and friends.'],signup:['Make yourself at home.','Create an account to keep your profile and friends across devices.'],verify:['Check your email.','Enter the verification code we sent to your email address.'],resume:['Verify your email.','Enter the email address you used to create your account.'],recover:['Forgot your password?','We’ll send a recovery code to your account email.'],reset:['Choose a new password.','Enter the code from your recovery email and set a new password.'],manage:['Your account.','Manage your saved data, linked devices and account security.']};
+    const [heading,description]=copy[accountScreen]||copy.signin;$('accountHeading').textContent=heading;$('accountDescription').textContent=description;
+    const formScreen=['signin','signup','resume'].includes(accountScreen);
+    $('accountForm').hidden=!formScreen;$('accountActions').hidden=!session;
+    $('accountVerifyForm').hidden=accountScreen!=='verify';$('accountResetRequestForm').hidden=accountScreen!=='recover';$('accountResetForm').hidden=accountScreen!=='reset';
+    $('accountTabs').hidden=!['signin','signup'].includes(accountScreen);$('accountFooter').hidden=!!session;$('accountBack').hidden=!!session||accountScreen==='signin';
+    $('accountSignInTab').setAttribute('aria-selected',String(accountScreen==='signin'));$('accountSignUpTab').setAttribute('aria-selected',String(accountScreen==='signup'));
+    $('accountSignIn').hidden=accountScreen!=='signin';$('accountSignUp').hidden=accountScreen!=='signup';$('accountHaveVerifyCode').hidden=accountScreen!=='resume';
+    const passwordVisible=accountScreen!=='resume';$('accountPassword').hidden=!passwordVisible;const passwordLabel=$('accountForm').querySelector('label[for="accountPassword"]');if(passwordLabel)passwordLabel.hidden=!passwordVisible;
+    $('accountPassword').required=passwordVisible;$('accountPassword').minLength=accountScreen==='signup'?12:8;$('accountPassword').autocomplete=accountScreen==='signup'?'new-password':'current-password';
+    $('accountPasswordConfirm').hidden=$('accountPasswordConfirmLabel').hidden=accountScreen!=='signup';$('accountPasswordConfirm').required=accountScreen==='signup';
+    $('accountPasswordConfirm').value='';
+    if($('accountPrivacyRow'))$('accountPrivacyRow').hidden=!['signup','resume','manage'].includes(accountScreen);
+    if($('accountPrivacyNotice'))$('accountPrivacyNotice').hidden=!['signup','resume','manage'].includes(accountScreen);
+    $('accountRegistrationStatus').hidden=!['signin','signup'].includes(accountScreen);
+  }
+  async function loadAccountAvailability() {
+    const cfg=await config();
+    $('accountSignIn').disabled=!cfg.serviceEnabled;$('accountSignUp').disabled=!cfg.serviceEnabled||!cfg.registrationEnabled;
+    $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Accounts are temporarily unavailable. You can continue with your local profile.':cfg.registrationEnabled?'Your session stays signed in when you close or update Vumiro.':'New account registration is paused. Existing accounts can sign in.';
+    return cfg;
+  }
 
   function enqueue(operation) {
     const result=operationTail.then(operation,operation);
@@ -56,8 +113,10 @@
       const current=document.createElement('input');current.id='accountCurrentPassword';current.type='password';current.autocomplete='current-password';current.minLength=8;current.maxLength=128;current.required=true;
       const nextLabel=document.createElement('label');nextLabel.htmlFor='accountChangedPassword';nextLabel.textContent='New password';
       const next=document.createElement('input');next.id='accountChangedPassword';next.type='password';next.autocomplete='new-password';next.minLength=12;next.maxLength=128;next.required=true;
+      const recoveryLabel=document.createElement('label');recoveryLabel.htmlFor='accountChangeRecoveryCode';recoveryLabel.textContent='Identity recovery code (if not saved on this device)';
+      const recovery=document.createElement('input');recovery.id='accountChangeRecoveryCode';recovery.autocomplete='off';recovery.maxLength=64;recovery.placeholder='vmr1.…';
       const submit=document.createElement('button');submit.id='accountChangePassword';submit.type='submit';submit.textContent='Change password';
-      form.append(currentLabel,current,nextLabel,next,submit);actions.insertBefore(form,$('accountSyncStatus'));
+      form.append(currentLabel,current,nextLabel,next,recoveryLabel,recovery,submit);actions.insertBefore(form,$('accountSyncStatus'));
     }
     const reset=$('accountResetForm');
     if(reset&&!$('accountIdentityRecoveryCode')){
@@ -78,9 +137,10 @@
     }
   }
   ensureAccountControls();
+  setupAccountScreens();
   $('accountNewPassword').minLength=12;
 
-  function status(text, error = false) { const target=$('accountSyncStatus'); if(target){target.textContent=text;target.classList.toggle('error',error);} }
+  function status(text, error = false) { for(const id of ['accountSyncStatus','accountFeedback']){const target=$(id);if(target){target.textContent=text;target.classList.toggle('error',error);}} }
   function authError(data) { return data?.msg || data?.message || data?.error_description || data?.error || 'The account service could not complete this request.'; }
   async function callJson(url, options={}) {
     const response=await fetch(url,{...options,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})}});
@@ -95,7 +155,7 @@
     accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
     const response=await fetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store'});
     let data={};try{data=await response.json();}catch{}
-    if(!response.ok)throw Error(authError(data));
+    if(!response.ok)throw Error(response.status===404?'Accounts are not available yet. You can continue with your local profile and try again later.':authError(data));
     if(typeof data.authUrl!=='string'||typeof data.publishableKey!=='string')throw Error('The account service is not configured.');
     let authUrl;
     try { authUrl=new URL(data.authUrl); } catch { throw Error('The account service returned an invalid authentication address.'); }
@@ -118,7 +178,7 @@
     const state={version:2};
     if(session)Object.assign(state,{refreshToken:session.refreshToken,deviceId,deviceToken,deviceAccountId});
     if(pendingSignup)state.pendingSignup=pendingSignup;
-    if(identityRecoveryCode)state.identityRecoveryCode=identityRecoveryCode;
+    if(identityRecoveryCode&&identityRecoveryAccountId)Object.assign(state,{identityRecoveryCode,identityRecoveryAccountId});
     if(!session&&deviceId&&deviceToken)Object.assign(state,{deviceId,deviceToken,deviceAccountId});
     if(session||pendingSignup||identityRecoveryCode||(deviceId&&deviceToken))await secureStore.set(JSON.stringify(state));
     else await secureStore.delete();
@@ -130,6 +190,7 @@
   async function activate(value,unlock=null) {
     if(!value?.access_token||!value?.refresh_token)throw Error('The account provider did not return a valid session.');
     const nextAccountId=value.user?.id||value.user?.email||'';
+    if(identityRecoveryAccountId!==nextAccountId){identityRecoveryCode='';identityRecoveryAccountId='';identityRecovery=null;identityRewrapPending=false;$('accountRecoveryPanel').hidden=true;$('accountRecoveryCode').value='';}
     if(deviceId&&deviceToken&&(!deviceAccountId||!nextAccountId||deviceAccountId!==nextAccountId)){deviceId='';deviceToken='';}
     deviceAccountId=nextAccountId;
     session={accessToken:value.access_token,refreshToken:value.refresh_token,expiresAt:Date.now()+Math.max(30,Number(value.expires_in)||3600)*1000,user:value.user||{}};
@@ -138,7 +199,7 @@
     if(!deviceId)deviceId=crypto.randomUUID();
     identityUnlock=unlock;
     await persistCredentials(); active=false; render();
-    try { await syncInitial(); } catch(error) { status(error.message,true); } finally { identityUnlock=null; }
+    try { await syncInitial();return true; } catch(error) { status(error.message,true);return false; } finally { identityUnlock=null; }
   }
   async function accessToken() {
     if(!session)throw Error('Sign in to your Vumiro account first.');
@@ -184,11 +245,11 @@
           catch(error){if(!identityUnlock?.recoveryCode)throw error;recovered=await window.VumiroIdentityRecovery.recoverWithCode(identityRecovery,identityUnlock.recoveryCode);usedRecoveryCode=true;}
         }else if(identityUnlock?.recoveryCode){recovered=await window.VumiroIdentityRecovery.recoverWithCode(identityRecovery,identityUnlock.recoveryCode);usedRecoveryCode=true;}
         if(!recovered)throw Error('Enter your account password or saved identity recovery code to restore this contact identity on a new device.');
-        if(usedRecoveryCode){identityRecoveryCode=identityUnlock.recoveryCode;await persistCredentials();}
+        if(usedRecoveryCode){identityRecoveryCode=identityUnlock.recoveryCode;identityRecoveryAccountId=accountId();await persistCredentials();}
         if(usedRecoveryCode&&identityUnlock?.password){identityRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityUnlock.recoveryCode,identityUnlock.password);identityRewrapPending=true;}
         await window.VumiroLocalProfile.installRecoveredIdentity(recovered,data.profile,identityRecovery.transition||null);
       }else if(identityUnlock?.recoveryCode&&identityUnlock?.password){
-        identityRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityUnlock.recoveryCode,identityUnlock.password);identityRecoveryCode=identityUnlock.recoveryCode;identityRewrapPending=true;await persistCredentials();
+        identityRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityUnlock.recoveryCode,identityUnlock.password);identityRecoveryCode=identityUnlock.recoveryCode;identityRecoveryAccountId=accountId();identityRewrapPending=true;await persistCredentials();
       }
     }
     restoring=true;
@@ -256,7 +317,7 @@
       restoring=true;
       try { await window.VumiroLocalProfile.commitIdentityMigration(prepared); }
       finally { restoring=false; }
-      identityRecoveryCode=created.recoveryCode;await persistCredentials();showRecoveryCode();
+      identityRecoveryCode=created.recoveryCode;identityRecoveryAccountId=accountId();await persistCredentials();showRecoveryCode();
       status('Identity recovery is enabled. Save the recovery code before closing this panel. Your contact code changed; older friends may need to accept a new request.');
     } catch(error) { identityRecovery=previous;throw error; }
   }
@@ -312,12 +373,11 @@
   }
   function render() {
     const signed=!!session;
-    $('accountForm').hidden=signed;$('accountActions').hidden=!signed;$('accountResetRequestForm').hidden=signed;
     if(!signed){$('accountReauthForm').hidden=true;reauthAction=null;}
     $('accountStatus').textContent=signed?`Signed in as ${session.user?.email||$('accountEmail').value}. Your session is saved securely on this device.`:'Not signed in. Your existing local data stays on this device.';
     $('accountPrivacyAck').checked=!!(signed&&readNoticeAck());
-    $('accountVerifyForm').hidden=signed||!pendingSignup;
-    if(!signed&&pendingSignup){$('accountEmail').value=pendingSignup.email;$('accountError').textContent=`Enter the verification code sent to ${pendingSignup.email}.`;}
+    if(!signed&&pendingSignup){$('accountEmail').value=pendingSignup.email;status(`Enter the verification code sent to ${pendingSignup.email}.`);}
+    setAccountScreen(signed?'manage':pendingSignup?'verify':accountScreen==='manage'?'signin':accountScreen);
   }
   async function restoreRemote() {
     const remote=await accountRequest('GET'); if(!remote.data)throw Error('There is no saved account data yet.');
@@ -359,6 +419,8 @@
 
   $('accountForm').onsubmit=async event=>{
     event.preventDefault();$('accountError').textContent='';
+    if(accountScreen==='signup'){await $('accountSignUp').onclick();return;}
+    if(accountScreen==='resume'){await $('accountHaveVerifyCode').onclick();return;}
     const submit=$('accountSignIn');submit.disabled=true;
     try { await ensureSecureStorage();const password=$('accountPassword').value;const data=await auth('/token?grant_type=password',{email:$('accountEmail').value.trim(),password});await activate(data,{password});$('accountPassword').value=''; }
     catch(error){$('accountError').textContent=error.message;} finally{submit.disabled=false;}
@@ -367,6 +429,7 @@
     $('accountError').textContent='';
     if(!$('accountEmail').reportValidity()||!$('accountPassword').reportValidity())return;
     if($('accountPassword').value.length<12){$('accountError').textContent='Use at least 12 characters for a new account password.';return;}
+    if($('accountPassword').value!==$('accountPasswordConfirm').value){$('accountError').textContent='Your passwords do not match.';$('accountPasswordConfirm').focus();return;}
     if(!$('accountPrivacyAck').checked){$('accountError').textContent='Review the privacy notice before creating an account.';return;}
     const button=$('accountSignUp');button.disabled=true;
     try {
@@ -376,7 +439,7 @@
       await callJson(`${cfg.authUrl}/auth/v1/signup`,{method:'POST',headers:{apikey:cfg.publishableKey},body:JSON.stringify({email:pendingEmail,password})});
       pendingSignup={email:pendingEmail,acceptedAt:new Date().toISOString(),noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION};
       await persistCredentials();
-      $('accountVerifyForm').hidden=false;$('accountVerifyCode').focus();$('accountError').textContent='Check your email for a verification code, then enter it here.';
+      setAccountScreen('verify');$('accountVerifyCode').focus();status(`Check ${pendingEmail} for a verification code, then enter it here.`);
     } catch(error){$('accountError').textContent=error.message;} finally{button.disabled=false;}
   };
   $('accountHaveVerifyCode').onclick=async()=>{
@@ -403,16 +466,16 @@
   };
   $('accountResetRequestForm').onsubmit=async event=>{
     event.preventDefault();$('accountError').textContent='';
-    try { const cfg=await config();await callJson(`${cfg.authUrl}/auth/v1/recover`,{method:'POST',headers:{apikey:cfg.publishableKey},body:JSON.stringify({email:$('accountResetEmail').value.trim()})});pendingEmail=$('accountResetEmail').value.trim();$('accountResetForm').hidden=false;status('If an account exists for that address, a recovery code has been sent.'); }
+    try { await auth('/recover',{email:$('accountResetEmail').value.trim()});pendingEmail=$('accountResetEmail').value.trim();setAccountScreen('reset');status('If an account exists for that address, a recovery code has been sent.');$('accountResetCode').focus(); }
     catch(error){status(error.message,true);}
   };
   $('accountResetForm').onsubmit=async event=>{
     event.preventDefault();
     try {
       await ensureSecureStorage();const data=await auth('/verify',{email:pendingEmail||$('accountResetEmail').value.trim(),token:$('accountResetCode').value.trim(),type:'recovery'});
-      const password=$('accountNewPassword').value,recoveryCode=$('accountIdentityRecoveryCode')?.value.trim()||identityRecoveryCode||'';
+      const password=$('accountNewPassword').value,recoveredAccountId=data.user?.id||data.user?.email||'',recoveryCode=$('accountIdentityRecoveryCode')?.value.trim()||(identityRecoveryAccountId===recoveredAccountId?identityRecoveryCode:'');
       await auth('/user',{password},data.access_token,'PUT');
-      await activate(data,{password,recoveryCode});$('accountNewPassword').value='';$('accountResetCode').value='';if($('accountIdentityRecoveryCode'))$('accountIdentityRecoveryCode').value='';$('accountResetForm').hidden=true;status('Your password was reset. You are signed in.');
+      const synced=await activate(data,{password,recoveryCode});$('accountNewPassword').value='';$('accountResetCode').value='';if($('accountIdentityRecoveryCode'))$('accountIdentityRecoveryCode').value='';$('accountResetForm').hidden=true;if(synced)status('Your password was reset. You are signed in.');
     }
     catch(error){status(error.message,true);}
   };
@@ -429,15 +492,17 @@
     try {
       const fresh=await auth('/token?grant_type=password',{email:session?.user?.email||$('accountEmail').value.trim(),password:$('accountCurrentPassword').value});
       const newPassword=$('accountChangedPassword').value;
+      const recoveryCode=$('accountChangeRecoveryCode')?.value.trim()||identityRecoveryCode;
       let nextRecovery=identityRecovery;
       if(identityRecovery){
-        if(!identityRecoveryCode)throw Error('The saved identity recovery code is required before changing this account password on this device.');
-        nextRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityRecoveryCode,newPassword);
+        if(!recoveryCode)throw Error('Enter your saved identity recovery code to keep the same contact identity when changing this password.');
+        nextRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,recoveryCode,newPassword);
       }
       await auth('/user',{password:newPassword},fresh.access_token,'PUT');
       session={accessToken:fresh.access_token,refreshToken:fresh.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user||session.user};await persistCredentials();
       if(nextRecovery!==identityRecovery){const previous=identityRecovery;identityRecovery=nextRecovery;try{await enqueue(()=>upload(true));}catch(error){identityRecovery=previous;throw Error('The password changed, but the encrypted identity backup could not be updated. Keep your recovery code and try Back up again. '+error.message);}}
-      $('accountCurrentPassword').value='';$('accountChangedPassword').value='';status('Your password was changed.');
+      if(recoveryCode){identityRecoveryCode=recoveryCode;identityRecoveryAccountId=accountId();await persistCredentials();}
+      $('accountCurrentPassword').value='';$('accountChangedPassword').value='';if($('accountChangeRecoveryCode'))$('accountChangeRecoveryCode').value='';status('Your password was changed.');
     } catch(error){status(error.message,true);} finally{button.disabled=false;}
   };
   $('accountDelete').onclick=deleteAccount;
@@ -456,23 +521,21 @@
           if(saved.pendingSignup&&typeof saved.pendingSignup.email==='string'&&typeof saved.pendingSignup.acceptedAt==='string'){
             pendingSignup={email:saved.pendingSignup.email,acceptedAt:saved.pendingSignup.acceptedAt,noticeVersion:saved.pendingSignup.noticeVersion||NOTICE_VERSION};pendingEmail=pendingSignup.email;
           }
-          if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode))identityRecoveryCode=saved.identityRecoveryCode;
+          if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode)&&(saved.identityRecoveryAccountId||saved.deviceAccountId)){identityRecoveryCode=saved.identityRecoveryCode;identityRecoveryAccountId=saved.identityRecoveryAccountId||saved.deviceAccountId;}
           const hasDevice=typeof saved.deviceId==='string'&&/^[0-9a-f-]{36}$/i.test(saved.deviceId)&&typeof saved.deviceToken==='string'&&saved.deviceToken.length>=32;
           if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
           if(typeof saved.refreshToken==='string'&&saved.refreshToken){
             if(!hasDevice){await secureStore.delete();pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
-            const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;await persistCredentials();await enqueue(syncInitial);
+            const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
           }
         }
       }
-      const cfg=await config();
-      $('accountSignIn').disabled=!cfg.serviceEnabled;$('accountSignUp').disabled=!cfg.serviceEnabled||!cfg.registrationEnabled;
-      $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Account service is temporarily unavailable. Your local profile remains available.':cfg.registrationEnabled?'New account registration is available.':'New account registration is paused; existing accounts can still sign in and sync.';
+      await loadAccountAvailability();
     } catch(error) {
       if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});session=null;deviceId='';deviceToken='';deviceAccountId='';}
       else {status(error.message,true);$('accountError').textContent=error.message;}
     }
     render();
   });
-  window.VumiroAccount=Object.freeze({onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status(error.message,true);}},scheduleSync});
+  window.VumiroAccount=Object.freeze({open:openAccount,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status(error.message,true);}},scheduleSync});
 })();

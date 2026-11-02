@@ -27,7 +27,13 @@ internal static class Program
             stopped = true;
             ClientUpdateInstaller.Apply(stage, install);
             Start(executable, install);
-            try { Directory.Delete(stage, true); File.Delete(Path.Combine(Path.GetDirectoryName(stage), "Vumiro-win-x64.zip")); } catch { }
+            try
+            {
+                Directory.Delete(stage, true);
+                foreach (var archive in new[] { "Vumiro-win-x64.zip", "Vumiro-win-x64-v2.zip" })
+                    File.Delete(Path.Combine(Path.GetDirectoryName(stage), archive));
+            }
+            catch { }
             return 0;
         }
         catch (Exception error)
