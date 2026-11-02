@@ -1,0 +1,163 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-02T05:50:44.923Z",
+  "phase": "account-completion",
+  "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
+  "phase_dir": ".planning",
+  "plan": 1,
+  "task": 4,
+  "total_tasks": 8,
+  "status": "in_progress",
+  "completed_tasks": [
+    {
+      "id": 1,
+      "name": "Initial account foundation and review fixes",
+      "status": "done",
+      "progress": "D1 schema through 0005 is applied remotely; source contains auth, per-device credentials, revision sync, recovery UI, export/delete UI, secure native session storage, and registration gating."
+    },
+    {
+      "id": 2,
+      "name": "Release-readiness audit",
+      "status": "done",
+      "progress": "Backend, client, packaging, security, provider, and LGPD gaps were mapped with file/line evidence."
+    },
+    {
+      "id": 3,
+      "name": "Operational and identity-recovery design",
+      "status": "done",
+      "progress": "Added docs/ACCOUNT-OPERATIONS.md and docs/ACCOUNT-IDENTITY-RECOVERY.md; added an initial pure WebCrypto identity-recovery module that is not integrated yet."
+    },
+    {
+      "id": 4,
+      "name": "Backend, client, and packaging completion",
+      "status": "in_progress",
+      "progress": "Three workers made partial edits before workspace credits interrupted them. Backend has accounts.test.js and migration 0006; client has tests and atomic secure storage work; packaging has the 1.21.3 dual-package bridge. All partial work requires review and completion."
+    }
+  ],
+  "remaining_tasks": [
+    {
+      "id": 5,
+      "name": "Audit and complete interrupted backend/client/package changes",
+      "status": "not_started"
+    },
+    {
+      "id": 6,
+      "name": "Integrate encrypted identity recovery and legacy identity transition",
+      "status": "not_started"
+    },
+    {
+      "id": 7,
+      "name": "Update privacy/deployment docs, regenerate packaged assets, and run full automated/package validation",
+      "status": "not_started"
+    },
+    {
+      "id": 8,
+      "name": "Configure hosted Supabase/SMTP/rate limits/secrets, complete legal operator fields, stage, deploy, and publish",
+      "status": "blocked_external"
+    }
+  ],
+  "blockers": [
+    {
+      "description": "Supabase project, SMTP provider, provider region, and production secrets do not exist in the current environment; Cloudflare secret list is empty.",
+      "type": "external",
+      "workaround": "Finish and test locally with mocks; configure staging only after code review."
+    },
+    {
+      "description": "Controller legal identity, monitored privacy contact, lawful-basis decisions, age policy, retention decisions, and transfer mechanism cannot be invented.",
+      "type": "human_action",
+      "workaround": "Operational templates and launch gates exist; keep public registration disabled."
+    },
+    {
+      "description": "Existing identity keys are intentionally nonextractable and cannot be backed up retroactively.",
+      "type": "technical",
+      "workaround": "Use one-time signed migration to a recoverable identity; older peers may require one manual re-acceptance."
+    },
+    {
+      "description": "All three implementation subagents stopped with an out-of-credits error after writing partial changes.",
+      "type": "technical",
+      "workaround": "Treat their files as untrusted partial work, inspect diffs, and rerun validations before continuing."
+    }
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {
+      "action": "Supply or create the production Supabase and transactional-email accounts and choose a processing region/plan.",
+      "context": "Required for real signup, verification, recovery, session, and deletion testing.",
+      "blocking": true
+    },
+    {
+      "action": "Provide controller identity and privacy contact and approve counsel-reviewed lawful bases, retention, age policy, and international-transfer mechanism.",
+      "context": "Required before public LGPD-facing registration can be enabled.",
+      "blocking": true
+    }
+  ],
+  "decisions": [
+    {
+      "decision": "Keep registration and the entire undeployed account feature gated until provider, operational, and legal prerequisites are complete.",
+      "rationale": "The live Worker currently has no account route or secrets and the privacy notice is a draft.",
+      "phase": "account-completion"
+    },
+    {
+      "decision": "Use a durable dual Windows package transition starting at 1.21.3.",
+      "rationale": "Old clients reject new files; the legacy package upgrades the updater first, then the same-version v2 package completes the install.",
+      "phase": "account-completion"
+    },
+    {
+      "decision": "Preserve private identity continuity with client-side encrypted recovery wraps rather than uploading a plaintext/extractable key.",
+      "rationale": "The server must not receive the raw signing key; password and high-entropy recovery wraps cover normal switching and password-reset recovery.",
+      "phase": "account-completion"
+    },
+    {
+      "decision": "Existing nonextractable identities require a signed one-time transition to a new recoverable identity.",
+      "rationale": "WebCrypto correctly prevents export of the installed key, so bypassing that property is neither possible nor safe.",
+      "phase": "account-completion"
+    }
+  ],
+  "uncommitted_files": [
+    ".github/workflows/build.yml",
+    ".github/workflows/client-release.yml",
+    "README.md",
+    "Vumiro.Client.Updater/Vumiro.Client.Updater.csproj",
+    "Vumiro.Client/ClientUpdateInstaller.cs",
+    "Vumiro.Client/ClientUpdates.cs",
+    "Vumiro.Client/Program.cs",
+    "Vumiro.Client/Vumiro.Client.csproj",
+    "Vumiro.Client/WebServer/account-client.js",
+    "Vumiro.Client/WebServer/friends-client.js",
+    "Vumiro.Client/WebServer/friends.html",
+    "Vumiro.Client/WebServer/identity-recovery.js",
+    "Vumiro.Client/WebServer/local-profile.js",
+    "Vumiro.Linux/build/prepare-assets.mjs",
+    "Vumiro.Linux/main.cjs",
+    "Vumiro.Linux/package-lock.json",
+    "Vumiro.Linux/package.json",
+    "Vumiro.Linux/preload.js",
+    "cloudflare/DEPLOYMENT.md",
+    "cloudflare/README.md",
+    "cloudflare/accounts.js",
+    "cloudflare/accounts.test.js",
+    "cloudflare/migrations/0001_account_data.sql",
+    "cloudflare/migrations/0002_account_devices.sql",
+    "cloudflare/migrations/0003_account_deletion_tombstones.sql",
+    "cloudflare/migrations/0004_account_sync_revision.sql",
+    "cloudflare/migrations/0005_device_credentials_and_deletion_state.sql",
+    "cloudflare/migrations/0006_account_operations.sql",
+    "cloudflare/package.json",
+    "cloudflare/prepare-assets.mjs",
+    "cloudflare/worker.js",
+    "cloudflare/wrangler.jsonc",
+    "docs/ACCOUNT-IDENTITY-RECOVERY.md",
+    "docs/ACCOUNT-OPERATIONS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/CLIENT.md",
+    "docs/PRIVACY.md",
+    "docs/PROTOCOL.md",
+    "scripts/Build-Client.ps1",
+    "scripts/Test-ClientPackages.ps1",
+    "scripts/windows-package-v1.txt",
+    "scripts/windows-package-v2.txt",
+    "tests/account-client.test.mjs"
+  ],
+  "next_action": "Inspect the interrupted worker diffs, run the new backend/client/package tests, fix failures, then integrate identity-recovery.js into the client and strict backend schema before touching remote infrastructure.",
+  "context_notes": "The account foundation is substantial but not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config returns 404 and Worker secret list is empty. Do not deploy, enable registration, apply 0006, tag, publish, or create paid provider resources until code/test review and external operator inputs are complete."
+}
