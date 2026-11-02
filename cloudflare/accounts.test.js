@@ -71,7 +71,9 @@ test('encrypted identity recovery has a closed, bounded schema', async () => {
   transition.signature = encode(new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, oldKeys.privateKey, new TextEncoder().encode(text))));
   value.identityRecovery.transition = transition;
   assert.equal(await validateSnapshot(value), true);
-  value.identityRecovery.transition.signature = value.identityRecovery.transition.signature.slice(0, -1) + 'A';
+  const tamperedSignature = Buffer.from(value.identityRecovery.transition.signature, 'base64url');
+  tamperedSignature[0] ^= 1;
+  value.identityRecovery.transition.signature = encode(tamperedSignature);
   assert.equal(await validateSnapshot(value), false);
 });
 
