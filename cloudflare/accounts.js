@@ -5,6 +5,7 @@ const ACTIVE_DEVICE_LIMIT = 16;
 const REVOKED_DEVICE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const COMPLETED_TOMBSTONE_RETENTION_MS = 2 * 60 * 60 * 1000;
 const PRIVACY_NOTICE_VERSION = '2026-11-01';
+const JWKS_REFRESH_COOLDOWN_MS = 30000;
 const cache = new Map();
 
 function json(value, status = 200, headers = {}) {
@@ -48,18 +49,36 @@ function cleanText(value, min, max) {
   return typeof value === 'string' && value.length >= min && value.length <= max && value === value.normalize('NFC') && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
-async function verificationKey(env, kid) {
-  const base = String(env.SUPABASE_URL || '').replace(/\/$/, '');
-  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || typeof kid !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(kid)) throw new Error('Account authentication is not configured.');
-  const now = Date.now(), current = cache.get(base);
-  let keys = current && current.expires > now ? current.keys : null;
-  if (!keys) {
-    const response = await fetch(`${base}/auth/v1/.well-known/jwks.json`, { headers: { 'Accept': 'application/json' }, cf: { cacheTtl: 300, cacheEverything: true } });
+async function signingKeys(base, refresh = false) {
+  let entry = cache.get(base);
+  if (!entry) { entry = { keys: null, expires: 0, refreshAfter: 0, retryAfter: 0, pending: null }; cache.set(base, entry); }
+  const now = Date.now();
+  if (!refresh && entry.keys && entry.expires > now) return entry.keys;
+  if (entry.pending) return entry.pending;
+  if (refresh && entry.refreshAfter > now) return entry.keys || [];
+  if (entry.retryAfter > now) throw new Error('Unable to validate account session.');
+  // Coalesce concurrent requests and bound unknown-kid/network-failure traffic per project.
+  if (refresh) entry.refreshAfter = now + JWKS_REFRESH_COOLDOWN_MS;
+  entry.retryAfter = now + JWKS_REFRESH_COOLDOWN_MS;
+  entry.pending = (async () => {
+    const response = await fetch(`${base}/auth/v1/.well-known/jwks.json`, {
+      headers: { 'Accept': 'application/json' },
+      ...(refresh ? { cache: 'no-store', cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 300, cacheEverything: true } })
+    });
     if (!response.ok) throw new Error('Unable to validate account session.');
     const jwks = await response.json();
     if (!onlyKeys(jwks, ['keys']) || !Array.isArray(jwks.keys) || jwks.keys.length < 1 || jwks.keys.length > 32) throw new Error('Invalid account signing keys.');
-    keys = jwks.keys; cache.set(base, { keys, expires: now + 300000 });
-  }
+    entry.keys = jwks.keys; entry.expires = Date.now() + 300000; entry.retryAfter = 0;
+    return entry.keys;
+  })();
+  try { return await entry.pending; } finally { entry.pending = null; }
+}
+async function verificationKey(env, kid) {
+  const base = String(env.SUPABASE_URL || '').replace(/\/$/, '');
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || typeof kid !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(kid)) throw new Error('Account authentication is not configured.');
+  const cached = !!cache.get(base)?.keys;
+  let keys = await signingKeys(base);
+  if (cached && !keys.some(item => item && item.kid === kid)) keys = await signingKeys(base, true);
   const matches = keys.filter(item => item && item.kid === kid && item.use === 'sig');
   if (matches.length !== 1) throw new Error('Invalid account signing key.');
   const jwk = matches[0];
@@ -226,6 +245,13 @@ export async function handleAccountRequest(request, env) {
   if (!validOrigin(request.headers.get('Origin'), url)) return new Response('Origin not allowed.', { status: 403 });
   const cors = corsHeaders(origin);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Max-Age': '600' } });
+  const clientIp = request.headers.get('CF-Connecting-IP');
+  if (env.ACCOUNT_API_RATE_LIMITER && clientIp) {
+    try {
+      const { success } = await env.ACCOUNT_API_RATE_LIMITER.limit({ key: clientIp });
+      if (!success) return json({ error: 'Too many account requests. Wait before trying again.' }, 429, { ...cors, 'Retry-After': '60' });
+    } catch { return json({ error: 'Account request protection is temporarily unavailable. Try again shortly.' }, 503, cors); }
+  }
   if (env.ACCOUNT_SERVICE_ENABLED !== 'true') return json({ error: 'Vumiro account service is not enabled yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
   if (url.pathname === '/api/v1/account/config' && request.method === 'GET') {
     const base = String(env.SUPABASE_URL || '').replace(/\/$/, ''), publishable = String(env.SUPABASE_PUBLISHABLE_KEY || '');
@@ -323,7 +349,7 @@ export async function handleAccountRequest(request, env) {
         env.ACCOUNT_DB.prepare('DELETE FROM account_rate_limits WHERE account_id = ?').bind(user.id)
       ]);
       const completed = await attemptIdentityDeletion(user.id, env);
-      if (!completed) return json({ error: 'Account data was removed. Identity deletion is pending and Vumiro will retry automatically.' }, 202, cors);
+      if (!completed) return json({ deletionPending: true, error: 'Account data was removed. Identity deletion is pending and Vumiro will retry automatically.' }, 202, cors);
       return json({ ok: true, deletedRows: results[1]?.meta?.changes || 0 }, 200, cors);
     }
     return json({ error: 'Not found.' }, 404, cors);
@@ -374,7 +400,7 @@ async function attemptIdentityDeletion(userId, env) {
 async function finishDeletion(userId, env, cors) {
   if (!env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: 'Account deletion is not configured. Contact Vumiro support.' }, 503, cors);
   const completed = await attemptIdentityDeletion(userId, env);
-  return completed ? json({ ok: true, deletedRows: 0 }, 200, cors) : json({ error: 'Account data was removed. Identity deletion is pending and Vumiro will retry automatically.' }, 202, cors);
+  return completed ? json({ ok: true, deletedRows: 0 }, 200, cors) : json({ deletionPending: true, error: 'Account data was removed. Identity deletion is pending and Vumiro will retry automatically.' }, 202, cors);
 }
 export async function runAccountMaintenance(env) {
   if (!env.ACCOUNT_DB) return;

@@ -84,6 +84,30 @@ test('explicit all-device sign out reauthenticates, revokes Worker devices, and 
   assert.equal(app.secure.value,'');
 });
 
+for(const [name,statusCode,result] of [
+  ['completed',200,{ok:true}],
+  ['pending',202,{deletionPending:true,error:'Identity deletion is pending.'}],
+  ['pending from an older Worker',202,{error:'Identity deletion is pending.'}]
+])test(`account deletion reports ${name} truthfully after clearing the local session`,async()=>{
+  const app=harness({stored:saved,route:(url,options)=>{
+    if(url.includes('/auth/v1/token?grant_type=password'))return response(200,session);
+    if(url.endsWith('/api/v1/account/data')&&options.method==='DELETE')return response(statusCode,result);
+    return commonRoute(url,options);
+  }});await app.start();
+  await app.element('accountDelete').onclick();
+  app.element('accountConfirmPassword').value='current password';
+  await app.element('accountReauthForm').onsubmit({preventDefault(){}});
+  assert.equal(app.secure.value,'');
+  assert.match(app.element('accountFeedback').textContent,/local device profile remains/);
+  if(statusCode===202){
+    assert.match(app.element('accountFeedback').textContent,/identity deletion is pending.*retry automatically/);
+    assert.doesNotMatch(app.element('accountFeedback').textContent,/Account and synced account data were deleted/);
+  }else{
+    assert.match(app.element('accountFeedback').textContent,/Account and synced account data were deleted/);
+    assert.doesNotMatch(app.element('accountFeedback').textContent,/pending/);
+  }
+});
+
 test('password recovery changes the password before activating and enrolling',async()=>{
   const order=[];
   const app=harness({route:(url,options)=>{

@@ -507,7 +507,7 @@
   }
   async function deleteAccount() {
     if(!confirm('Delete your Vumiro account and synced data? This cannot be undone.'))return;
-    requestReauth(async token=>{await accountRequest('DELETE',undefined,token);session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status('Account and synced account data were deleted. Your local device profile remains on this device.');});
+    requestReauth(async token=>{const result=await accountRequest('DELETE',undefined,token);session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status(result.ok===true?'Account and synced account data were deleted. Your local device profile remains on this device.':'Synced account data was deleted. Account identity deletion is pending and Vumiro will retry automatically. Your local device profile remains on this device.');});
   }
   $('accountReauthForm').onsubmit=async event=>{
     event.preventDefault();if(!reauthAction)return;

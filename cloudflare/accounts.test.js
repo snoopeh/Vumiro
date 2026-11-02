@@ -144,6 +144,91 @@ test('JWT verification accepts a signed Supabase token and rejects extra segment
   }
 });
 
+async function signingFixture(base) {
+  const keyPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const jwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+  Object.assign(jwk, { kid: crypto.randomUUID(), use: 'sig', alg: 'ES256' });
+  return {
+    jwk,
+    async request(kid = jwk.kid) {
+      const now = Math.floor(Date.now() / 1000);
+      const header = encode({ alg: 'ES256', typ: 'JWT', kid });
+      const payload = encode({ iss: `${base}/auth/v1`, aud: 'authenticated', sub: '123e4567-e89b-42d3-a456-426614174000', role: 'authenticated', iat: now - 10, exp: now + 600, amr: [{ method: 'password', timestamp: now - 10 }] });
+      const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keyPair.privateKey, new TextEncoder().encode(`${header}.${payload}`)));
+      return new Request('https://accounts.example', { headers: { Authorization: `Bearer ${header}.${payload}.${encode(signature)}` } });
+    }
+  };
+}
+
+test('cached JWKS refresh accepts a rotated ES256 key and bounds concurrent unknown-key refreshes', async () => {
+  const base = 'https://account-jwt-rotation.supabase.co', env = { SUPABASE_URL: base };
+  const previous = await signingFixture(base), next = await signingFixture(base);
+  const originalFetch = globalThis.fetch, originalNow = Date.now;
+  let now = originalNow(), requests = [];
+  Date.now = () => now;
+  globalThis.fetch = async (_url, options) => {
+    requests.push(options);
+    return new Response(JSON.stringify({ keys: requests.length === 1 ? [previous.jwk] : [previous.jwk, next.jwk] }));
+  };
+  try {
+    assert.ok(await authenticate(await previous.request(), env));
+    const rotatedRequests = await Promise.all(Array.from({ length: 8 }, () => next.request()));
+    const rotatedUsers = await Promise.all(rotatedRequests.map(request => authenticate(request, env)));
+    assert.ok(rotatedUsers.every(user => user?.recentSecurityAuth));
+    assert.equal(requests.length, 2, 'rotation requests share one refresh');
+    assert.equal(requests[1].cache, 'no-store');
+    assert.equal(requests[1].cf.cacheTtl, 0);
+    const unknownRequests = await Promise.all(Array.from({ length: 12 }, (_, index) => next.request(`unknown-${index}`)));
+    assert.deepEqual(await Promise.all(unknownRequests.map(request => authenticate(request, env))), Array(12).fill(null));
+    assert.equal(requests.length, 2, 'random kids cannot force more refreshes during cooldown');
+    now += 30001;
+    assert.equal(await authenticate(await next.request('still-unknown'), env), null);
+    assert.equal(requests.length, 3, 'one new refresh is allowed after cooldown');
+    assert.equal(await authenticate(await next.request('another-unknown'), env), null);
+    assert.equal(requests.length, 3);
+  } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
+});
+
+test('failed rotation refresh preserves cached valid keys and throttles retries', async () => {
+  const base = 'https://account-jwt-rotation-failure.supabase.co', env = { SUPABASE_URL: base };
+  const previous = await signingFixture(base), next = await signingFixture(base);
+  const originalFetch = globalThis.fetch, originalNow = Date.now;
+  let now = originalNow(), requests = 0;
+  Date.now = () => now;
+  globalThis.fetch = async () => {
+    requests++;
+    if (requests === 2) throw new Error('network unavailable');
+    return new Response(JSON.stringify({ keys: requests === 1 ? [previous.jwk] : [next.jwk] }));
+  };
+  try {
+    assert.ok(await authenticate(await previous.request(), env));
+    assert.equal(await authenticate(await next.request(), env), null);
+    assert.ok(await authenticate(await previous.request(), env), 'working cached keys survive refresh failure');
+    assert.equal(await authenticate(await next.request(), env), null);
+    assert.equal(requests, 2);
+    now += 30001;
+    assert.ok(await authenticate(await next.request(), env));
+    assert.equal(requests, 3);
+  } finally { globalThis.fetch = originalFetch; Date.now = originalNow; }
+});
+
+test('edge rate limits reject before authentication and preserve CORS and retry headers', async () => {
+  const request = new Request('https://accounts.example/api/v1/account/data', { headers: { Origin: 'https://vumiro.local', 'CF-Connecting-IP': '192.0.2.1' } });
+  let calls = 0;
+  const env = { ACCOUNT_API_RATE_LIMITER: { async limit({ key }) { calls++; assert.equal(key, '192.0.2.1'); return { success: false }; } } };
+  const response = await handleAccountRequest(request, env);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '60');
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), 'https://vumiro.local');
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.equal(calls, 1);
+  const preflight = await handleAccountRequest(new Request(request, { method: 'OPTIONS' }), env);
+  assert.equal(preflight.status, 204);
+  assert.equal(calls, 1);
+  const failed = await handleAccountRequest(request, { ACCOUNT_API_RATE_LIMITER: { async limit() { throw new Error('unavailable'); } } });
+  assert.equal(failed.status, 503);
+});
+
 test('identity deletion retry backoff is bounded', () => {
   assert.equal(deletionRetryDelayMs(1), 5 * 60 * 1000);
   assert.equal(deletionRetryDelayMs(2), 10 * 60 * 1000);

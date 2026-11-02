@@ -21,9 +21,11 @@ The privacy checkbox records acknowledgement of the notice. Do not describe it a
 1. Create a production Supabase project in the selected region.
 2. Require email confirmation and asymmetric JWT signing. Record the issuer, audience, signing algorithms, token lifetime, and key-rotation process.
 3. Configure production SMTP or an approved Send Email hook. Include the OTP token in signup and recovery templates, disable provider link tracking, and enable password/email-change security notifications.
+   The shared code-only template is `cloudflare/supabase-email.html`; use it for confirmation and recovery with separate subjects. The desktop app accepts codes, not provider callback links.
 4. Configure password policy, Auth rate limits, CAPTCHA or equivalent bot controls, session lifetime, refresh-token reuse detection, and account-enumeration-safe messages.
 5. Put `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` in encrypted Worker secrets. Never store the service-role key in the repository, desktop package, logs, or support tooling.
 6. Configure Cloudflare rate limits for `/api/v1/account/*`, security-event logging, alerts, and an account-service dashboard. Logs must avoid tokens, passwords, OTPs, profile payloads, and device credentials.
+   The public Worker config includes `ACCOUNT_API_RATE_LIMITER`: 120 requests per minute per connecting IP, before JWT validation, in addition to durable per-account operation limits. Cloudflare's binding counters are local to each edge location and are approximate. The public Worker enables logs with invocation logging and tracing disabled and URL queries redacted; configure operator alert delivery separately. Do not enable Supabase CAPTCHA until the desktop app can supply a `captcha_token`; use provider rate limits with the current clients.
 7. Keep account service availability separate from new registration. Existing users must retain export, deletion, and sync access if registration is paused.
 
 ### Google and Microsoft sign-in

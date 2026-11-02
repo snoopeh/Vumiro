@@ -38,4 +38,4 @@ The public Worker is `vumiro-rooms`. Its Durable Object bindings reference the e
 
 The account's workers.dev subdomain is `vumiro-signaling`. Renaming that account subdomain retires the old `screentask-room-signaling` URLs. Older installed clients can still download their GitHub update; both peers should update before using the new address.
 
-Runtime tests are deferred to the user for this iteration. Compilation, JavaScript syntax and deployment checks do not claim an end-to-end/security audit. Service usage remains subject to the account's Cloudflare limits.
+`npm test` covers backend validation, JWT signing-key rotation, edge throttling, and account routes against SQLite with the actual migrations. Route tests include device enrollment/revocation, optimistic sync revisions, export evidence, and failed identity deletion followed by maintenance retry. These local checks do not establish hosted email delivery or desktop acceptance. Service usage remains subject to the account's Cloudflare limits.
