@@ -1,14 +1,25 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-02T17:27:13.711Z",
+  "timestamp": "2026-11-02T19:01:14.0448936Z",
   "active_user_fixes": {
     "status": "desktop_released_hosted_accounts_pending",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
-    "implemented": ["visible selectable invite link", "screen and voice volume controls", "source-build updater helper dependency", "conventional vector captions", "DWM inactive border fix", "dedicated first-run sign-in/signup/recovery screens", "Worker identity asset allowlist"],
+    "implemented": [
+      "visible selectable invite link",
+      "screen and voice volume controls",
+      "source-build updater helper dependency",
+      "conventional vector captions",
+      "DWM inactive border fix",
+      "dedicated first-run sign-in/signup/recovery screens",
+      "Worker identity asset allowlist"
+    ],
     "validation": "27 JS,18 native callback,9 backend tests pass. Windows build/package checks pass. Full actual Windows loopback->WebView shared buffers->production parent/iframe->WebRTC remote decode passes RMS0.007350 with156packets. Auth page maximize/restore and browser UI checks pass. Remote migration0006 and both Worker deployments completed with accounts disabled.",
-    "remaining": ["hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs", "hosted signup, verification, recovery, provider round trips, refresh, second-device restore and deletion acceptance checks"],
+    "remaining": [
+      "hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs",
+      "hosted signup, verification, recovery, provider round trips, refresh, second-device restore and deletion acceptance checks"
+    ],
     "git": "main pushed; source49e0ffb tagged/published client-v1.21.4; main CI41494815454 and releaseCI41495376140 green. Actual published updater passed both stages, local identity preserved and22/22files match released complete archive.",
-    "processes": "User app source-build1.21.4 observedPID16036; do not overwrite while in use. Isolated audio/updater test apps and local Worker stopped. No user app debug listener."
+    "processes": "Original install repaired to1.21.6 after duplicate-instance update failure; previousPID16036 no longer running. Repaired app reopened normally. Recheck live processes before any future overwrite."
   },
   "latest_ui_release": {
     "version": "1.21.5",
@@ -17,7 +28,7 @@
     "handoff": ".planning/UI-CONCEPT-HANDOFF.md",
     "ci": "Main41499935490 and publish41500142172 succeeded for Windows/Linux.",
     "scope": "Supplied scenic login concept, cleaner call layout and controls, Watch Together navigation, small-window dock sizing; account-provider gates retained.",
-    "runtime": "User appPID16036 remained on1.21.4; use in-app update to1.21.5. Local preview Worker/browser stopped."
+    "runtime": "1.21.5 visual changes included in locally repaired1.21.6; see latest_updater_fix and UPDATE-LOCK-HANDOFF.md."
   },
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
@@ -173,5 +184,14 @@
     "tests/identity-recovery.test.mjs"
   ],
   "next_action": "Read .planning/USER-FIXES-HANDOFF.md first, finish final UI/CI/package checks, then push Git and deliver the invite/volume/updater/chrome/account-screen fixes. User confirms no Supabase project; hosted auth remains separately blocked.",
-  "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete."
+  "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete.",
+  "latest_updater_fix": {
+    "version": "1.21.6",
+    "status": "local_install_repaired_publication_pending",
+    "handoff": ".planning/UPDATE-LOCK-HANDOFF.md",
+    "cause": "Two processes from one install; hidden old tray process16036 locked WebView DLL while helper waited only for6536. Old rollback bookkeeping hid the original error.",
+    "fix": "Per-profile Windows singleton and activation, app/helper process preflight, skip unchanged files, prepare all backups and atomic replacements, rollback only actual commits, filename/error diagnostics.",
+    "repair": "No Vumiro process remained and DLL unlocked before repair. Applied complete locally built1.21.6 with new shared installer to original install;22/22file hashes matched. Restarted normal app.",
+    "verification": "Windows package build0warnings/errors; source and real lock diagnosis. No new/manual tests run this request; existing CI automatic."
+  }
 }

@@ -21,7 +21,13 @@ namespace Vumiro.Client
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new ClientWindow());
+            using (var instance = DesktopInstance.Acquire())
+            {
+                if (instance == null) return;
+                var window = new ClientWindow();
+                instance.Listen(window);
+                Application.Run(window);
+            }
         }
     }
 
@@ -104,6 +110,8 @@ namespace Vumiro.Client
             trayIcon.Visible = false;
             Close();
         }
+
+        internal void ActivateExistingInstance() { RestoreFromTray(); }
 
         private void RestoreFromTray()
         {

@@ -215,6 +215,7 @@ namespace Vumiro.Client
         {
             var install = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             ClientUpdateInstaller.NoLinks(install);
+            ClientUpdateInstaller.EnsureNoOtherInstances(install, Process.GetCurrentProcess().Id);
             // A developer build must ship its replacement helper too. Detect an
             // incomplete folder before spending time downloading a package.
             foreach (var file in new[] { "Vumiro.Updater.exe", "Vumiro.Updater.exe.config" })
@@ -239,6 +240,7 @@ namespace Vumiro.Client
                 await DownloadAsync(release.Package, archive);
                 message = "Verifying update…"; State();
                 await Task.Run(() => {
+                    ClientUpdateInstaller.EnsureNoOtherInstances(install, Process.GetCurrentProcess().Id);
                     ClientUpdateInstaller.Extract(archive, stage);
                     foreach (var executable in new[] { "Vumiro", "Vumiro.Updater" })
                     {

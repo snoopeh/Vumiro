@@ -1,4 +1,4 @@
-# Vumiro 1.21.5
+# Vumiro 1.21.6
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -17,6 +17,8 @@ Version 1.21.3 adds the gated Vumiro account client, secure persistent sessions,
 Version 1.21.4 makes invitation links visible and selectable, adds separate screen/voice volume sliders inside each received stream, includes the updater helper in development builds, and uses conventional Windows caption controls without an inactive gray frame. Dedicated Sign in, Create account, Verify email, and Password recovery screens are available from Account and first-run setup. Online accounts are not enabled yet because the authentication service has not been provisioned.
 
 Version 1.21.5 refreshes the app from the supplied visual concepts: a scenic red login background, warm glass account card, refined sign-in controls with password visibility, and a clean call workspace with organized actions, larger dock controls and a **Watch Together** navigation item. Small windows keep the call controls visible. The background is bundled with the app and needs no image download.
+
+Version 1.21.6 prevents duplicate Windows app instances, including a copy hidden in the tray. Opening Vumiro again restores the existing window. Updates check for other copies from the same installation before downloading and after shutdown, prepare backups before replacing files, skip unchanged files and preserve the failing filename/cause in an update log under `%LOCALAPPDATA%\Vumiro\Updates`. On older versions, choose **Quit Vumiro** from its tray menu before retrying a blocked update; closing its window hides it in the tray.
 
 ## Your profile and friends
 
