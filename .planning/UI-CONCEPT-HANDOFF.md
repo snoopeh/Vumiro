@@ -21,4 +21,10 @@ Running user's app was observedPID16036 at `Vumiro.Client/bin/Release/net48/Vumi
 
 ## Publication
 
-Source ready for Git push, Worker asset deployment and client-v1.21.5 release. Record actual outcomes after completion. Keep account service, registration and OAuth-provider gates disabled; this task changes appearance and navigation.
+- Source commit **4b87d4a** pushed to origin/main; **client-v1.21.5** tagged and published with all7expected download/checksum assets.
+- Main CI **41499935490** and publish CI **41500142172** completed successfully, both Windows and Linux. Existing automatic CI checks passed; no extra tests were added or manually run for this visual-only task.
+- Both Workers deployed successfully. Storage owner version `1c73e5d7-726b-4a39-b002-ce8eb7f20efa`; public version `a438978f-1dbf-4900-8002-d66d4574d5d6`. Live auth.html returns200 with2,432,020bytes. Account config remains503, service/registration disabled as intended.
+- Local preview Worker stopped; render browser contexts closed. User appPID16036 was left running on1.21.4, untouched. It can receive1.21.5 through **Updates → Check for updates → Update now**. Do not overwrite it while it is running a room.
+- Release notes explain the visual refresh and the account-provider gate. Login preview opened in Codex; call/login screenshots remain under ignored `dist/concept-preview`.
+
+Keep account service, registration and OAuth-provider gates disabled until the separate hosted-account setup is complete. This task changes appearance and navigation.

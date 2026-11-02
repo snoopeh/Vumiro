@@ -10,6 +10,15 @@
     "git": "main pushed; source49e0ffb tagged/published client-v1.21.4; main CI41494815454 and releaseCI41495376140 green. Actual published updater passed both stages, local identity preserved and22/22files match released complete archive.",
     "processes": "User app source-build1.21.4 observedPID16036; do not overwrite while in use. Isolated audio/updater test apps and local Worker stopped. No user app debug listener."
   },
+  "latest_ui_release": {
+    "version": "1.21.5",
+    "status": "published",
+    "source_commit": "4b87d4a",
+    "handoff": ".planning/UI-CONCEPT-HANDOFF.md",
+    "ci": "Main41499935490 and publish41500142172 succeeded for Windows/Linux.",
+    "scope": "Supplied scenic login concept, cleaner call layout and controls, Watch Together navigation, small-window dock sizing; account-provider gates retained.",
+    "runtime": "User appPID16036 remained on1.21.4; use in-app update to1.21.5. Local preview Worker/browser stopped."
+  },
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
   "phase_dir": ".planning",

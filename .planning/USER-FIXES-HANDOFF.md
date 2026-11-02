@@ -1,5 +1,7 @@
 # Latest update — dedicated login and desktop fixes, 2026-11-02
 
+**Subsequent UI follow-up:** supplied visual concepts implemented and released as1.21.5. See [UI-CONCEPT-HANDOFF.md](UI-CONCEPT-HANDOFF.md). The1.21.4 evidence below remains the account/audio/updater foundation.
+
 The user resumed work after the credit pause. Source now targets **1.21.4**. This section supersedes the historical checkpoint below.
 
 ## Completed
