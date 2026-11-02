@@ -52,9 +52,10 @@
     const ack=$('accountPrivacyAck')?.closest?.('label');if(ack)ack.id='accountPrivacyRow';
     const confirmLabel=document.createElement('label');confirmLabel.id='accountPasswordConfirmLabel';confirmLabel.htmlFor='accountPasswordConfirm';confirmLabel.textContent='Confirm password';
     const confirmInput=document.createElement('input');confirmInput.id='accountPasswordConfirm';confirmInput.type='password';confirmInput.autocomplete='new-password';confirmInput.maxLength=128;
-    $('accountPassword').after(confirmLabel,confirmInput);
+    (authPage?$('accountPasswordField')||$('accountPassword'):$('accountPassword')).after(confirmLabel,confirmInput);
+    if(authPage&&$('accountPasswordReveal'))$('accountPasswordReveal').onclick=()=>{const password=$('accountPassword'),revealed=password.type==='password';password.type=revealed?'text':'password';$('accountPasswordReveal').setAttribute('aria-pressed',String(revealed));$('accountPasswordReveal').setAttribute('aria-label',revealed?'Hide password':'Show password');};
     const nav=document.querySelector?.('.nav');
-    if(nav){const button=document.createElement('button');button.id='accountNav';button.type='button';const icon=document.createElement('span');icon.className='navIcon';icon.textContent='@';const label=document.createElement('span');label.className='navText';label.textContent='Account';button.append(icon,label);button.onclick=()=>openAccount();nav.append(button);}
+    if(nav){const button=document.createElement('button');button.id='accountNav';button.type='button';const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('class','navIcon');icon.setAttribute('viewBox','0 0 24 24');icon.setAttribute('aria-hidden','true');const shape=document.createElementNS('http://www.w3.org/2000/svg','path');shape.setAttribute('d','M16 8v6a2 2 0 0 0 4 0v-2a8 8 0 1 0-3 6.2M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z');icon.append(shape);const label=document.createElement('span');label.className='navText';label.textContent='Account';button.append(icon,label);button.onclick=()=>openAccount();nav.append(button);}
     const setup=$('setupForm');
     if(setup){const row=document.createElement('div');row.className='accountSetupActions';for(const [screen,text]of[['signin','Sign in'],['signup','Create account']]){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>openAccount(screen);row.append(button);}setup.before(row);}
     if($('accountClose'))$('accountClose').onclick=()=>authPage?navigate('friends.html',true):dialog.close();
@@ -87,6 +88,7 @@
     $('accountSignInTab').setAttribute('aria-selected',String(accountScreen==='signin'));$('accountSignUpTab').setAttribute('aria-selected',String(accountScreen==='signup'));
     $('accountSignIn').hidden=accountScreen!=='signin';$('accountSignUp').hidden=accountScreen!=='signup';$('accountHaveVerifyCode').hidden=accountScreen!=='resume';
     const passwordVisible=accountScreen!=='resume';$('accountPassword').hidden=!passwordVisible;const passwordLabel=$('accountForm').querySelector('label[for="accountPassword"]');if(passwordLabel)passwordLabel.hidden=!passwordVisible;
+    if(authPage&&$('accountPasswordField')){$('accountPasswordField').hidden=!passwordVisible;$('accountPassword').type='password';$('accountPasswordReveal')?.setAttribute('aria-pressed','false');$('accountPasswordReveal')?.setAttribute('aria-label','Show password');}
     $('accountPassword').required=passwordVisible;$('accountPassword').minLength=accountScreen==='signup'?12:8;$('accountPassword').autocomplete=accountScreen==='signup'?'new-password':'current-password';
     $('accountPasswordConfirm').hidden=$('accountPasswordConfirmLabel').hidden=accountScreen!=='signup';$('accountPasswordConfirm').required=accountScreen==='signup';
     $('accountPasswordConfirm').value='';

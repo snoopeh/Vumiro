@@ -1,4 +1,4 @@
-# Vumiro 1.21.4
+# Vumiro 1.21.5
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -15,6 +15,8 @@ Version 1.21.2 fixes a Windows startup rendering issue that could leave the load
 Version 1.21.3 adds the gated Vumiro account client, secure persistent sessions, friend/profile backup, linked-device controls, export and deletion, password recovery, and encrypted contact-identity recovery. Account registration remains unavailable until the authentication provider and operational privacy details are configured.
 
 Version 1.21.4 makes invitation links visible and selectable, adds separate screen/voice volume sliders inside each received stream, includes the updater helper in development builds, and uses conventional Windows caption controls without an inactive gray frame. Dedicated Sign in, Create account, Verify email, and Password recovery screens are available from Account and first-run setup. Online accounts are not enabled yet because the authentication service has not been provisioned.
+
+Version 1.21.5 refreshes the app from the supplied visual concepts: a scenic red login background, warm glass account card, refined sign-in controls with password visibility, and a clean call workspace with organized actions, larger dock controls and a **Watch Together** navigation item. Small windows keep the call controls visible. The background is bundled with the app and needs no image download.
 
 ## Your profile and friends
 

@@ -596,12 +596,13 @@ function openRoom(room,signaling,name='Your room',grant,access) {
   roomFrame.src=url.href;$('callFrameSlot').append(roomFrame);
   $('callTitle').textContent=currentAccess.name||(name==='Your room'?name:'Room with '+name);
   $('roomReturnTitle').textContent=$('callTitle').textContent;
-  $('callArea').hidden=false;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('roomReturn').hidden=true;$('friendsBody').hidden=true;renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
+  $('callArea').hidden=false;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('roomReturn').hidden=true;$('friendsBody').hidden=true;setRoomView(true);renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
 }
-function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=false;$('roomReturn').hidden=false;}
-function returnToRoom(){if(!frame)return;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;}
+function setRoomView(visible){document.body.classList.toggle('room-view',visible);$('watchNav').hidden=!frame;for(const button of document.querySelectorAll('.nav>button')){if(visible)button.classList.toggle('active',button.id==='watchNav');else if(button.id==='watchNav')button.classList.remove('active');}if(!visible)$('friendsNav').classList.add('active');$('watchNav').setAttribute('aria-current',visible?'page':'false');$('friendsNav').setAttribute('aria-current',visible?'false':'page');}
+function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=false;$('roomReturn').hidden=false;setRoomView(false);}
+function returnToRoom(){if(!frame)return;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;setRoomView(true);}
 function stopStreamAudioHost(id=streamAudioHostId){if(!id||!webViewHost)return;webViewHost.postMessage({type:'stream-audio',action:'stop',id});if(streamAudioHostId===id)streamAudioHostId='';}
-function finishRoom(){clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
+function finishRoom(){clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;setRoomView(false);for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
 function leaveRoom(){if(!frame)return;frame.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);clearTimeout(leaveTimer);leaveTimer=setTimeout(finishRoom,1200);}
 addEventListener('message',event=>{
   if(!frame||event.source!==frame.contentWindow||event.origin!==location.origin)return;
@@ -638,7 +639,7 @@ addEventListener('message',event=>{
     joined=data.joined===true;sharing=data.sharing===true;
     if(['public','friends','private','legacy'].includes(data.mode))currentAccess={...currentAccess,mode:data.mode};
     if(typeof data.name==='string'&&data.name.trim())$('callTitle').textContent=data.name.trim().slice(0,60);$('roomReturnTitle').textContent=$('callTitle').textContent;
-    if(changed)publishRoom();
+    if(changed){publishRoom();status(joined?(sharing?'Your screen is shared with the room.':'Your room is ready.'):'Reconnecting your room…');}
   }
   if(data?.type==='vumiro-room-policy'&&data.room===currentRoom&&['public','friends','private','legacy'].includes(data.mode)){
     currentAccess={...currentAccess,mode:data.mode,name:typeof data.name==='string'?data.name.slice(0,60):currentAccess?.name||''};
@@ -689,6 +690,7 @@ async function requestJoin(room,mode){
 $('acceptInvite').onclick=async()=>{const value=pending;if(!value||value.direction!=='incoming')return;$('acceptInvite').disabled=true;try{if(runtimeNow()>=value.expires||!await validGrant(friendById(value.friend),profile.id,value.room,value.grant))throw Error('This call approval expired.');await answer(value,true);if(pending!==value)return;const name=friendById(value.friend)?.nickname||'Your friend';clearPending();openRoom(value.room,serviceUrl,name,value.grant);}catch(error){status(error.message);}finally{$('acceptInvite').disabled=false;}};
 async function dismissInvite(){const value=pending;if(!value)return;try{if(runtimeNow()<value.expires)await answer(value,false);}catch(error){status(error.message);}if(pending===value)clearPending(value.direction==='incoming'?'Call declined.':'Call cancelled.');}
 $('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;$('leaveRoomFromBrowse').onclick=leaveRoom;$('browseApp').onclick=browseRoom;$('returnToRoom').onclick=returnToRoom;
+$('watchNav').onclick=returnToRoom;
 $('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('selfProfile').onclick=showProfile;$('topSettings').onclick=$('roomSettings').onclick=showSettings;
 $('reconnectService').onclick=()=>{clearPending();connect();};$('reconnectRoom').onclick=()=>{frame?.contentWindow.postMessage({type:'vumiro-call-reconnect'},location.origin);if(!ready)connect();status('Reconnecting your room…');};
 function requestUpdate(action){if(action==='install'&&!linuxHost&&(frame||pending)){status('Leave your room or finish the call invitation before installing an update.');return;}if(host)host.postMessage({type:'updates',action:linuxHost&&action==='install'?'download':action});else $('updateStatus').textContent='This browser client updates when reloaded. Get the desktop app from the project releases.';}
