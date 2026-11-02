@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-02T19:01:14.0448936Z",
+  "timestamp": "2026-11-02T19:06:36.0065576Z",
   "active_user_fixes": {
     "status": "desktop_released_hosted_accounts_pending",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
@@ -187,11 +187,13 @@
   "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete.",
   "latest_updater_fix": {
     "version": "1.21.6",
-    "status": "local_install_repaired_publication_pending",
+    "status": "published_and_original_install_repaired",
     "handoff": ".planning/UPDATE-LOCK-HANDOFF.md",
     "cause": "Two processes from one install; hidden old tray process16036 locked WebView DLL while helper waited only for6536. Old rollback bookkeeping hid the original error.",
     "fix": "Per-profile Windows singleton and activation, app/helper process preflight, skip unchanged files, prepare all backups and atomic replacements, rollback only actual commits, filename/error diagnostics.",
     "repair": "No Vumiro process remained and DLL unlocked before repair. Applied complete locally built1.21.6 with new shared installer to original install;22/22file hashes matched. Restarted normal app.",
-    "verification": "Windows package build0warnings/errors; source and real lock diagnosis. No new/manual tests run this request; existing CI automatic."
+    "verification": "Windows builds0warnings/errors; real lock diagnosis and22file deployment hash match. Existing automated Windows regressions/package checks and Linux builds green in both main/release CI. No new or manually run regression tests this request.",
+    "source_commit": "10b904456c16bdcdf12d778f91e8faa285aaca22",
+    "publication": "client-v1.21.6 published with7expected assets; mainCI41506086680 and releaseCI41506093883 both succeeded for Windows and Linux. Release notes patched with exact duplicate/tray cause and older-helper bootstrap instructions."
   }
 }

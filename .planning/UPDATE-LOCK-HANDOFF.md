@@ -33,3 +33,11 @@ Source review, real process/file-lock diagnosis, package build and deployment ha
 Older installations still launch their previously installed helper for their first update. Quit all their Vumiro tray copies before retrying, or extract the complete release into a closed app folder. Once 1.21.6 is installed, both the app and helper have the new checks. Do not promise old versions acquire these protections before installing the update.
 
 Accounts remain blocked externally: no Supabase/email/social-provider setup or operator privacy inputs yet. Keep account service and registration gates disabled. See ACCOUNT-OPERATIONS.md and the existing account handoff.
+
+## Publication completed
+
+- Source **10b9044** pushed to main and tagged **client-v1.21.6**.
+- Main CI **41506086680** and release CI **41506093883** both succeeded for Windows and Linux. Existing automatic Windows regression/package checks passed. No extra tests were added or manually run.
+- Public release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.6, all **7 expected assets** present. Release notes explain the actual cause, protections, diagnostic location and older-helper bootstrap caveat.
+- Original repaired app is running normally as **PID8812** at the same original install path, observed after repair; no second app/helper process remained. Recheck live state rather than treating this PID as permanent.
+- No Worker deployment or account-provider change was made for this repair.
