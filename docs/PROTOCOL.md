@@ -90,7 +90,7 @@ An online presence event includes optional `profile:{id,name,username,key}` once
 that identity has announced its profile. Profile announcements push this event
 again so mutual friends can refresh current public names without polling or a
 burst of lookups.
-No polling, durable account database, cloud chat, avatar or media relay exists.
+No polling, cloud chat, avatar or media relay exists. Account data uses the separate authenticated `/api/v1/account/*` HTTP API and D1 database documented in [ARCHITECTURE.md](ARCHITECTURE.md); it does not change the signed signaling protocol described here.
 
 An accepted social join includes an owner-signed grant for legacy compatibility.
 Grants authorize admission only when the room owner uses the legacy protocol.
@@ -222,6 +222,28 @@ The receiver bounds nonce replays locally; the directory does not retain a
 per-candidate mailbox. A refresh asks the deterministic peer initiator to
 negotiate another short profile exchange. No profile payload is forwarded by
 the Worker.
+
+## Signed identity transition
+
+An account can rotate a legacy nonextractable identity into a recoverable key.
+The new client includes an optional exact `transition` object in
+`profile-announce`: `{version:1,fromId,fromKey,toId,toKey,createdAt,signature}`.
+The canonical P-256 ECDSA SHA-256 text signed by the old key is:
+
+```text
+vumiro-identity-transition-v1\nFROM_ID\nFROM_SPKI\nTO_ID\nTO_SPKI\nCREATED_AT
+```
+
+The directory requires `toId` and `toKey` to match the currently authenticated
+new identity, verifies both fingerprints and the old-key signature, and rejects
+self transitions, malformed fields, and future timestamps. It relays the
+transition only when the recipient watches `fromId` and the new identity watches
+the recipient, preserving the previous mutual relationship without creating a
+public alias. The recipient verifies the old key against its saved contact and
+verifies the signature again before replacing the contact ID and key in one
+IndexedDB transaction. Replays are idempotent. The transition is re-announced
+on later connections so an offline friend can migrate when both peers are next
+online; the directory does not persist a transition mailbox.
 
 ## Bounds
 

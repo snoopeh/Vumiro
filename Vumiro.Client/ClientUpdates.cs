@@ -19,7 +19,11 @@ namespace Vumiro.Client
     internal sealed class ClientUpdates
     {
         private const string Repository = "https://github.com/snoopeh/Vumiro";
-        private const string AssetName = "Vumiro-win-x64.zip";
+        // Version 1 packages keep their original name forever so clients through
+        // 1.21.2 can use them as a bridge. Those clients reject new package files.
+        // Bridge clients then fetch this complete package, including when its
+        // assembly version is unchanged.
+        private const string AssetName = "Vumiro-win-x64-v2.zip";
         private const long PackageLimit = 16L * 1024 * 1024;
         private readonly ClientWindow owner;
         private readonly Action<object> emit;
@@ -28,6 +32,20 @@ namespace Vumiro.Client
         private Release latest;
         private string message = "Check GitHub for updates.";
         private int progress;
+
+        private static bool CompletePackageInstalled()
+        {
+            var install = AppDomain.CurrentDomain.BaseDirectory;
+            return File.Exists(Path.Combine(install, "WebServer", "account-client.js")) &&
+                File.Exists(Path.Combine(install, "WebServer", "identity-recovery.js")) &&
+                File.Exists(Path.Combine(install, "PRIVACY.md"));
+        }
+
+        private bool Available(Release release)
+        {
+            return release != null && (release.Version > current ||
+                release.Version == current && !CompletePackageInstalled());
+        }
 
         internal sealed class Asset
         {
@@ -51,7 +69,7 @@ namespace Vumiro.Client
         private void State()
         {
             emit(new { type = "updates", version = current.ToString(3), current = current.ToString(3),
-                latest = latest == null ? null : latest.Version.ToString(3), available = latest != null && latest.Version > current,
+                latest = latest == null ? null : latest.Version.ToString(3), available = Available(latest),
                 busy, message, progress });
         }
 
@@ -67,13 +85,14 @@ namespace Vumiro.Client
                 {
                     latest = await CheckAsync();
                     message = latest == null ? "No published client update is available yet." : latest.Version > current ?
-                        "Vumiro " + latest.Version.ToString(3) + " is available." : "You're up to date.";
+                        "Vumiro " + latest.Version.ToString(3) + " is available." : Available(latest) ?
+                        "Finish installing Vumiro " + current.ToString(3) + " to enable all features." : "You're up to date.";
                 }
                 else
                 {
                     // Recheck metadata immediately before downloading; never trust a URL supplied by the web view.
                     latest = await CheckAsync();
-                    if (latest == null || latest.Version <= current) { message = "You're up to date."; return; }
+                    if (!Available(latest)) { message = "You're up to date."; return; }
                     await InstallAsync(latest);
                 }
             }

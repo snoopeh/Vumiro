@@ -1,6 +1,7 @@
 // Signaling only: no video, audio, TURN credentials, or file relay.
 import { DurableObject } from 'cloudflare:workers';
 import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';
+import { handleAccountRequest, runAccountMaintenance } from './accounts.js';
 export { FriendDirectory };
 
 export const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
@@ -248,8 +249,12 @@ export class CallRoom extends DurableObject {
 }
 
 export default {
+  async scheduled(_event,env,ctx) {
+    if(env.ACCOUNT_DB) ctx.waitUntil(runAccountMaintenance(env));
+  },
   async fetch(request,env) {
     const url=new URL(request.url);
+    if(url.pathname.startsWith('/api/v1/account/')) return handleAccountRequest(request,env);
     if(url.pathname==='/call-signaling' || url.pathname==='/friends-signaling') {
       const friends=url.pathname==='/friends-signaling';
       if(!FRIEND_ID_PATTERN.test(url.searchParams.get('id') || '') || !friends && !ROOM_PATTERN.test(url.searchParams.get('room') || '')) return new Response('A local profile and protected room code are required. Create a new room in Vumiro.',{status:400});
@@ -265,7 +270,7 @@ export default {
     }
     if(url.pathname==='/' || url.pathname==='/friends' || url.pathname==='/friends/') url.pathname='/friends.html';
     if(url.pathname==='/call' || url.pathname==='/call/') url.pathname='/call.html';
-    if(!['/call.html','/call-client.js','/friends.html','/friends-client.js','/local-profile.js','/peer-profile.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
+    if(!['/call.html','/call-client.js','/friends.html','/friends-client.js','/local-profile.js','/peer-profile.js','/account-client.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
     const response=await env.ASSETS.fetch(new Request(url,request));
     const headers=new Headers(response.headers);headers.set('Cache-Control','no-cache');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');
     // Embedded hosts use the same source files through a trusted WebView2 virtual host.

@@ -28,5 +28,10 @@ contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
   },
   removeEventListener(type, callback) {
     if (type === 'message' && typeof callback === 'function') listeners.delete(callback);
-  }
+  },
+  secureStore: Object.freeze({
+    async get() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'get' }); },
+    async set(value) { return ipcRenderer.invoke('vumiro:secure-store', { action: 'set', value }); },
+    async delete() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'delete' }); }
+  })
 }));

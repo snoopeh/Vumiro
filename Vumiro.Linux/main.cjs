@@ -1,8 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 
 const APP_SCHEME = 'vumiro';
@@ -17,7 +18,9 @@ const ASSET_PATHS = new Map([
   ['/call.html', 'text/html; charset=utf-8'],
   ['/call-client.js', 'text/javascript; charset=utf-8'],
   ['/local-profile.js', 'text/javascript; charset=utf-8'],
-  ['/peer-profile.js', 'text/javascript; charset=utf-8']
+  ['/peer-profile.js', 'text/javascript; charset=utf-8'],
+  ['/account-client.js', 'text/javascript; charset=utf-8'],
+  ['/identity-recovery.js', 'text/javascript; charset=utf-8']
 ]);
 const CSP = [
   "default-src 'none'",
@@ -331,6 +334,36 @@ function configureDisplayCapture() {
 }
 
 function registerIpc() {
+  ipcMain.handle('vumiro:secure-store', async (event, request) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame || !request || !['get', 'set', 'delete'].includes(request.action)) throw new Error('Secure account storage is available only to Vumiro.');
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('The operating system secure storage service is unavailable.');
+    if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') throw new Error('Set up GNOME Keyring or KWallet to keep your account session securely on this device.');
+    const file = path.join(app.getPath('userData'), 'account-session.bin');
+    if (request.action === 'get') {
+      try { return safeStorage.decryptString(await fs.promises.readFile(file)); }
+      catch (error) { if (error.code === 'ENOENT') return ''; throw new Error('Could not read the secure account session.'); }
+    }
+    if (request.action === 'set') {
+      if (typeof request.value !== 'string' || request.value.length > 8192) throw new Error('Invalid secure account session.');
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      const temporary = `${file}.${randomUUID()}.tmp`;
+      let handle;
+      try {
+        handle = await fs.promises.open(temporary, 'wx', 0o600);
+        await handle.writeFile(safeStorage.encryptString(request.value));
+        await handle.sync();
+        await handle.close();handle = null;
+        await fs.promises.rename(temporary, file);
+      } catch (error) {
+        if (handle) await handle.close().catch(() => {});
+        await fs.promises.unlink(temporary).catch(unlinkError => { if (unlinkError.code !== 'ENOENT') throw unlinkError; });
+        throw error;
+      }
+      return true;
+    }
+    try { await fs.promises.unlink(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return true;
+  });
   ipcMain.on('vumiro:post-message', (event, message) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || !validMainFrame(event.sender, event.senderFrame) || !message || typeof message !== 'object' || Array.isArray(message)) return;
     const keys = Object.keys(message).sort();

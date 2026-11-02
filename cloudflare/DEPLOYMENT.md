@@ -12,7 +12,7 @@
 - Linux's exact local origin `vumiro://app` is permitted alongside the existing Windows origin.
 - Service: https://vumiro-rooms.vumiro-signaling.workers.dev
 - Endpoints: `/friends-signaling`, `/call-signaling`.
-- Bindings: `CALL_ROOMS` (CallRoom), `FRIEND_DIRECTORY` (FriendDirectory), `ASSETS` (six client assets).
+- Bindings: `CALL_ROOMS` (CallRoom), `FRIEND_DIRECTORY` (FriendDirectory), `ASSETS` (allowlisted client assets).
 - The account workers.dev subdomain is now `vumiro-signaling`, changed through the Cloudflare dashboard. Public Worker bindings point directly to the original namespaces: `CALL_ROOMS` → `94c55c72903c4d80b15a6c620e3ef41b`, `FRIEND_DIRECTORY` → `9902bed8deae4a09b81cdb67f985d3dd`. Both IDs were verified unchanged after deployment. No data transfer, replacement namespace or proxy hop was introduced.
 - Desktop identity origins and local storage remain stable. The existing SQLite FriendDirectory keeps bounded version 2 friend-request proofs and public identities: 24-hour pending lifetime, up to seven days for terminal replay, early deletion after both receipts. No private keys, pictures, chat or media are stored.
 - New friend states are pushed over the existing WebSocket. Reconnection replay uses indexed identity lookups; one-shot alarms target actual expirations. No periodic network polling was added. Legacy version 1 traffic remains available, but both peers need 1.19 for durable requests.
@@ -25,3 +25,13 @@ The [pre-cleanup restore point](../docs/RESTORE.md) contains the committed/pushe
 Client 1.21.1 is published as the stable/latest release with all six assets. Release CI `41341372589` succeeded. The app remaps known legacy saved URLs and room invitations while preserving custom connection services. Older clients need the GitHub update because the account rename retires the old service URLs.
 
 The dashboard confirmed the new subdomain and Wrangler deployed the canonical route. API metadata confirmed the public route enabled, internal storage route disabled, and original Durable Object bindings retained. No live room/audio runtime tests were run.
+
+## Account sync implementation status (2026-11-02)
+
+- Created the separate D1 database `vumiro-account-data` (`eac4972c-d270-4931-8308-59fc851337f8`) in Cloudflare region `ENAM` and applied migrations `0001` through `0004`.
+- Applied migration `0005_device_credentials_and_deletion_state.sql` remotely. It adds hashed per-device credentials and retryable deletion state; Wrangler reports no pending migrations.
+- Migration `0006_account_operations.sql` passed a full local migration run but has not been applied remotely. It adds durable deletion retry metadata, notice-acceptance evidence, and fixed-window account rate-limit state.
+- The client now requires a server-issued per-device secret for protected account operations. The Worker verifies recent authentication from signed AMR timestamps, accepts ES256 and RS256 tokens, and supports account deletion retries. The client pins authentication to the canonical Vumiro Worker and stores only an encrypted identity-recovery envelope remotely. Updated mutual friends verify a signed legacy identity transition before changing the saved contact.
+- `wrangler.jsonc` binds this database only to the public Worker. The original Durable Object names, IDs, and migrations remain unchanged.
+- Account registration is gated off until the Supabase project, encrypted Worker secrets, support contact, lawful-basis/transfer disclosures, and privacy review are complete. The public Worker code and client release have not been deployed for this feature.
+- `npm run deploy` will publish the updated worker code after provider setup. Follow [account auth configuration](README.md#account-auth-configuration) first.

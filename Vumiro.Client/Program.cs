@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Xml.Linq;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using System.Web.Script.Serialization;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -136,6 +138,7 @@ namespace Vumiro.Client
                     try
                     {
                         var message = json.Deserialize<Dictionary<string, object>>(e.WebMessageAsJson);
+                        if (HandleSecureStoreMessage(message)) return;
                         if (HandleStreamAudioMessage(message)) return;
                         if (HandleWindowMessage(message)) return;
                         object type, action;
@@ -180,6 +183,52 @@ namespace Vumiro.Client
             {
                 if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }
+        }
+
+        private bool HandleSecureStoreMessage(Dictionary<string, object> message)
+        {
+            object type, actionValue, requestValue;
+            if (message == null || !message.TryGetValue("type", out type) || type as string != "secure-store" ||
+                !message.TryGetValue("action", out actionValue) || !message.TryGetValue("requestId", out requestValue)) return false;
+            var action = actionValue as string; var requestId = requestValue as string;
+            if (message.Count != (action == "set" ? 4 : 3) || String.IsNullOrEmpty(requestId) || requestId.Length > 64 ||
+                !(action == "get" || action == "set" || action == "delete")) return true;
+            string value = null, error = null;
+            try
+            {
+                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScreenTask");
+                var file = Path.Combine(directory, "account-session.bin");
+                if (action == "get")
+                {
+                    if (File.Exists(file)) value = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(file), null, DataProtectionScope.CurrentUser));
+                }
+                else if (action == "set")
+                {
+                    object raw; if (!message.TryGetValue("value", out raw) || !(raw is string) || ((string)raw).Length > 8192) throw new InvalidOperationException("Invalid secure account session.");
+                    Directory.CreateDirectory(directory);
+                    var protectedBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes((string)raw), null, DataProtectionScope.CurrentUser);
+                    var temporary = file + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    try
+                    {
+                        using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                        {
+                            output.Write(protectedBytes, 0, protectedBytes.Length);
+                            output.Flush(true);
+                        }
+                        if (File.Exists(file)) File.Replace(temporary, file, null, true);
+                        else File.Move(temporary, file);
+                    }
+                    finally
+                    {
+                        if (File.Exists(temporary)) File.Delete(temporary);
+                    }
+                }
+                else if (File.Exists(file)) File.Delete(file);
+            }
+            catch (Exception) { error = "The operating system could not access secure account storage."; }
+            var response = new Dictionary<string, object> { ["type"] = "secure-store-result", ["requestId"] = requestId, ["value"] = value, ["error"] = error };
+            browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(response));
+            return true;
         }
 
         private void DismissStartupOverlay()

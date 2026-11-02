@@ -12,8 +12,8 @@ namespace Vumiro.Client
         private static readonly HashSet<string> Allowed = new HashSet<string>(new[] {
             "Vumiro.exe", "Vumiro.exe.config", "Vumiro.Updater.exe", "Vumiro.Updater.exe.config",
             "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll",
-            "README.md", "COPYING", "THIRD-PARTY.md", "WEBVIEW2-LICENSE.txt", "WEBVIEW2-NOTICE.txt",
-            "WebServer/call.html", "WebServer/call-client.js", "WebServer/friends.html", "WebServer/friends-client.js", "WebServer/local-profile.js", "WebServer/peer-profile.js"
+            "README.md", "PRIVACY.md", "COPYING", "THIRD-PARTY.md", "WEBVIEW2-LICENSE.txt", "WEBVIEW2-NOTICE.txt",
+            "WebServer/call.html", "WebServer/call-client.js", "WebServer/friends.html", "WebServer/friends-client.js", "WebServer/local-profile.js", "WebServer/peer-profile.js", "WebServer/account-client.js", "WebServer/identity-recovery.js"
         }, StringComparer.Ordinal);
 
         internal static string Relative(string name)

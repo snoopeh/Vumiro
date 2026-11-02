@@ -335,7 +335,7 @@ function normalizeService(raw) { const url=migrateRoomHost(new URL(raw));if(url.
 function serviceState(text,connected=false) { $('serviceStatus').textContent=text;$('serviceDot').classList.toggle('online',connected);$('reconnectService').hidden=connected; }
 function send(message) { if(!socket||socket.readyState!==WebSocket.OPEN||!ready)throw Error('The service is offline. Reconnect to send this request.');const {from,...wire}=message;socket.send(JSON.stringify(wire)); }
 function watch(){if(ready)send({type:'watch',ids:friends.map(friend=>friend.id)});}
-function announce(){if(ready)send({type:'profile-announce',name:profile.name,username:profile.username||'',blockedIds:blocked,socialVersion:2});}
+function announce(){if(ready){const transition=local.identityTransition?.();send({type:'profile-announce',name:profile.name,username:profile.username||'',blockedIds:blocked,socialVersion:2,...(transition?{transition}:{})});}}
 function serverNow(){const clock=window.VumiroServerClock;if(!clock?.isSynced())throw Error('The service clock is not synchronized. Reconnect before sending a friend request.');return clock.now();}
 function runtimeNow(){const clock=window.VumiroServerClock;return clock?.isSynced()?clock.now():Date.now();}
 function publishRoom(){if(ready)send({type:'room-state',room:currentRoom&&currentRoom.slice(0,43)===profile.id&&joined?currentRoom:null,live:!!(joined&&sharing&&currentRoom.slice(0,43)===profile.id),mode:currentAccess?.mode||'legacy'});}
@@ -349,13 +349,21 @@ function renderProfile() {
   renderOwnProfile(); $('profileName').value=profile.name; $('profileUsername').value=profile.username||'';
   avatarDraft=profile.avatar||''; $('signaling').value=serviceUrl; renderSettings(); renderBlocked();
 }
-function shareOwnProfile() {
+async function shareOwnProfile() {
   const previous=profile; profile=local.profile(); if (!profile) return;
   renderOwnProfile();
+  if(!previous){
+    blocked=await local.listBlocked();renderProfile();await reloadFriends();if($('setupDialog').open)$('setupDialog').close();connect();showInvitation();return;
+  }
+  if(previous&&previous.id!==profile.id){
+    clearPending('Your verified contact identity changed.');if(frame)finishRoom();connect();
+    status('Identity recovery is enabled. Reconnecting with your new verified contact identity.');return;
+  }
   if (!previous || previous.name!==profile.name || previous.username!==profile.username) announce();
   frame?.contentWindow.postMessage({type:'vumiro-profile',profile},location.origin); peerProfiles?.ownChanged();
 }
-addEventListener('vumiro-profile-changed',shareOwnProfile);
+addEventListener('vumiro-profile-changed',()=>shareOwnProfile().catch(error=>status(error.message)));
+addEventListener('vumiro-account-restored',()=>{(async()=>{blocked=await local.listBlocked();await reloadFriends();renderProfile();announce();watch();})().catch(error=>status(error.message));});
 function confirmAction(title,description,label) {
   if (confirmation) return Promise.resolve(false);
   $('confirmHeading').textContent=title; $('confirmDescription').textContent=description; $('confirmProceed').textContent=label;
@@ -542,6 +550,14 @@ if(m.type==='lookup-result'){const task=lookups.get(m.nonce);if(task){clearTimeo
 if(m.type==='profile-signal'){await peerProfiles?.receive(m).catch(()=>{});return;}
 if(m.type==='friend-state'){await receiveFriendState(m,active);return;}
 if(m.type==='social'){await receiveSocial(m,active);return;}
+if(m.type==='identity-transition'){
+  const from=m.transition?.fromId,to=m.transition?.toId,old=friendById(from);
+  if(!old||!m.profile||m.profile.id!==to||m.profile.key!==m.transition.toKey)return;
+  const migrated=await local.applyIdentityTransition(m.transition,m.profile);
+  if(!migrated||!active())return;
+  if(selected===from)selected=to;online.delete(from);rooms=rooms.filter(item=>item.owner!==from);
+  await reloadFriends();watch();status(`${migrated.nickname||migrated.name} updated their verified contact identity.`);return;
+}
 if(m.type==='rooms'&&Array.isArray(m.rooms)){const previous=new Map(rooms.map(item=>[item.room,item.live]));rooms=m.rooms.filter(item=>friendById(item.owner)&&typeof item.room==='string'&&item.room.slice(0,43)===item.owner&&/^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/.test(item.room)).slice(0,128);const fresh=rooms.filter(item=>!previous.has(item.room)||(item.live&&!previous.get(item.room)));renderRooms();if(fresh.length){const first=fresh[0],name=friendById(first.owner)?.nickname||'A friend';status(fresh.length===1?name+(first.live?' is live in their room. Open Rooms to request to join.':' opened a room. Open Rooms to request to join.'):fresh.length+' friends have new room activity. Open Rooms to join.');host?.postMessage({type:'window',action:'notify'});}return;}
 if(m.type==='presence'&&friendById(m.id)&&typeof m.online==='boolean'){if(m.online)online.add(m.id);else{online.delete(m.id);rooms=rooms.filter(item=>item.owner!==m.id);}if(m.profile?.id===m.id)await refreshContact(m.profile);if(active())peerProfiles?.presence(m.id,m.online);renderFriends();return;}
 if(m.type==='social-sent'){settleSocialAck(m.nonce,null,m.to);return;}
@@ -703,7 +719,7 @@ $('createRoomForm').onsubmit=event=>{
 $('createRoom').onclick=$('createRoomFromDialog').onclick=$('roomCreateNav').onclick=createRoom;
 $('roomNav').onclick=()=>{browseRoom();const expanded=$('roomSubnav').hidden;$('roomSubnav').hidden=!expanded;$('roomNav').setAttribute('aria-expanded',String(expanded));if(matchMedia('(max-width:570px)').matches)showRooms();};$('discoverRooms').onclick=$('manualRoom').onclick=()=>{browseRoom();$('roomError').textContent='';showRooms();};
 const goHome=()=>{browseRoom();$('friendsNav').classList.add('active');$('roomNav').classList.remove('active');$('settingsNav').classList.remove('active');$('updatesNav').classList.remove('active');$('profileNav').classList.remove('active');if(!frame)$('search').focus();};$('homeNav').onclick=$('friendsNav').onclick=goHome;$('settingsNav').onclick=()=>{browseRoom();showSettings();};$('profileNav').onclick=()=>{browseRoom();showProfile();};$('search').oninput=renderFriends;$('filterAll').onclick=()=>{filter='all';renderFriends();};$('filterOnline').onclick=()=>{filter='online';renderFriends();};document.querySelectorAll('[data-close]').forEach(button=>{button.onclick=()=>$(button.dataset.close).close();});$('setupDialog').addEventListener('cancel',event=>event.preventDefault());
-$('setupForm').onsubmit=async event=>{event.preventDefault();$('createProfile').disabled=true;$('setupError').textContent='';try{profile=await local.createProfile($('setupName').value);$('setupDialog').close();renderProfile();await reloadFriends();connect();showInvitation();}catch(error){$('setupError').textContent=error.message;}finally{$('createProfile').disabled=false;}};
+$('setupForm').onsubmit=async event=>{event.preventDefault();$('createProfile').disabled=true;$('setupError').textContent='';try{profile=await local.createProfile($('setupName').value);await window.VumiroAccount?.onProfileReady();$('setupDialog').close();renderProfile();await reloadFriends();connect();showInvitation();}catch(error){$('setupError').textContent=error.message;}finally{$('createProfile').disabled=false;}};
 $('profileForm').onsubmit=async event=>{
   event.preventDefault(); $('profileError').textContent='';
   const button=event.submitter, name=$('profileName').value, username=$('profileUsername').value;
@@ -759,9 +775,9 @@ $('contactCall').onclick=()=>{const friend=friendById(selected);if(friend)invite
 $('copyCode').onclick=async()=>{try{await navigator.clipboard.writeText(local.ownCode());status('Public contact code copied. Your friend can use it to send a request.');}catch{$('ownCode').focus();$('ownCode').select();status('Copy your contact code from the profile panel.');}};
 $('exportCode').onclick=()=>{const url=URL.createObjectURL(new Blob([local.ownCode()+'\n'],{type:'text/plain;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='Vumiro-contact.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Your public contact code was saved.');};
 $('saveSignaling').onclick=()=>{try{serviceUrl=normalizeService($('signaling').value.trim());save('st-friends-signaling',serviceUrl);$('profileError').textContent='';$('signaling').value=serviceUrl;clearPending();connect();}catch(error){$('profileError').textContent=error.message;}};
-$('saveRoomSettings').onclick=()=>{const fps=Number($('roomFps').value),mbps=Number($('roomMbps').value);if(!Number.isInteger(fps)||fps<1||fps>120||!Number.isFinite(mbps)||mbps<1||mbps>100){$('profileError').textContent='Choose 1–120 FPS and 1–100 Mbps per participant.';return;}settings=normalizeSettings({fps,mbps,resolution:$('roomResolution').value,contentHint:$('roomContentHint').value,audio:$('roomAudio').checked,excludeDiscord:$('excludeDiscord').checked});save('vumiro-stream-settings',JSON.stringify(settings));frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);$('profileError').textContent='';status(frame?'Stream settings saved and sent to your open room.':'Stream settings saved for your next room.');};
+$('saveRoomSettings').onclick=()=>{const fps=Number($('roomFps').value),mbps=Number($('roomMbps').value);if(!Number.isInteger(fps)||fps<1||fps>120||!Number.isFinite(mbps)||mbps<1||mbps>100){$('profileError').textContent='Choose 1–120 FPS and 1–100 Mbps per participant.';return;}settings=normalizeSettings({fps,mbps,resolution:$('roomResolution').value,contentHint:$('roomContentHint').value,audio:$('roomAudio').checked,excludeDiscord:$('excludeDiscord').checked});save('vumiro-stream-settings',JSON.stringify(settings));dispatchEvent(new Event('vumiro-account-data-changed'));frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);$('profileError').textContent='';status(frame?'Stream settings saved and sent to your open room.':'Stream settings saved for your next room.');};
 $('roomForm').onsubmit=async event=>{event.preventDefault();$('roomError').textContent='';try{const raw=$('roomInvitation').value.trim();let room=raw,mode;try{const invitation=new URL(raw);if(!['https:','http:'].includes(invitation.protocol)||invitation.username||invitation.password)throw Error('Use a Vumiro room invitation.');const other=normalizeService(invitation.searchParams.get('signaling')||invitation.origin);if(other!==serviceUrl)throw Error('This invitation uses a different service. Save that service in Settings first.');room=invitation.searchParams.get('room')||'';const hint=invitation.searchParams.get('mode');if(['public','friends','private'].includes(hint))mode=hint;}catch(error){if(/^[a-z]+:/i.test(raw))throw error;}if(!/^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/.test(room))throw Error('Paste a complete private room invitation.');if(room.slice(0,43)===profile.id)throw Error('This is your own invitation. Create a room to host your friends.');await requestJoin(room,mode);$('roomForm').reset();}catch(error){$('roomError').textContent=error.message;}};
 addEventListener('storage',event=>{if(event.key==='vumiro-stream-settings'&&event.newValue){try{settings=normalizeSettings(JSON.parse(event.newValue));renderSettings();frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);}catch{}}});
 addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++generation;peerProfiles?.reset();rejectSocialAcks();clearTimeout(reconnectTimer);clearTimeout(leaveTimer);clearTimeout(requestTimer);clearTimeout(lookupTimer);if(pending)clearTimeout(pending.timer);const previous=socket;socket=null;previous?.close();frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);});
-(async()=>{try{const savedService=read('st-friends-signaling');serviceUrl=normalizeService(savedService||query.get('signaling')||location.origin);if(savedService&&savedService!==serviceUrl)save('st-friends-signaling',serviceUrl);profile=await local.initialize();blocked=await local.listBlocked();if(!profile){serviceState('Profile needed');status('Create your local profile to get started.');dialog('setupDialog');return;}renderProfile();await hydrateRequests();await reloadFriends();connect();showInvitation();}catch(error){serviceState('Not connected');status(error.message);$('setupError').textContent=error.message;}})();
+(async()=>{try{const savedService=read('st-friends-signaling');serviceUrl=normalizeService(savedService||query.get('signaling')||location.origin);if(savedService&&savedService!==serviceUrl)save('st-friends-signaling',serviceUrl);profile=await local.initialize();await window.VumiroAccount?.onProfileReady();blocked=await local.listBlocked();if(!profile){serviceState('Profile needed');status('Create your local profile to get started.');dialog('setupDialog');return;}renderProfile();await hydrateRequests();await reloadFriends();connect();showInvitation();}catch(error){serviceState('Not connected');status(error.message);$('setupError').textContent=error.message;}})();
 })();

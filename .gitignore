@@ -3,6 +3,7 @@
 **/obj/
 /dist/
 **/node_modules/
+**/.wrangler*/
 /Vumiro.Linux/assets/
 /Vumiro.Linux/webserver/
 /Vumiro.Linux/resources/legal/

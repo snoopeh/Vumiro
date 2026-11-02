@@ -24,6 +24,19 @@ jobs:
             node --check $_.FullName
             if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
           }
+      - name: Run account and identity tests
+        shell: pwsh
+        run: |
+          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs
+          Push-Location cloudflare
+          npm ci
+          npm test
+          Pop-Location
+      - name: Build and validate Windows update transition
+        shell: pwsh
+        run: |
+          ./scripts/Build-Client.ps1 -OutputDirectory "$env:RUNNER_TEMP/client-packages"
+          ./scripts/Test-ClientPackages.ps1 -OutputDirectory "$env:RUNNER_TEMP/client-packages"
   linux-packaging:
     runs-on: ubuntu-22.04
     steps:

@@ -50,6 +50,15 @@ async function verify(keyText, signatureText, canonical) {
     return await crypto.subtle.verify({name: 'ECDSA', hash: 'SHA-256'}, key, signature, encoder.encode(canonical));
   } catch { return false; }
 }
+async function validIdentityTransition(value, session, now=Date.now()) {
+  if(value==null)return true;
+  if(!onlyFields(value,['version','fromId','fromKey','toId','toKey','createdAt','signature'])||value.version!==1||
+    !FRIEND_ID_PATTERN.test(value.fromId||'')||value.fromId===session.id||value.toId!==session.id||value.toKey!==session.key||
+    typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||Date.parse(value.createdAt)>now+300000||decoded(value.signature,64)?.length!==64)return false;
+  const oldKey=decoded(value.fromKey,256);
+  if(!oldKey||encoded(await crypto.subtle.digest('SHA-256',oldKey))!==value.fromId)return false;
+  return verify(value.fromKey,value.signature,['vumiro-identity-transition-v1',value.fromId,value.fromKey,value.toId,value.toKey,value.createdAt].join('\n'));
+}
 function grantShape(grant, now) {
   return onlyFields(grant, ['nonce', 'expires', 'signature']) && typeof grant.nonce === 'string' && NONCE_PATTERN.test(grant.nonce) && Number.isSafeInteger(grant.expires) &&
     grant.expires > now && grant.expires <= now + 86400000 && decoded(grant.signature, 64)?.length === 64;
@@ -291,6 +300,15 @@ export class FriendDirectory extends DurableObject {
     const value = owner && read(owner), online = !!value && mutual(session, value);
     return {type: 'presence', id, online, ...(online && value.name ? {profile: publicProfile(value)} : {}), ...(online&&value.room?{mode:value.roomMode||'legacy'}:{})};
   }
+  sendIdentityTransitions(session) {
+    for(const socket of this.authenticated()) {
+      const other=read(socket);if(other.id===session.id||blocked(session,other))continue;
+      if(other.transition&&session.watch.includes(other.transition.fromId)&&other.watch.includes(session.id))
+        this.send(this.owner(session.id),{type:'identity-transition',transition:other.transition,profile:publicProfile(other)});
+      if(session.transition&&other.watch.includes(session.transition.fromId)&&session.watch.includes(other.id))
+        this.send(socket,{type:'identity-transition',transition:session.transition,profile:publicProfile(session)});
+    }
+  }
 
   async webSocketMessage(ws, text) {
     if (typeof text !== 'string') { this.reject(ws, 'Only identity and call signaling text is allowed.', 1003); return; }
@@ -340,6 +358,7 @@ export class FriendDirectory extends DurableObject {
       // Adding or removing a local friend changes whether that friend can see
       // this identity online. No online state is disclosed for one-sided adds.
       this.presence(session.id);
+      this.sendIdentityTransitions(session);
       this.rooms();
       return;
     }
@@ -384,8 +403,8 @@ export class FriendDirectory extends DurableObject {
   }
 
   async profile(ws, session, message) {
-    const username = message.username ?? '', blocks = message.blockedIds ?? [];
-    if (!onlyFields(message, ['type', 'name'], ['username', 'blockedIds','socialVersion']) || typeof message.name !== 'string' ||
+    const username = message.username ?? '', blocks = message.blockedIds ?? [], transition=message.transition??null;
+    if (!onlyFields(message, ['type', 'name'], ['username', 'blockedIds','socialVersion','transition']) || typeof message.name !== 'string' ||
       !message.name.trim() || message.name !== message.name.trim() || message.name.length > 48 || /[\u0000-\u001f\u007f]/.test(message.name) ||
       typeof username !== 'string' || username !== '' && !USERNAME_PATTERN.test(username) || message.socialVersion!==undefined && message.socialVersion!==2 || !ids(blocks, session.id) || blocks.length + session.watch.length > 192) {
       this.error(ws, 'invalid-profile', 'Use a name up to 48 characters, an optional lowercase username and valid block list.'); return;
@@ -393,10 +412,13 @@ export class FriendDirectory extends DurableObject {
     if (username && this.authenticated().some(other => other !== ws && read(other).username === username)) {
       this.error(ws, 'username-taken', 'That username is in use online. Choose another or use contact codes.'); return;
     }
-    session.name = message.name; session.username = username; session.socialVersion=message.socialVersion===2?2:1; session.blocked = blocks;
+    if(!await validIdentityTransition(transition,session)){this.error(ws,'invalid-transition','The signed identity transition is invalid.');return;}
+    session=read(ws);if(!session?.auth||session.departed||this.owner(session.id)!==ws)return;
+    session.name = message.name; session.username = username; session.socialVersion=message.socialVersion===2?2:1; session.blocked = blocks;session.transition=transition;
     if (!this.save(ws, session)) return;
     this.send(ws, {type: 'profile-ready', profile: publicProfile(session), socialVersion:2, serverTime:Date.now()});
     this.presence(session.id);
+    this.sendIdentityTransitions(session);
     for (const id of session.watch) this.send(ws, this.presenceEvent(session, id, this.owner(id)));
     this.rooms();await this.replayFriendRows(ws,session);
   }

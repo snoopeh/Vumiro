@@ -1,4 +1,4 @@
-# Vumiro 1.21.2
+# Vumiro 1.21.3
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -12,9 +12,19 @@ Version 1.21.1 moves the connection service to **https://vumiro-rooms.vumiro-sig
 
 Version 1.21.2 fixes a Windows startup rendering issue that could leave the loading spinner visible over the loaded interface.
 
+Version 1.21.3 adds the gated Vumiro account client, secure persistent sessions, friend/profile backup, linked-device controls, export and deletion, password recovery, and encrypted contact-identity recovery. Account registration remains unavailable until the authentication provider and operational privacy details are configured.
+
 ## Your profile and friends
 
-Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames are online lookup handles, not permanent cloud accounts; your identity belongs to the device key.
+Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames remain online lookup handles for device identities.
+
+## Vumiro account
+
+Open **Your profile → Vumiro account** to create an account, verify your email, or sign in. Password recovery sends a one-time email code. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured.
+
+The account can back up and restore the profile, friend contact book, blocks, and stream preferences. Choose which direction to sync when both this device and the account already have data. Concurrent edits use a revision check; if another device has uploaded first, automatic sync pauses and asks you to restore or deliberately replace the saved copy. Your signing key stays on the device, so a new installation restores saved contacts but creates a different identity. Ask existing friends to accept a new request for the new identity. **Export my data**, linked-device revocation, sign-out, and account deletion are in the same panel. Deleting the account removes synced account data; it leaves the local device profile and signing key on the device.
+
+Account registration is available only after the account provider and Worker configuration are enabled. The [privacy notice](PRIVACY.md) describes synced fields and current infrastructure location. The signing-identity envelope is encrypted in the client; other account snapshot fields are not end-to-end encrypted.
 
 Choose **Add friend** and enter their username or short **vm1.** contact code. Vumiro fills the available public name automatically. Both people must be online for the initial lookup and request. With both clients on 1.19 or later, pending friend requests survive reconnects for up to 24 hours. An acceptance is saved until both apps have applied it, so the sender may reconnect later. The UI distinguishes service confirmation from delivery and reports failures. **Save code locally** supports offline/manual contact exchange. Both people must save each other or accept a request to become mutual friends.
 

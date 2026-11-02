@@ -1,13 +1,13 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-02T05:50:44.923Z",
+  "timestamp": "2026-11-02T06:09:54.2692670Z",
   "phase": "account-completion",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
   "phase_dir": ".planning",
   "plan": 1,
-  "task": 4,
+  "task": 8,
   "total_tasks": 8,
-  "status": "in_progress",
+  "status": "blocked_external",
   "completed_tasks": [
     {
       "id": 1,
@@ -30,26 +30,29 @@
     {
       "id": 4,
       "name": "Backend, client, and packaging completion",
-      "status": "in_progress",
-      "progress": "Three workers made partial edits before workspace credits interrupted them. Backend has accounts.test.js and migration 0006; client has tests and atomic secure storage work; packaging has the 1.21.3 dual-package bridge. All partial work requires review and completion."
-    }
-  ],
-  "remaining_tasks": [
+      "status": "done",
+      "progress": "Reviewed and completed the interrupted edits: split service/registration gates, strict snapshots, AMR handling, rate limits, notice evidence, device controls, global sign-out revocation, durable deletion retries, resumable signup/recovery, serialized sync, export, atomic native secure stores, and the 1.21.3 dual-package bridge."
+    },
     {
       "id": 5,
       "name": "Audit and complete interrupted backend/client/package changes",
-      "status": "not_started"
+      "status": "done",
+      "progress": "All partial contracts were inspected. Backend, client, crypto, syntax, migration, Worker dry-run, .NET build, and package validation pass locally."
     },
     {
       "id": 6,
       "name": "Integrate encrypted identity recovery and legacy identity transition",
-      "status": "not_started"
+      "status": "done",
+      "progress": "Added AES-GCM password/recovery wraps, nonextractable restore, OS-secured recovery code, password rewrap, remote-first legacy migration, dual signature validation, directory relay constrained by the prior mutual relationship, and atomic friend contact replacement."
     },
     {
       "id": 7,
-      "name": "Update privacy/deployment docs, regenerate packaged assets, and run full automated/package validation",
-      "status": "not_started"
-    },
+      "name": "Update docs, assets, CI, and local validation",
+      "status": "done",
+      "progress": "Updated privacy/architecture/protocol/operations/release docs and CI; regenerated eight-asset Cloudflare/Linux sets; validated local migrations 0001-0006, Wrangler dry run, 18 tests, .NET builds, and both Windows packages."
+    }
+  ],
+  "remaining_tasks": [
     {
       "id": 8,
       "name": "Configure hosted Supabase/SMTP/rate limits/secrets, complete legal operator fields, stage, deploy, and publish",
@@ -66,16 +69,6 @@
       "description": "Controller legal identity, monitored privacy contact, lawful-basis decisions, age policy, retention decisions, and transfer mechanism cannot be invented.",
       "type": "human_action",
       "workaround": "Operational templates and launch gates exist; keep public registration disabled."
-    },
-    {
-      "description": "Existing identity keys are intentionally nonextractable and cannot be backed up retroactively.",
-      "type": "technical",
-      "workaround": "Use one-time signed migration to a recoverable identity; older peers may require one manual re-acceptance."
-    },
-    {
-      "description": "All three implementation subagents stopped with an out-of-credits error after writing partial changes.",
-      "type": "technical",
-      "workaround": "Treat their files as untrusted partial work, inspect diffs, and rerun validations before continuing."
     }
   ],
   "async_jobs": [],
@@ -113,7 +106,8 @@
       "phase": "account-completion"
     }
   ],
-  "uncommitted_files": [
+  "implementation_files": [
+    ".gitignore",
     ".github/workflows/build.yml",
     ".github/workflows/client-release.yml",
     "README.md",
@@ -136,6 +130,7 @@
     "cloudflare/README.md",
     "cloudflare/accounts.js",
     "cloudflare/accounts.test.js",
+    "cloudflare/friend-directory.js",
     "cloudflare/migrations/0001_account_data.sql",
     "cloudflare/migrations/0002_account_devices.sql",
     "cloudflare/migrations/0003_account_deletion_tombstones.sql",
@@ -156,8 +151,9 @@
     "scripts/Test-ClientPackages.ps1",
     "scripts/windows-package-v1.txt",
     "scripts/windows-package-v2.txt",
-    "tests/account-client.test.mjs"
+    "tests/account-client.test.mjs",
+    "tests/identity-recovery.test.mjs"
   ],
-  "next_action": "Inspect the interrupted worker diffs, run the new backend/client/package tests, fix failures, then integrate identity-recovery.js into the client and strict backend schema before touching remote infrastructure.",
-  "context_notes": "The account foundation is substantial but not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config returns 404 and Worker secret list is empty. Do not deploy, enable registration, apply 0006, tag, publish, or create paid provider resources until code/test review and external operator inputs are complete."
+  "next_action": "Obtain the Supabase/SMTP staging project and operator privacy decisions, configure provider policies and Worker secrets, run the hosted flow matrix in docs/ACCOUNT-OPERATIONS.md, then apply remote migration 0006 immediately before a reviewed Worker deployment. Keep registration disabled until legal/operator evidence is complete.",
+  "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete."
 }

@@ -284,6 +284,53 @@
     await transaction('state', 'readwrite', store => store.put(ids, 'blocked-ids')); await removeFriend(id);
   }
   async function unblockContact(id) { const ids = (await listBlocked()).filter(value => value !== id); await transaction('state', 'readwrite', store => store.put(ids, 'blocked-ids')); changed(); }
+  async function accountSnapshot() {
+    if (!identity) throw Error('Create a local profile before syncing account data.');
+    const friends = (await listFriends()).map(friend => ({id:friend.id,key:friend.key,name:friend.name,username:friend.username||'',avatar:'',nickname:friend.nicknameOverride?friend.nickname:''}));
+    return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||''},friends,blocked:await listBlocked(),settings:{}};
+  }
+  async function applyAccountSnapshot(snapshot) {
+    if (!identity) throw Error('Create a local profile before restoring account data.');
+    if (!snapshot || snapshot.version !== 1 || !snapshot.profile || !Array.isArray(snapshot.friends) || snapshot.friends.length > 128 || !Array.isArray(snapshot.blocked) || snapshot.blocked.length > 64) throw Error('The saved account data is invalid.');
+    const profilePatch={name:cleanName(snapshot.profile.name),username:cleanUsername(snapshot.profile.username||''),avatar:cleanAvatar(snapshot.profile.avatar||'')};
+    if(snapshot.blocked.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id))||new Set(snapshot.blocked).size!==snapshot.blocked.length)throw Error('The saved block list is invalid.');
+    // A snapshot can contain this installation's current identity when it was
+    // produced by a different device. It is not a valid friend/block locally,
+    // but it must not make the rest of a cross-device restore fail.
+    const blocked=snapshot.blocked.filter(id=>id!==identity.id);
+    // Validate every imported public key and field before opening the write
+    // transaction. Any malformed item leaves the existing profile untouched.
+    const wanted = new Map();
+    for (const raw of snapshot.friends) {
+      if(raw?.id===identity.id)continue;
+      const contact=await validateContact(raw);
+      if(raw.nickname!=null&&typeof raw.nickname!=='string')throw Error('The saved nickname is invalid.');
+      const nickname=typeof raw.nickname==='string'&&raw.nickname.trim()?cleanName(raw.nickname):'';
+      if (wanted.has(contact.id)) throw Error('The saved contact list contains duplicates.');
+      if (!blocked.includes(contact.id)) wanted.set(contact.id,{...contact,avatar:'',nickname:nickname||contact.name,nicknameOverride:!!nickname,added:Date.now()});
+    }
+    const db=await open();
+    let candidate;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(['state','friends'],'readwrite');
+      const state=tx.objectStore('state'),friends=tx.objectStore('friends');
+      let failure=null;
+      tx.oncomplete=()=>resolve();tx.onerror=()=>{};tx.onabort=()=>reject(failure||tx.error||Error('Could not restore account data.'));
+      const req=state.get('profile');
+      req.onerror=()=>{failure=Error('Could not read the local profile.');tx.abort();};
+      req.onsuccess=()=>{
+        try {
+          if(!req.result||req.result.id!==identity.id)throw Error('The local identity changed during restore.');
+          candidate={...req.result,...profilePatch};state.put(candidate,'profile');
+          friends.clear();for(const friend of wanted.values())friends.put(friend);
+          state.put(blocked,'blocked-ids');
+        } catch(error) {failure=error;tx.abort();}
+      };
+    });
+    identity=candidate;
+    profileChanged();changed();
+    return true;
+  }
   async function listRequests() { return await transaction('state', 'readonly', store => store.get('social-requests')) || []; }
   async function saveRequest(value) {
     const clean = {...value}; if (clean.contact) clean.contact = await validateContact(clean.contact);
@@ -294,5 +341,71 @@
   async function verify(contact, text, signature) {
     try { const key = await crypto.subtle.importKey('spki', decode(contact.key, 256), algorithm, false, ['verify']); return await crypto.subtle.verify({name: 'ECDSA', hash: 'SHA-256'}, key, decode(signature, 128), encoder.encode(text)); } catch { return false; }
   }
-  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, listRequests, saveRequest, removeRequest, sign, verify, profile: publicProfile, validateAvatar: cleanAvatar};
+  function transitionText(value) {
+    return ['vumiro-identity-transition-v1',value.fromId,value.fromKey,value.toId,value.toKey,value.createdAt].join('\n');
+  }
+  async function validateRecoveredIdentity(value) {
+    if (!value || !/^[A-Za-z0-9_-]{43}$/.test(value.identityId || '') || typeof value.publicKey !== 'string' || !value.privateKey) throw Error('The recovered identity is invalid.');
+    const spki=decode(value.publicKey,256),id=base64url(await crypto.subtle.digest('SHA-256',spki));
+    if(id!==value.identityId)throw Error('The recovered identity fingerprint is invalid.');
+    const publicKey=await crypto.subtle.importKey('spki',spki,algorithm,false,['verify']);
+    if(value.privateKey.extractable)throw Error('The recovered private identity must be nonextractable.');
+    const challenge=crypto.getRandomValues(new Uint8Array(32));
+    const signature=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},value.privateKey,challenge);
+    if(!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},publicKey,signature,challenge))throw Error('The recovered private identity does not match its public key.');
+    return true;
+  }
+  async function prepareIdentityMigration(value) {
+    if(!identity)throw Error('Create a local profile before enabling identity recovery.');
+    await validateRecoveredIdentity(value);
+    const createdAt=new Date().toISOString();
+    const transition={version:1,fromId:identity.id,fromKey:identity.key,toId:value.identityId,toKey:value.publicKey,createdAt,signature:''};
+    transition.signature=await sign(transitionText(transition));
+    return {expectedId:identity.id,identity:{...identity,id:value.identityId,key:value.publicKey,privateKey:value.privateKey,transition},transition};
+  }
+  async function commitIdentityMigration(prepared) {
+    if(!prepared?.identity||prepared.expectedId!==identity?.id)throw Error('The local identity changed before recovery could be enabled.');
+    await validateRecoveredIdentity({identityId:prepared.identity.id,publicKey:prepared.identity.key,privateKey:prepared.identity.privateKey});
+    const next=prepared.identity;
+    await transaction('state','readwrite',store=>{
+      const request=store.get('profile');
+      request.onsuccess=()=>{if(!request.result||request.result.id!==prepared.expectedId)store.transaction.abort();else store.put(next,'profile');};
+    });
+    identity=next;profileChanged();changed();return publicProfile();
+  }
+  async function installRecoveredIdentity(value,profile,transition=null) {
+    await validateRecoveredIdentity(value);
+    if(identity&&identity.id!==value.identityId){
+      if(!transition||transition.fromId!==identity.id||transition.fromKey!==identity.key||transition.toId!==value.identityId||transition.toKey!==value.publicKey||
+        !await verify(identity,transitionText(transition),transition.signature))throw Error('This device already has a different local identity and the account has no valid transition from it.');
+    }
+    const candidate={id:value.identityId,key:value.publicKey,privateKey:value.privateKey,name:cleanName(profile?.name||identity?.name||'Vumiro user'),username:cleanUsername(profile?.username||identity?.username||''),avatar:cleanAvatar(profile?.avatar||identity?.avatar||''),...(transition?{transition}:{})};
+    await transaction('state','readwrite',store=>{
+      const request=store.get('profile');
+      request.onsuccess=()=>{if(request.result&&request.result.id!==candidate.id&&request.result.id!==transition?.fromId)store.transaction.abort();else store.put(candidate,'profile');};
+    });
+    identity=candidate;profileChanged();return publicProfile();
+  }
+  async function applyIdentityTransition(value,nextProfile) {
+    if(!value||Object.keys(value).sort().join(',')!==['createdAt','fromId','fromKey','signature','toId','toKey','version'].sort().join(',')||value.version!==1||
+      !/^[A-Za-z0-9_-]{43}$/.test(value.fromId||'')||!/^[A-Za-z0-9_-]{43}$/.test(value.toId||'')||value.fromId===value.toId||
+      typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||Date.parse(value.createdAt)>Date.now()+300000)throw Error('The identity transition is invalid.');
+    const contact=await validateContact({id:value.toId,key:value.toKey,name:nextProfile?.name,username:nextProfile?.username||'',avatar:nextProfile?.avatar||''});
+    if(contact.id===identity?.id)throw Error('A friend identity cannot replace your own identity.');
+    const current=await transaction('friends','readonly',store=>store.get(value.fromId));
+    if(!current){const existing=await transaction('friends','readonly',store=>store.get(value.toId));return existing?existing:null;}
+    if(current.key!==value.fromKey||!await verify(current,transitionText(value),value.signature))throw Error('The identity transition signature is invalid.');
+    const next={...contact,nickname:current.nickname||contact.name,nicknameOverride:!!current.nicknameOverride,added:current.added||Date.now()};
+    const db=await open();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(['friends','state'],'readwrite'),friends=tx.objectStore('friends'),state=tx.objectStore('state');let failure=null;
+      tx.oncomplete=resolve;tx.onerror=()=>{};tx.onabort=()=>reject(failure||tx.error||Error('Could not update the friend identity.'));
+      const old=friends.get(value.fromId),collision=friends.get(value.toId),blocks=state.get('blocked-ids');
+      let loaded=0;const commit=()=>{if(++loaded<3)return;try{if(!old.result||old.result.key!==value.fromKey)throw Error('The trusted friend identity changed.');if(collision.result&&value.toId!==value.fromId)throw Error('The replacement identity is already saved as another friend.');friends.delete(value.fromId);friends.put(next);const ids=Array.isArray(blocks.result)?blocks.result:[];state.put([...new Set(ids.map(id=>id===value.fromId?value.toId:id))],'blocked-ids');}catch(error){failure=error;tx.abort();}};
+      old.onsuccess=commit;collision.onsuccess=commit;blocks.onsuccess=commit;old.onerror=collision.onerror=blocks.onerror=()=>{failure=Error('Could not read the trusted friend identity.');tx.abort();};
+    });
+    changed();return next;
+  }
+  const identityTransition=()=>identity?.transition||null;
+  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar};
 })();

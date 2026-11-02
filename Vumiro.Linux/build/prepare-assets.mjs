@@ -13,7 +13,9 @@ const expectedAssets = [
   'friends-client.js',
   'friends.html',
   'local-profile.js',
-  'peer-profile.js'
+  'peer-profile.js',
+  'account-client.js',
+  'identity-recovery.js'
 ];
 
 function assertGeneratedPath(candidate, expectedRelative) {
@@ -40,5 +42,6 @@ await mkdir(licenseDir, { recursive: true });
 await cp(path.join(repoDir, 'COPYING'), path.join(licenseDir, 'COPYING'));
 await cp(path.join(repoDir, 'THIRD-PARTY.md'), path.join(licenseDir, 'THIRD-PARTY.md'));
 await cp(path.join(repoDir, 'Vumiro.Client', 'Brand', 'Sora-OFL.txt'), path.join(licenseDir, 'Sora-OFL.txt'));
+await cp(path.join(repoDir, 'docs', 'PRIVACY.md'), path.join(licenseDir, 'PRIVACY.md'));
 
 console.log(`Prepared ${expectedAssets.length} shared assets and license notices for Linux packaging.`);
