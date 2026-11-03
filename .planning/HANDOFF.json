@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-02T19:06:36.0065576Z",
+  "timestamp": "2026-11-03",
   "active_user_fixes": {
     "status": "desktop_released_hosted_accounts_pending",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
@@ -30,13 +30,13 @@
     "scope": "Supplied scenic login concept, cleaner call layout and controls, Watch Together navigation, small-window dock sizing; account-provider gates retained.",
     "runtime": "1.21.5 visual changes included in locally repaired1.21.6; see latest_updater_fix and UPDATE-LOCK-HANDOFF.md."
   },
-  "phase": "account-completion",
+  "phase": "account-launch-and-interface-polish",
   "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
   "phase_dir": ".planning",
   "plan": 1,
   "task": 8,
   "total_tasks": 8,
-  "status": "blocked_external",
+  "status": "publishing",
   "completed_tasks": [
     {
       "id": 1,
@@ -84,35 +84,13 @@
   "remaining_tasks": [
     {
       "id": 8,
-      "name": "Configure hosted Supabase/SMTP/rate limits/secrets, complete legal operator fields, stage, deploy, and publish",
-      "status": "blocked_external"
+      "name": "Publish 1.21.7, enable email registration, then deliver sidebar/logout/audio controls",
+      "status": "in_progress"
     }
   ],
-  "blockers": [
-    {
-      "description": "Supabase project, SMTP provider, provider region, and production secrets do not exist in the current environment; Cloudflare secret list is empty.",
-      "type": "external",
-      "workaround": "Finish and test locally with mocks; configure staging only after code review."
-    },
-    {
-      "description": "Controller legal identity, monitored privacy contact, lawful-basis decisions, age policy, retention decisions, and transfer mechanism cannot be invented.",
-      "type": "human_action",
-      "workaround": "Operational templates and launch gates exist; keep public registration disabled."
-    }
-  ],
+  "blockers": [],
   "async_jobs": [],
-  "human_actions_pending": [
-    {
-      "action": "Supply or create the production Supabase and transactional-email accounts and choose a processing region/plan.",
-      "context": "Required for real signup, verification, recovery, session, and deletion testing.",
-      "blocking": true
-    },
-    {
-      "action": "Provide controller identity and privacy contact and approve counsel-reviewed lawful bases, retention, age policy, and international-transfer mechanism.",
-      "context": "Required before public LGPD-facing registration can be enabled.",
-      "blocking": true
-    }
-  ],
+  "human_actions_pending": [],
   "decisions": [
     {
       "decision": "Keep registration and the entire undeployed account feature gated until provider, operational, and legal prerequisites are complete.",
@@ -183,8 +161,8 @@
     "tests/account-client.test.mjs",
     "tests/identity-recovery.test.mjs"
   ],
-  "next_action": "Read .planning/USER-FIXES-HANDOFF.md first, finish final UI/CI/package checks, then push Git and deliver the invite/volume/updater/chrome/account-screen fixes. User confirms no Supabase project; hosted auth remains separately blocked.",
-  "context_notes": "Local implementation is complete and validated but remains intentionally not live. Remote D1 migrations 0001-0005 are applied; 0006 is local only. Live /api/v1/account/config still returns 404 and Worker secret list is empty. Do not enable registration, apply 0006, deploy, tag, or publish until hosted staging and the external operator inputs are complete.",
+  "next_action": "Finish 1.21.7 commit, Worker deploy, registration flag and release. Then implement requested sidebar/logout/audio improvements as1.21.8.",
+  "context_notes": "Supabase/Brevo configured; real signup/OTP and recovery/password change/login passed. Hosted route acceptance and46 regression tests pass. Worker service enabled and registration staged false pending publication; Supabase signup enabled. See ACCOUNT-LAUNCH.md for current evidence. Prior external blockers below are historical.",
   "latest_updater_fix": {
     "version": "1.21.6",
     "status": "published_and_original_install_repaired",
@@ -195,5 +173,11 @@
     "verification": "Windows builds0warnings/errors; real lock diagnosis and22file deployment hash match. Existing automated Windows regressions/package checks and Linux builds green in both main/release CI. No new or manually run regression tests this request.",
     "source_commit": "10b904456c16bdcdf12d778f91e8faa285aaca22",
     "publication": "client-v1.21.6 published with7expected assets; mainCI41506086680 and releaseCI41506093883 both succeeded for Windows and Linux. Release notes patched with exact duplicate/tray cause and older-helper bootstrap instructions."
+  },
+  "latest_account_launch": {
+    "version": "1.21.7",
+    "status": "publishing",
+    "evidence": ".planning/ACCOUNT-LAUNCH.md",
+    "limits": "Hardware/desktop restart acceptance not fully repeated. Push alert delivery not yet configured. One extra unverified disposable email fixture remains after automatic cleanup rejection."
   }
 }

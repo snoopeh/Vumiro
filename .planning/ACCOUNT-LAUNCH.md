@@ -1,34 +1,52 @@
-# Account service launch — 2026-11-02
+# Account service launch — 1.21.7
 
-## Provider setup
+Status recorded: **2026-11-03**, immediately before publication.
 
-- Cloudflare session is available for the existing account. The account Worker currently has no secrets; `/api/v1/account/config` returns 503 with both gates false.
-- Remote D1 migrations 0001–0006 are applied; Wrangler reports no pending migrations.
-- Created the free Supabase organization **Vumiro**, ID `wuveytlxlgvtucznraxp`, in the user's signed-in Codex browser session.
-- Prepared the project creation form for **vumiro-accounts-production**, region **South America (São Paulo), sa-east-1**, Data API disabled, generated database password. **Project creation has not been submitted.** Browser policy requires action-time confirmation for persistent credential creation; an asynchronous confirmation is pending.
-- Supabase/SMTP secrets are not configured. Production sender/domain and operator/privacy contact are still unknown; no Cloudflare DNS zones were returned by the existing account.
-- Do not claim accounts are live or enable public registration until the actual provider and email flow are tested and the operator notice fields are completed.
+## Rollout state
 
-## Completed code and verification
+- The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with `serviceEnabled: true`. The deployed Worker still reports `registrationEnabled: false`; enabling new registration is staged for the immediate release deployment. Verify the live flag after deployment before calling signup public.
+- Supabase **Allow new users to sign up** is now **enabled**, independently of the Worker flag. **Confirm email** remains enabled. Google/Microsoft sign-in remains disabled and unverified.
+- Version **1.21.7** has passed local package checks and the **46/46** regression suite. Release commit, deployment, tag and published release evidence must be recorded separately when completed. Local packaging is not evidence of a published release or full desktop runtime acceptance.
 
-- Fixed unknown-signing-key refresh after provider key rotation. Refreshes are coalesced and throttled; known cached keys remain usable after a refresh failure.
-- Fixed pending identity deletion being presented as completed. Backend 202 carries `deletionPending`; client handles current and older pending responses.
-- Added edge rate-limit binding for account requests (120/minute per connecting IP), preserving CORS and Retry-After behavior. Existing per-account D1 operation limits remain.
-- Enabled public Worker observability with invocation logs/traces disabled and query redaction. Operator alert delivery remains to be configured.
-- Added actual SQLite/migration integration tests for enrollment, credentials, sync conflict, export evidence, isolation, revocation, deletion, and maintenance retries. No production account records were written by these tests.
-- Prepared `cloudflare/supabase-email.html` for OTP confirmation/recovery templates. It is excluded from the public web-asset allowlist.
-- Backend suite: 16/16 pass. Combined account/client/identity/OAuth suite before the final edge/integration additions: 37/37 pass. Native OAuth callback checks: 18/18 pass. Public Worker dry-run with rate-limit binding passes.
+## Provider and operator configuration
 
-## Published source and Worker
+- Production Supabase project **vumiro-accounts-production**, reference `rrrflwevxojheaejbcnp`, is in the **Vumiro** organization (`wuveytlxlgvtucznraxp`), AWS **São Paulo (`sa-east-1`)**, reported Healthy. Auth URL: `https://rrrflwevxojheaejbcnp.supabase.co`.
+- Seven encrypted Worker secrets are installed. Secret values were not printed, committed or included in client assets.
+- Minimum password length **12**; email OTP **6 digits**, expiry **600 seconds**; secure password change enabled. Password-change and email-change security notifications are enabled.
+- Signing uses **ES256**, verified JWKS key ID `5037f2b1-3679-4872-b5d3-f1220e4de221`; access tokens last **3600 seconds**. Refresh-token reuse detection is enabled with a **10-second** reuse interval.
+- Supabase Site URL is the canonical `/auth.html`; the desktop loopback redirect allowlist is saved. CAPTCHA enforcement remains off because current clients cannot supply a CAPTCHA token.
+- Remote D1 migrations **0001–0006** are applied, with no pending migrations. Account database `vumiro-account-data` remains in **ENAM**.
+- **Brevo Free SMTP is connected to Supabase using encrypted transport**, with **300 emails/day** allowance. Sender verification and the human verification needed to generate SMTP credentials were completed. Confirmation and recovery templates are saved with `{{ .Token }}` codes and no template action links or assets.
+- Brevo's tested delivered sender is **Vumiro <snopeeh@12660220.brevosend.com>**, rewritten from the verified Gmail sender. Retention settings show **all senders, one month**, and **Never store previews**. This does not establish zero aggregate email tracking or immediate removal of every provider backup/security record.
+- The published account notice identifies **Emanuel Queiroz (snoopeh)** as operator and **snopeeh@gmail.com** as the privacy/incident contact, retaining notice version **2026-11-01**. It records actual regions, operator-readable account fields, encrypted identity backup, deletion retries, retention and provider uncertainties. No private postal address or phone is included. See [PRIVACY.md](../docs/PRIVACY.md).
 
-- Source `1c3a9073fda4b9be07fbe3f3bfdf2e9cf50efef4` pushed to main. Build CI `41539684948` is in progress at this handoff; no new desktop tag/release was created.
-- Public Worker `vumiro-rooms` deployed as `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d`; internal storage owner `screentask-rooms` deployed as `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. Original Durable Object bindings retained.
-- Live smoke checks: account config 503 with service/registration false; desktop CORS preflight 204; untrusted origin 403; changed pending-deletion client asset is served. This deploy publishes hardening, **not usable hosted accounts**.
+## Completed verification
 
-## Continue
+- **Real end-user email flow passed:** signup email delivered, six-digit OTP verified, authenticated session established, recovery email/code accepted, password changed, and login with the new password succeeded. Worker enrollment and account deletion also passed. This is separate from the synthetic admin fixtures below.
+- The hosted smoke script passed password login, asymmetric session, refresh, primary/secondary enrollment, device-credential enforcement, snapshot write/read, stale revision **409**, export and authoritative notice evidence, second-device snapshot restore, revocation with **401/403**, revoked-device enrollment **403**, real deletion, provider identity **404**, completed tombstone **410**, and cleanup.
+- Both synthetic admin-created fixture accounts were cleaned up. One additional unverified email-test fixture remains because provider policy rejected its cleanup request; this is minor outstanding test-data cleanup, not a failed delivered signup/recovery acceptance check.
+- The initial synthetic export assertion exposed PowerShell timestamp conversion. The assertion now compares UTC instants and the full hosted rerun passed.
+- Regression suite: **46/46 passed**. Local **1.21.7** package checks passed. Earlier native OAuth callback checks passed **18/18**, but live Google/Microsoft consent round trips remain unverified and disabled.
+- Public Worker dry-run with the edge rate-limit binding passed. Earlier deployed checks passed desktop CORS **204**, untrusted-origin rejection **403**, and delivery of pending-deletion handling assets.
 
-1. Submit the prepared Supabase project after the pending action-time confirmation; capture its actual project reference and region.
-2. Configure verified-email/password auth, ES256/RS256 JWTs, one-hour access tokens, 12-character minimum password, signup/recovery OTP templates, provider rate limits, and secure refresh defaults. Leave social providers disabled. Enforced CAPTCHA is incompatible with current clients.
-3. Configure a real SMTP sender, then install Supabase URL/publishable/admin values in encrypted Worker secrets. Never print, commit, or package admin/SMTP credentials.
-4. Verify hosted signup/OTP, recovery, JWT/device enrollment, sync/restore, revocation, export and deletion. Local provider mocks are not hosted evidence.
-5. Complete operator/privacy details and alert delivery, enable the service, and open registration only after acceptance passes. Publish compatible desktop changes and update this record with actual deployed versions and test evidence.
+## Hardening and operating limits
+
+- Unknown-signing-key refresh is coalesced and throttled; known cached keys remain usable after a refresh failure. Pending deletion is reported as pending and retried until provider deletion completes.
+- Account requests use the edge binding (**120/minute per connecting IP**) plus durable per-account operation limits. Worker observability is enabled with invocation logs/traces disabled and URL queries redacted.
+- Monitoring is **manual** through provider dashboards, logs and the published contact channel. **No push-alert delivery has been configured.** Check deletion retries, provider errors, abuse/rate limits and Brevo's daily allowance during the limited rollout.
+- Full installed-desktop restart/session persistence, interactive encrypted-identity restore across real devices, and microphone/screen/audio hardware QA have **not** been established by the hosted API or package checks. Do not report them as passed.
+- Operator procedures and provider/legal follow-up remain in [ACCOUNT-OPERATIONS.md](../docs/ACCOUNT-OPERATIONS.md). The notice makes no legal certification or verified Brazilian international-transfer-mechanism claim.
+
+## Historical publication evidence
+
+These records predate the 1.21.7 release publication and do not identify its final deployed configuration:
+
+- Source `1c3a9073fda4b9be07fbe3f3bfdf2e9cf50efef4` was pushed to main. [Build CI `41539684948`](https://github.com/snoopeh/Vumiro/actions/runs/41539684948) succeeded for Windows/Linux; that build was not itself a new desktop release.
+- Earlier public Worker version: `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d`; internal storage owner version: `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. Original Durable Object bindings were retained. Secrets and flags changed afterward.
+
+## Immediate publication follow-through
+
+1. Publish the prepared compatible source, Worker and desktop release; record commit/tag, CI/release URL and current Worker version.
+2. Verify live `/api/v1/account/config` reports the intended registration flag, and verify packaged notice/assets. Supabase signup is already enabled.
+3. Keep social providers disabled, monitor the limited rollout manually, and resolve the remaining unverified fixture cleanup through the provider's supported path.
+4. Perform and record the remaining installed-desktop/device acceptance checks separately; configure push alerts when the delivery channel is ready.

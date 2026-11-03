@@ -1,4 +1,4 @@
-# Vumiro 1.21.6
+# Vumiro 1.21.7
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -12,9 +12,9 @@ Version 1.21.1 moves the connection service to **https://vumiro-rooms.vumiro-sig
 
 Version 1.21.2 fixes a Windows startup rendering issue that could leave the loading spinner visible over the loaded interface.
 
-Version 1.21.3 adds the gated Vumiro account client, secure persistent sessions, friend/profile backup, linked-device controls, export and deletion, password recovery, and encrypted contact-identity recovery. Account registration remains unavailable until the authentication provider and operational privacy details are configured.
+Version 1.21.3 introduced the Vumiro account client, secure persistent sessions, friend/profile backup, linked-device controls, export and deletion, password recovery, and encrypted contact-identity recovery. Its initial release kept registration gated during provider setup.
 
-Version 1.21.4 makes invitation links visible and selectable, adds separate screen/voice volume sliders inside each received stream, includes the updater helper in development builds, and uses conventional Windows caption controls without an inactive gray frame. Dedicated Sign in, Create account, Verify email, and Password recovery screens are available from Account and first-run setup. Online accounts are not enabled yet because the authentication service has not been provisioned.
+Version 1.21.4 makes invitation links visible and selectable, adds separate screen/voice volume sliders inside each received stream, includes the updater helper in development builds, and uses conventional Windows caption controls without an inactive gray frame. Dedicated Sign in, Create account, Verify email, and Password recovery screens are available from Account and first-run setup.
 
 Version 1.21.5 refreshes the app from the supplied visual concepts: a scenic red login background, warm glass account card, refined sign-in controls with password visibility, and a clean call workspace with organized actions, larger dock controls and a **Watch Together** navigation item. Small windows keep the call controls visible. The background is bundled with the app and needs no image download.
 
@@ -26,13 +26,15 @@ Create a display name, then open **Your profile** to choose an optional username
 
 ## Vumiro account
 
+Version 1.21.7 connects email/password accounts to the hosted service and publishes the operator and provider details in the privacy notice. Signing-key rotation no longer rejects valid cached sessions, and pending identity deletion is reported accurately.
+
 The dedicated welcome page opens on first launch. It offers **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. You can also choose **Continue with a local profile**. Existing local users can open the page from **Account** in the sidebar. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
 
-Online sign-in and registration remain unavailable until the authentication service and individual providers are configured; local profiles and rooms work independently. Once accounts are enabled, a signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device.
+Email/password sign-in and verified-email registration are enabled. Use at least 12 characters for your password and enter the six-digit confirmation code from your email; codes expire after ten minutes. Google and Microsoft remain disabled until their separate provider registrations are configured. Local profiles and rooms work independently. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device when those providers are enabled.
 
 The account can back up and restore the profile, friend contact book, blocks, stream preferences, and client-encrypted signing identity. Save the identity recovery code offline when enabling backup. Existing nonextractable local identities require a one-time signed migration; updated friends verify it when both peers are online, while older clients may require a new friend acceptance. Choose which direction to sync when both this device and the account already have data. Concurrent edits use a revision check; automatic sync pauses on conflict. **Export my data**, linked-device revocation, sign-out, and account deletion are in the same panel. Deleting the account removes synced account data; it leaves the local device profile and signing key on the device.
 
-Account registration is available only after the account provider and Worker configuration are enabled. The [privacy notice](PRIVACY.md) describes synced fields and current infrastructure location. The signing-identity envelope is encrypted in the client; other account snapshot fields are not end-to-end encrypted.
+The [privacy notice](PRIVACY.md) describes synced fields, the operator contact, service providers, and infrastructure locations. The signing-identity envelope is encrypted in the client; other account snapshot fields are not end-to-end encrypted. Verification and recovery emails display Vumiro; the current email provider rewrites the sender to its authenticated `brevosend.com` domain. Check your spam folder if a code is missing. Initial email limits are 30 messages per hour at Supabase and 300 per day at Brevo.
 
 Choose **Add friend** and enter their username or short **vm1.** contact code. Vumiro fills the available public name automatically. Both people must be online for the initial lookup and request. With both clients on 1.19 or later, pending friend requests survive reconnects for up to 24 hours. An acceptance is saved until both apps have applied it, so the sender may reconnect later. The UI distinguishes service confirmation from delivery and reports failures. **Save code locally** supports offline/manual contact exchange. Both people must save each other or accept a request to become mutual friends.
 

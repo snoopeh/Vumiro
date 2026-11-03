@@ -1,5 +1,38 @@
 # Active Vumiro deployment
 
+## Account service and 1.21.7 release staging — 2026-11-03
+
+The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with **service enabled**. The deployed Worker still reports **new registration disabled**. Enabling the Worker registration flag is staged for the immediate release deployment; verify the live flag afterward. Supabase **Allow new users to sign up** is already **enabled**, with confirmed email required. Hosted Google/Microsoft sign-in remains disabled and unverified.
+
+**Brevo Free SMTP is connected using encrypted transport** (**300 emails/day**). Required verification and SMTP credential generation are complete. Confirmation and recovery templates are saved with `{{ .Token }}` codes and no action links/assets. Password-change and email-change security notifications are enabled. Actual signup delivery/OTP verification, recovery/password change/new-password login, Worker enrollment and account deletion passed. This delivered-email evidence is separate from the admin-confirmed hosted fixtures.
+
+Brevo settings show **all senders, one month of transactional logs**, and **Never store previews**. Delivered messages use **Vumiro <snopeeh@12660220.brevosend.com>** after Gmail sender-domain rewriting. The completed [privacy notice](../docs/PRIVACY.md), version **2026-11-01**, names **Emanuel Queiroz (snoopeh)** and **snopeeh@gmail.com** and explains actual regions, readable account fields, encrypted identity backup, deletion and provider-retention limitations.
+
+The **46/46** regression suite and local **1.21.7** package checks passed. The release commit, new deployment version, desktop tag and published release URL are still to be recorded when publication completes. These checks do **not** establish full installed-desktop restart, real-device identity restore or audio/screen hardware QA.
+
+Production authentication is Supabase project `rrrflwevxojheaejbcnp`, AWS **São Paulo (`sa-east-1`)**, at `https://rrrflwevxojheaejbcnp.supabase.co`, reported Healthy. Seven encrypted Worker secrets are installed. Signing uses **ES256**, verified JWKS key ID `5037f2b1-3679-4872-b5d3-f1220e4de221`; access tokens last **3600 seconds**. Refresh-token reuse detection uses a **10-second** interval. Passwords require **12 characters**; OTPs use **6 digits**, expire after **600 seconds**, and secure password change is enabled. The canonical `/auth.html` Site URL and desktop loopback redirect allowlist are saved.
+
+The hosted smoke script passed password login/refresh, two-device enrollment, credential enforcement, snapshot write/read and revision conflict **409**, export/notice evidence, secondary snapshot restore, revocation **401/403**, provider identity deletion **404**, completed tombstone **410**, and cleanup. Both synthetic admin fixtures were cleaned up. One extra unverified mail-test fixture remains because provider policy rejected cleanup; track that minor cleanup separately from the successful real email flows.
+
+Monitoring currently relies on **manual provider dashboard/log checks and the published contact channel**. **No push alerts are configured.** Watch deletion retries, provider failures, rate limits and Brevo's daily allowance during rollout. See [ACCOUNT-LAUNCH.md](../.planning/ACCOUNT-LAUNCH.md) for the detailed evidence and [ACCOUNT-OPERATIONS.md](../docs/ACCOUNT-OPERATIONS.md) for operating procedures.
+
+## Current account architecture
+
+- Separate D1 database `vumiro-account-data` (`eac4972c-d270-4931-8308-59fc851337f8`), region **ENAM**, with migrations **0001–0006** applied remotely and no pending migrations.
+- Migration `0005` provides hashed per-device credentials and retryable deletion state. Migration `0006` provides durable retry metadata, notice evidence and account rate-limit windows. Pending deletion jobs remain until completion; completed token-blocking records expire after two hours and hourly cleanup removes eligible rows.
+- Protected operations require a server-issued device credential. The Worker verifies signed recent-authentication timestamps, supports ES256/RS256 tokens and retries provider deletion. The client stores only an encrypted identity-recovery envelope remotely; updated friends verify signed identity transitions.
+- The account edge rate-limit binding is **120 requests/minute per connecting IP**, alongside per-account operation limits. Redacted observability is enabled; invocation logging and tracing are disabled.
+- `wrangler.jsonc` binds account D1 only to the public Worker. Original Durable Object names, IDs and migrations remain unchanged.
+- Follow [account auth configuration](README.md#account-auth-configuration) for configuration details. Keep social providers and unsupported CAPTCHA enforcement off until their client flows are supported and verified.
+
+## Historical account-source publication — 2026-11-02
+
+Source `1c3a9073fda4b9be07fbe3f3bfdf2e9cf50efef4` passed [Windows/Linux build CI `41539684948`](https://github.com/snoopeh/Vumiro/actions/runs/41539684948). Earlier publication deployed public Worker version `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d` and storage owner version `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. Secrets and feature gates changed afterward. These are historical code-publication records, not the final 1.21.7 release/configuration inventory.
+
+## Historical desktop and signaling baseline — 1.21.1
+
+The following records the earlier 1.21.1 deployment, not a new release from the account provisioning work above.
+
 - Published/deployed: 2026-11-01.
 - Source release tag: `client-v1.21.1`.
 - Windows and Linux release: https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.1
@@ -25,15 +58,3 @@ The [pre-cleanup restore point](../docs/RESTORE.md) contains the committed/pushe
 Client 1.21.1 is published as the stable/latest release with all six assets. Release CI `41341372589` succeeded. The app remaps known legacy saved URLs and room invitations while preserving custom connection services. Older clients need the GitHub update because the account rename retires the old service URLs.
 
 The dashboard confirmed the new subdomain and Wrangler deployed the canonical route. API metadata confirmed the public route enabled, internal storage route disabled, and original Durable Object bindings retained. No live room/audio runtime tests were run.
-
-## Account sync implementation status (2026-11-02)
-
-The latest account-launch source/deployment evidence is in [ACCOUNT-LAUNCH.md](../.planning/ACCOUNT-LAUNCH.md). On 2026-11-02, source `1c3a907` deployed to public Worker version `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d` and storage owner version `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. All six account migrations are applied remotely. The Worker has the account edge rate-limit binding and redacted observability enabled. Accounts remain disabled: Supabase project creation, SMTP, secrets, operator inputs, and hosted acceptance are outstanding. The older bullets below record earlier implementation stages and are superseded by this status and the linked handoff.
-
-- Created the separate D1 database `vumiro-account-data` (`eac4972c-d270-4931-8308-59fc851337f8`) in Cloudflare region `ENAM` and applied migrations `0001` through `0004`.
-- Applied migration `0005_device_credentials_and_deletion_state.sql` remotely. It adds hashed per-device credentials and retryable deletion state; Wrangler reports no pending migrations.
-- Migration `0006_account_operations.sql` passed a full local migration run but has not been applied remotely. It adds durable deletion retry metadata, notice-acceptance evidence, and fixed-window account rate-limit state.
-- The client now requires a server-issued per-device secret for protected account operations. The Worker verifies recent authentication from signed AMR timestamps, accepts ES256 and RS256 tokens, and supports account deletion retries. The client pins authentication to the canonical Vumiro Worker and stores only an encrypted identity-recovery envelope remotely. Updated mutual friends verify a signed legacy identity transition before changing the saved contact.
-- `wrangler.jsonc` binds this database only to the public Worker. The original Durable Object names, IDs, and migrations remain unchanged.
-- Account registration is gated off until the Supabase project, encrypted Worker secrets, support contact, lawful-basis/transfer disclosures, and privacy review are complete. The public Worker code and client release have not been deployed for this feature.
-- `npm run deploy` will publish the updated worker code after provider setup. Follow [account auth configuration](README.md#account-auth-configuration) first.

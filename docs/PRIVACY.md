@@ -1,56 +1,68 @@
-# Vumiro privacy notice for account sync
+# Vumiro alpha account privacy notice
 
-This notice describes the account-sync features being added for the Vumiro alpha. It is an implementation draft. The controller's legal identity and monitored contact channel, the lawful basis for each purpose, and Supabase's actual auth/email region are not configured yet. Account registration is disabled until the operator completes these items. Do not present this draft as a legal compliance certification.
+Notice version: **2026-11-01**
 
-## Data the account feature handles
+**Emanuel Queiroz (snoopeh)** operates the Vumiro alpha account service. Contact **[snopeeh@gmail.com](mailto:snopeeh@gmail.com)** for privacy requests, questions, or security incidents. Never send a password, verification code, identity recovery code, private key, or device credential in a request.
 
-| Data | Purpose | Storage |
-| --- | --- | --- |
-| Email address and password verifier | Registration, sign-in, email verification, and password recovery | Managed authentication provider; Vumiro never receives or stores the password after the auth request |
-| Display name, online username, profile picture | Restore the profile across devices and show public peer profile fields | Vumiro account database; public profile fields are also sent to peers while online |
-| Friend contact records (public key, display name, username, local nickname) and blocked identity codes | Restore the contact book and block list | Vumiro account database; contact data can identify other people. Friend pictures are not synced. |
-| Stream preferences | Restore user-selected defaults | Vumiro account database |
-| Account identifier, linked-device ID, first/last active timestamps, and a one-way hash of each device credential | Associate account data with its owner, restore sessions, and revoke lost devices | Vumiro account database; raw device credentials stay in operating-system secure storage |
-| Rotating refresh token | Keep the user signed in after app restart | Encrypted with Windows DPAPI or Electron `safeStorage` on that device; access tokens remain in memory |
-| Encrypted signing-identity recovery envelope and signed public-key transition | Restore the same contact identity on another device and let existing friends verify a one-time identity migration | Vumiro account database; the private key is encrypted client-side with AES-256-GCM, while the recovery code remains in operating-system secure storage and any offline copy the user saves |
+An account is optional. You can use Vumiro with a local profile without account sync. If you choose an account, we process the information needed to register and authenticate you, verify or recover access by email, restore your selected data on another device, protect sessions and devices, and carry out export and deletion requests. The privacy checkbox records that you reviewed this notice; it is not permission for unrelated marketing.
 
-Raw private signing keys, identity recovery codes, room passwords, screen/audio/video, chat, and microphone data are not included in account sync. The encrypted identity envelope contains only AES-GCM ciphertext and public recovery metadata. Other profile, contact, block, device, notice, and preference fields remain readable to authorized Vumiro infrastructure operators and the configured database provider. Cloudflare documents AES-256-GCM encryption at rest and TLS in transit for D1. [Cloudflare D1 security details](https://developers.cloudflare.com/d1/reference/data-security/)
+## Information processed
 
-## Account controls
+| Information | Purpose and location |
+| --- | --- |
+| Email address, password verifier, authentication and session records | Supabase Auth handles registration, sign-in, verification and recovery. The app sends your password to Supabase for authentication; the Vumiro account backend does not store it. Brevo processes the recipient address and message content to deliver authentication and security emails. |
+| Display name, online username and profile picture | Restore your profile through the Vumiro account database. These public profile fields are also shared with peers when you use the connection features. |
+| Friends' public keys, display names, usernames and your local nicknames; blocked identity codes | Restore your contact book and block list through the account database. These records can identify other people. Friend pictures are not synced. |
+| Stream preferences | Restore the defaults you selected. |
+| Account identifier, linked-device identifiers, activity/revocation timestamps and device-credential hashes | Associate sync data with your account, protect sessions and revoke lost devices. Raw device credentials stay in secure storage on the device. |
+| Sync revisions/timestamps and notice version/acknowledgement records | Resolve sync changes and record which notice you reviewed. |
+| Encrypted signing-identity recovery envelope and signed public-key transition | Restore the same contact identity on another device and let friends verify an identity migration. The private signing key is encrypted in the app with AES-256-GCM before upload; the service stores ciphertext and public recovery metadata. |
+| Rate-limit windows, deletion-job status and service logs | Limit abuse, diagnose failures and finish account deletion. Providers also process technical information such as IP addresses and request metadata to operate and secure their services. |
 
-The app provides sign-in, local and all-device sign-out, linked-device revocation, export, password recovery, password change, and account deletion. Users can correct profile information in the app. The account deletion endpoint removes the sync snapshot and requests deletion of the authentication identity. Local device profiles and signing keys remain on that device after account deletion; users can remove local app data separately. Export covers the account email, synced snapshot including encrypted identity ciphertext, device records, synchronization metadata, and privacy-notice acceptance records. Raw private keys, recovery codes, device credentials, refresh tokens, and local friend-request history are not part of the export.
+Screens, audio/video, chat, microphone data and room passwords are not part of account sync. Raw private signing keys and identity recovery codes are not uploaded to the account service. Your recovery code remains in operating-system secure storage and any offline copy you save. Refresh tokens are saved through Windows DPAPI or Electron's operating-system-backed `safeStorage`; access tokens remain in memory.
 
-Account data is retained while an account exists. Account deletion removes the account snapshot and linked-device records, and deletes the authentication identity through its admin API. A minimal account identifier tombstone expires after two hours to reject already-issued access tokens; failed identity deletion remains retryable while the tombstone is active. The hourly cleanup removes expired rows within the following hour. The authentication provider may retain limited security or operational records under its published retention rules. Vumiro must verify and disclose any provider-side backup, log, or legal-retention periods before public launch.
+The signing-identity backup is encrypted in the app. Other synced profile, contact, block, device, preference and notice fields are **readable by authorized Vumiro infrastructure operators and the database provider**. They are not end-to-end encrypted. Encryption during transport and at rest does not change that access.
 
-## Service providers and transfers
+Google or Microsoft sign-in, when enabled and chosen by you, shares your email and basic profile for authentication. Vumiro does not request your mailbox, files or address book for this sign-in.
 
-Authentication is designed for Supabase Auth. The Vumiro Worker and D1 account database are designed for Cloudflare. The D1 database is currently in Eastern North America (`ENAM`); Cloudflare does not offer a South America D1 location hint. The operator must record the chosen Supabase project region, provider/subprocessor terms, applicable international data-transfer mechanism, support contact, and incident channel here before enabling account registration. Email delivery is performed by the configured authentication provider.
+## Your controls and requests
 
-## Requests and contact
+Account settings provide profile correction, account export, password recovery/change, local or all-device sign-out, linked-device revocation and account deletion. Export includes the account email, synced snapshot (including encrypted identity ciphertext), linked devices, sync metadata and notice acknowledgement records. It excludes raw private keys, recovery codes, credentials, refresh tokens and local friend-request history.
 
-Users can request confirmation, access/export, correction, deletion, portability, information about sharing, and other rights available under applicable law. The [ANPD rights guide](https://www.gov.br/anpd/pt-br/assuntos/titular-de-dados-1/direito-dos-titulares) summarizes these rights. The Vumiro project owner must publish a monitored privacy contact before account registration is enabled. No support email or private support channel is configured in this build; do not send passwords, recovery codes, or private keys in a support request.
+You can also contact [snopeeh@gmail.com](mailto:snopeeh@gmail.com) to request confirmation of processing, access, correction, deletion, portability, information about sharing or other rights available under applicable law. We may need proportionate information to verify that the request concerns your account. The [ANPD's rights guide](https://www.gov.br/anpd/pt-br/assuntos/titular-de-dados-1/direito-dos-titulares) explains data-subject rights. Provider-held records may require assistance from the relevant provider.
 
-## Security measures in this implementation
+Deleting an account removes the synced snapshot, linked devices, notice records and account rate-limit rows from the active Vumiro account database and requests deletion of the Supabase authentication identity. If the provider request fails, the app reports that identity deletion is pending. A minimal deletion job retains the account identifier, status, attempt timestamps/count and error category; it remains pending **until provider deletion succeeds**, with automatic retries. It does not expire after two hours. Once completed, its token-blocking record expires after **two hours** and is removed by hourly cleanup, normally within the following hour. Service outages can delay maintenance.
 
-- Authentication and password verification are delegated to a managed auth provider.
-- The Worker verifies signed access tokens using the provider's public signing keys, derives recent reauthentication from verified AMR timestamps, and applies a two-hour maximum token lifetime.
-- Account snapshots use an isolated D1 binding and prepared statements, separate from signaling Durable Objects. Each linked device uses a random server-issued credential; D1 stores only its SHA-256 hash.
-- Cloudflare documents AES-256-GCM encryption at rest and TLS in transit for D1; account snapshots are still visible to authorized service operators because they are not end-to-end encrypted.
-- The API limits snapshot size and validates profile/contact fields; responses disable caching.
-- Refresh tokens are persisted only through Windows DPAPI or Electron's OS-backed `safeStorage`; unsupported secure storage fails closed.
-- Recoverable identity keys are encrypted in the client with AES-256-GCM under both a password-derived key and a random 256-bit recovery code. Decrypted keys are imported as nonextractable, signed legacy transitions are verified by the Worker and receiving friend, and raw keys and recovery codes are excluded from account exports and service logs.
-- Password recovery is email-code based and should use a generic response to avoid account enumeration.
-- Account deletion and export are available from the client UI.
+Account deletion does not erase an offline device's local profile, contacts or signing keys. Remove local app data separately if you want to erase those copies. Deleting active database rows also does not immediately remove provider logs or recovery copies described below.
 
-This notice ships with the desktop package as `PRIVACY.md` (Windows) or `licenses/PRIVACY.md` (Linux). The shorter in-app notice is shown before account creation.
+## Retention
 
-The implementation's baseline security review follows the [ANPD small-agent information-security guide](https://www.gov.br/anpd/pt-br/centrais-de-conteudo/materiais-educativos-e-publicacoes/anonimizado___guia_orientat-_seg_da_inf_p_atpp.pdf). Review the ANPD guidance and the app's provider configuration before enabling registration.
+Synced account data remains while the account exists; no automatic inactive-account deletion period is implemented. Revoked-device records are eligible for cleanup after **90 days**, and account rate-limit windows after **two days**. Hourly maintenance removes eligible rows; account deletion also removes that account's device and rate-limit rows. Pending deletion jobs and completed deletion records follow the separate process above.
 
-## Before enabling registration
+Cloudflare D1's always-on Time Travel recovery history covers the preceding **seven days** on the Free plan. Deleted data can therefore remain in recovery history during that period. [D1 backups](https://developers.cloudflare.com/d1/reference/time-travel/)
 
-1. Configure the auth provider to require verified email, asymmetric JWT signing, password-recovery codes, and approved redirect/email templates. Set its storage/processing region and disclose it above.
-2. Configure the Worker URL, publishable key, D1 database, and service-role secret. Keep the service-role secret only in Wrangler secrets, never in client assets or `wrangler.jsonc`. Set `ACCOUNT_REGISTRATION_ENABLED=true` only when the rest of this checklist is complete.
-3. Confirm D1 and provider regions, backups, logs, deletion behavior, and data-transfer terms. Record actual retention periods and the controller's legal basis for each purpose.
-4. Replace the support-contact placeholder with the controller's identity and a monitored privacy contact; publish a breach-response and rights-request process.
-5. Review the notice and the implementation with Brazilian privacy counsel before general availability.
+Cloudflare Workers Logs on the current Free plan have **three-day retention**. The Vumiro Worker configuration disables invocation logging and tracing and redacts URL queries. This does not disable all Cloudflare operational/security processing. [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
 
+Supabase Free lists **one day of API/database log access** and **one hour of Auth Audit Logs**. These dashboard access periods do not establish deletion deadlines for every provider-held security, telemetry or billing record. Optional Auth audit records written into the project database are separate from external logs. We do not have a verified retention deadline for every Supabase internal record. Supabase does not provide a guaranteed daily-backup offering for this Free project; its documentation recommends manual exports for Free users. [Pricing](https://supabase.com/pricing), [log-access explanation](https://supabase.com/kb/troubleshooting/check-usage-for-monthly-active-users-mau-MwZaBs), [Auth audit storage](https://supabase.com/docs/guides/auth/audit-logs), [backups](https://supabase.com/docs/guides/platform/backups)
+
+Brevo is configured to keep **one month of transactional logs** for all senders and to **Never store previews** for new email content. Preview settings do not remove any previews already stored before the setting applied; existing logs/previews may require deletion separately. Scheduled log deletion can take up to 24 additional hours, and individual manual log deletions up to 72 hours. These controls do not establish a deletion deadline for every delivery queue, backup or internal security record. [Retention controls](https://help.brevo.com/hc/en-us/articles/4415743225746-Configure-a-custom-retention-period-for-your-transactional-logs-and-email-previews), [transactional logs](https://help.brevo.com/hc/en-us/articles/360021533839-Manage-your-transactional-logs-and-email-previews)
+
+Brevo is configured for anonymous email tracking: opens and clicks are not associated with specific contacts. This still permits aggregate measurement and does not remove all tracking pixels from Free SMTP emails. Vumiro's code-only authentication templates contain no action links or images of their own; Brevo can still add its own processing. [Tracking controls](https://help.brevo.com/hc/en-us/articles/11643306229906-Can-I-anonymize-the-tracking-of-opens-and-clicks-for-my-emails), [pixel-removal limitation](https://developers.brevo.com/changelog?rl_entry=184d74014eef)
+
+## Providers and processing outside Brazil
+
+| Provider | Role and locations |
+| --- | --- |
+| Supabase | Authentication. This project's Auth service and database are hosted in AWS **São Paulo, Brazil (`sa-east-1`)**. Supabase also processes logs in EU data centers and can process support/operations information outside the selected region, including Singapore and the United States. |
+| Cloudflare | Worker API and D1 account storage. The current D1 location is **Eastern North America (`ENAM`)**. This is a location designation/hint, not a guarantee that all processing is confined to one country. Workers and supporting network/security services can process requests internationally. |
+| Brevo | Transactional authentication/security email via encrypted SMTP. Brevo describes EU database hosting in **France, Germany and Belgium**, with replicated copies and encrypted backups. That description does not establish that every support or subprocessor operation stays in those countries. |
+
+Supabase's regional hosting does not mean all account processing remains in Brazil, and Cloudflare does not offer a South America D1 location hint. Brevo replaces the Gmail sender domain for delivery: tested account email uses the display name Vumiro and sender `snopeeh@12660220.brevosend.com`. Vumiro's contact address remains [snopeeh@gmail.com](mailto:snopeeh@gmail.com). [Supabase locations/transfers](https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq), [D1 locations](https://developers.cloudflare.com/d1/configuration/data-location/), [Brevo locations/backups](https://help.brevo.com/hc/en-us/articles/360001005510-Data-storage-location), [Brevo sender rewriting](https://help.brevo.com/hc/en-us/articles/16045394674066-Troubleshooting-Domain-authentication)
+
+The providers publish processing terms and subprocessor/transfer information: [Supabase DPA](https://supabase.com/legal/customer-resources/data-processing-addendum), [Cloudflare DPA](https://www.cloudflare.com/cloudflare-customer-dpa/), and [Brevo DPA information](https://help.brevo.com/hc/en-us/articles/15403782599570-Where-can-I-find-the-Data-Processing-Agreement-DPA) / [Terms of Service](https://www.brevo.com/legal/termsofuse/). Contact the operator for questions about provider contracts, safeguards and processing outside Brazil.
+
+## Security and further information
+
+The alpha uses verified-email authentication, a minimum 12-character password, six-digit email codes expiring after 600 seconds, and ES256 access tokens configured for 3,600 seconds. Password-change and email-change security notifications are enabled. The Worker validates token signatures, ownership and linked-device credentials; it stores device-credential hashes rather than raw credentials. Identity recovery encryption protects the private-key backup; other account fields retain the operator/provider visibility explained above. These measures reduce risk but do not guarantee that incidents cannot occur.
+
+This notice ships as `PRIVACY.md` on Windows or `licenses/PRIVACY.md` on Linux. The app shows a shorter notice before account creation. Operator procedures, provider configuration evidence and incident/request handling are maintained in [Account operations](ACCOUNT-OPERATIONS.md).
