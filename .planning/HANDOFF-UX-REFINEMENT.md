@@ -1,6 +1,6 @@
 # Handoff — account and settings UX refinement
 
-Historical handoff, subsequently resumed by the user on 2026-11-03 with "please conclude the requested changes". Cross-dialog draft retention and final checks are now complete. Current publication evidence is maintained in ACCOUNT-LAUNCH.md; the remaining-work list below records the earlier pause state.
+Historical handoff, subsequently resumed by the user on 2026-11-03 with "please conclude the requested changes". **Completed and published as 1.21.9**, source `9b1492b`; main and release CI passed, all seven assets verified, Worker deployed. Cross-dialog draft retention and final checks are complete. Current publication evidence is maintained in ACCOUNT-LAUNCH.md; the remaining-work list below records the earlier pause state and is superseded.
 
 ## Workspace and instructions
 
