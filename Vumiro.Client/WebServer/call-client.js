@@ -520,7 +520,19 @@
   if(!querySignal&&savedSignal&&savedSignal!==$('signaling').value)save('call-signaling',$('signaling').value);
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
   $('mute').onclick=()=>{ if(microphone) { micMuted=!micMuted;gateMicrophone(micSuppressed); } };
-  $('audioOpen').onclick=()=>voice?.open();
+  /* Embedded calls use the app's full-page audio settings without leaving the room. */
+  function openAudioSettings() {
+    if (window.parent !== window) {
+      try {
+        const app = window.parent, url = new URL(app.location.href);
+        if (url.origin === location.origin && url.pathname === '/friends.html' && typeof app.VumiroAudioSettings?.open === 'function') {
+          app.VumiroAudioSettings.open(); return;
+        }
+      } catch { /* A standalone or cross-origin embed keeps local audio settings. */ }
+    }
+    voice?.open();
+  }
+  $('audioOpen').onclick=openAudioSettings;
   $('deafen').onclick=()=>voice?.setDeafened(!voice.isDeafened());
   voice?.registerRoom({apply:applyVoiceSettings,gate:gateMicrophone,microphone:()=>microphone,active:()=>joined||joining,report:status,playbackReady:play});
   voice?.subscribe(value=>{ $('deafen').setAttribute('aria-pressed',String(value.deafened));$('deafen').setAttribute('aria-label',value.deafened?'Undeafen room audio':'Deafen room audio and microphone');$('deafenLabel').textContent=value.deafened?'Undeafen':'Deafen';$('deafen').classList.toggle('active',value.deafened); });

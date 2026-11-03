@@ -6,5 +6,6 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="../../Vumiro.Client/OAuthLogin.cs" Link="OAuthLogin.cs" />
+    <Compile Include="../../Vumiro.Client/CaptionClickTracker.cs" Link="CaptionClickTracker.cs" />
   </ItemGroup>
 </Project>

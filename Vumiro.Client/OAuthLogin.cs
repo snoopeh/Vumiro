@@ -20,6 +20,27 @@ namespace Vumiro.Client
         private readonly object gate = new object();
         private TcpListener listener;
         private CancellationTokenSource cancellation;
+        // A browser may refuse to close a tab it did not open with script. The
+        // page always keeps a useful return message, and never echoes the code.
+        private const string ReturnScript = "history.replaceState(null,'',location.pathname);window.close();";
+
+        internal static string CallbackBody(bool success)
+        {
+            return "<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Vumiro sign-in</title>" +
+                "<style>html{color-scheme:dark}body{font:16px/1.6 system-ui,sans-serif;max-width:32rem;margin:18vh auto;padding:2rem;background:#171416;color:#f7f4f4}h1{font-size:1.7rem}p{color:#c7bec1}</style>" +
+                (success ? "<h1>Continue in Vumiro.</h1><p>Your browser sign-in has returned to the app. If this tab stays open, you can close it and return to Vumiro.</p><script>" + ReturnScript + "</script>" :
+                    "<h1>Sign-in was not completed.</h1><p>Return to Vumiro to try again. You can close this tab.</p>") + "</html>";
+        }
+
+        internal static string CallbackContentSecurityPolicy
+        {
+            get
+            {
+                using (var hash = SHA256.Create())
+                    return "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'sha256-" +
+                        Convert.ToBase64String(hash.ComputeHash(Encoding.UTF8.GetBytes(ReturnScript))) + "'";
+            }
+        }
 
         internal async Task<string> SignInAsync(string authUrl, string provider, string codeChallenge)
         {
@@ -71,8 +92,8 @@ namespace Vumiro.Client
                                         accepted = ParseCallback(header, callbackPath, out code, out error);
                                     }
                                 }
-                                var body = accepted ? "<!doctype html><meta charset=utf-8><title>Vumiro sign-in</title><p>You can return to Vumiro and close this tab.</p>" : "Invalid callback.";
-                                var bytes = Encoding.UTF8.GetBytes("HTTP/1.1 " + (accepted ? "200 OK" : "400 Bad Request") + "\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\nContent-Length: " + Encoding.UTF8.GetByteCount(body) + "\r\n\r\n" + body);
+                                var body = accepted ? CallbackBody(error == null) : "Invalid callback.";
+                                var bytes = Encoding.UTF8.GetBytes("HTTP/1.1 " + (accepted ? "200 OK" : "400 Bad Request") + "\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: " + CallbackContentSecurityPolicy + "\r\nConnection: close\r\nContent-Length: " + Encoding.UTF8.GetByteCount(body) + "\r\n\r\n" + body);
                                 await client.GetStream().WriteAsync(bytes, 0, bytes.Length, pending.Token).ConfigureAwait(false);
                             }
                             catch (IOException) { }

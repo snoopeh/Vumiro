@@ -1,4 +1,7 @@
 using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using Vumiro.Client;
 
 internal static class Program
@@ -35,6 +38,22 @@ internal static class Program
         Check("absolute target", "http://127.0.0.1:43821" + Callback + "?code=abc", false);
         Check("oversized code", Callback + "?code=" + new string('a', 2049), false);
         Check("control character code", Callback + "?code=abc%0Adef", false);
-        Console.WriteLine("Passed " + count + " OAuth loopback callback checks.");
+        var body = OAuthLogin.CallbackBody(true);
+        var script = Regex.Match(body, "<script>(.*?)</script>").Groups[1].Value;
+        if (!script.Contains("window.close()") || !script.Contains("history.replaceState") || !body.Contains("If this tab stays open")) throw new Exception("Missing browser return behavior.");
+        using (var hash = SHA256.Create())
+            if (!OAuthLogin.CallbackContentSecurityPolicy.Contains("'sha256-" + Convert.ToBase64String(hash.ComputeHash(Encoding.UTF8.GetBytes(script))) + "'")) throw new Exception("Browser return script is blocked by CSP.");
+        if (OAuthLogin.CallbackBody(false).Contains("<script>") || OAuthLogin.CallbackBody(false).Contains("window.close")) throw new Exception("Denied sign-in must leave a useful error page.");
+        count += 3;
+        var caption = new CaptionClickTracker();
+        if (caption.IsDoubleClick(100, 10, 10, 500, 4, 4) || !caption.IsDoubleClick(200, 11, 10, 500, 4, 4)) throw new Exception("Caption double-click was missed.");
+        if (caption.IsDoubleClick(250, 11, 10, 500, 4, 4)) throw new Exception("Triple click must start a new pair.");
+        caption.Reset();
+        if (caption.IsDoubleClick(300, 11, 10, 500, 4, 4) || caption.IsDoubleClick(900, 11, 10, 500, 4, 4)) throw new Exception("Slow clicks must not maximize.");
+        if (caption.IsDoubleClick(950, 30, 10, 500, 4, 4)) throw new Exception("Separate caption positions must not maximize.");
+        caption.Reset();
+        if (caption.IsDoubleClick(uint.MaxValue - 20, 1, 1, 500, 4, 4) || !caption.IsDoubleClick(20, 1, 1, 500, 4, 4)) throw new Exception("Tick wraparound must preserve double-click timing.");
+        count += 5;
+        Console.WriteLine("Passed " + count + " desktop OAuth and caption checks.");
     }
 }

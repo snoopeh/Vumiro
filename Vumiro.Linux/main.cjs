@@ -3,7 +3,7 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomUUID, randomBytes } = require('node:crypto');
+const { randomUUID, randomBytes, createHash } = require('node:crypto');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 
@@ -123,6 +123,15 @@ function validAccountFrame(contents, senderFrame) {
   return validMainFrame(contents, senderFrame, '/friends.html') || validMainFrame(contents, senderFrame, '/auth.html');
 }
 
+const OAUTH_RETURN_SCRIPT = "history.replaceState(null,'',location.pathname);window.close();";
+const OAUTH_CALLBACK_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'unsafe-inline'; script-src 'sha256-" + createHash('sha256').update(OAUTH_RETURN_SCRIPT).digest('base64') + "'";
+function oauthCallbackBody(success) {
+  return '<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Vumiro sign-in</title>' +
+    '<style>html{color-scheme:dark}body{font:16px/1.6 system-ui,sans-serif;max-width:32rem;margin:18vh auto;padding:2rem;background:#171416;color:#f7f4f4}h1{font-size:1.7rem}p{color:#c7bec1}</style>' +
+    (success ? '<h1>Continue in Vumiro.</h1><p>Your browser sign-in has returned to the app. If this tab stays open, you can close it and return to Vumiro.</p><script>' + OAUTH_RETURN_SCRIPT + '</script>' :
+      '<h1>Sign-in was not completed.</h1><p>Return to Vumiro to try again. You can close this tab.</p>') + '</html>';
+}
+
 function startOAuth(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).sort().join(',') !== 'authUrl,codeChallenge,provider' ||
       !['google', 'azure'].includes(request.provider) || typeof request.codeChallenge !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(request.codeChallenge) ||
@@ -140,7 +149,7 @@ function startOAuth(request) {
       if (cancelOAuth === cancel) cancelOAuth = null;
       server.close();
       for (const socket of sockets) socket.destroy();
-      if (error) reject(new Error(error)); else resolve({ code });
+      if (error) reject(new Error(error)); else { restoreWindow(); resolve({ code }); }
     };
     const cancel = () => finish('Account sign-in expired or was cancelled. Try again.');
     const server = http.createServer({ maxHeaderSize: 8192 }, (incoming, outgoing) => {
@@ -156,9 +165,9 @@ function startOAuth(request) {
       }
       outgoing.writeHead(valid ? 200 : 400, {
         'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer',
-        'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'", 'Connection': 'close'
+        'Content-Security-Policy': OAUTH_CALLBACK_CSP, 'Connection': 'close'
       });
-      outgoing.end(valid ? '<!doctype html><meta charset=utf-8><title>Vumiro sign-in</title><p>You can return to Vumiro and close this tab.</p>' : 'Invalid callback.');
+      outgoing.end(valid ? oauthCallbackBody(error === null) : 'Invalid callback.');
       if (valid) outgoing.once('finish', () => finish(error ? 'The account provider cancelled or declined sign-in. Return to Vumiro and try again.' : null, code));
     });
     server.headersTimeout = 5000;

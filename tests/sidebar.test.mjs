@@ -104,3 +104,76 @@ test('disclosure placement stays inside narrow and short viewports after resize'
   assertFits();app.context.innerWidth=280;app.context.innerHeight=300;
   app.windowListeners.get('resize')();assertFits();
 });
+
+function settingsHarness() {
+  const settingsStart=source.indexOf('/* Full-page settings navigation. */');
+  const routingStart=source.indexOf('  async function navigate(key, from)',settingsStart);
+  const routingEnd=source.indexOf('  function navigation(',routingStart);
+  const lifecycleStart=source.indexOf('  function syncSettingsSession()',settingsStart);
+  const lifecycleEnd=source.indexOf('  function element(',lifecycleStart);
+  const updatesStart=source.indexOf("$('updatesNav').onclick=");
+  const updatesEnd=source.indexOf("$('checkUpdate').onclick",updatesStart);
+  assert.ok(routingStart>=0&&routingEnd>routingStart&&lifecycleStart>=0&&updatesStart>=0);
+  const events=[],field={value:'Saved display name'},avatar={value:'saved-avatar'};
+  let context,renders=0,updates=0;
+  const makeDialog=()=>({open:false,showModal(){this.open=true;},close(){this.open=false;context.sync();}});
+  const profileDialog=makeDialog(),account=makeDialog(),audio=makeDialog(),dialogs=[profileDialog,account,audio];
+  function showProfile(){renders++;field.value='Saved display name';avatar.value='saved-avatar';profileDialog.showModal();}
+  const elements={profileDialog,status:{textContent:''},updateDetails:{open:false,scrollIntoView(){}},
+    profileNav:{click:showProfile},updatesNav:{click(){this.onclick();}}};
+  context={profileDialog,window:{VumiroAccount:{open(){account.showModal();}},VumiroAudioSettings:{open(){audio.showModal();}}},
+    document:{querySelector(){return dialogs.find(dialog=>dialog.open);}},$:id=>elements[id],
+    closeSettings(){for(const dialog of dialogs)if(dialog.open)dialog.close();},
+    selectPanel(key){events.push(key);},browseRoom(){events.push('browse');},showProfile,
+    syncTitlebar(){events.push('titlebar');},requestUpdate(action){assert.equal(action,'state');updates++;}};
+  vm.runInNewContext('let profileDraftInSession=false,settingsTransitions=0;'+source.slice(updatesStart,updatesEnd)+
+    source.slice(lifecycleStart,lifecycleEnd)+source.slice(routingStart,routingEnd)+
+    ';globalThis.route=navigate;globalThis.sync=syncSettingsSession;',context);
+  return {context,profileDialog,account,audio,field,avatar,events,elements,showProfile,
+    get renders(){return renders;},get updates(){return updates;}};
+}
+
+test('shared settings retain field and avatar drafts across account, audio and updates',async()=>{
+  const app=settingsHarness();
+  app.showProfile();app.context.sync();
+  app.field.value='Unsaved display name';app.avatar.value='unsaved-avatar';
+  await app.context.route('stream',app.profileDialog);
+  await app.context.route('connection',app.profileDialog);
+  await app.context.route('account',app.profileDialog);
+  assert.equal(app.account.open,true);
+  await app.context.route('audio',app.account);
+  assert.equal(app.audio.open,true);
+  await app.context.route('updates',app.audio);
+  assert.equal(app.profileDialog.open,true);
+  assert.equal(app.field.value,'Unsaved display name');
+  assert.equal(app.avatar.value,'unsaved-avatar');
+  assert.equal(app.renders,1,'cross-dialog navigation reuses the existing profile fields');
+  assert.equal(app.updates,1,'the updates section still requests fresh native update state');
+});
+
+test('fully closing settings ends the draft session and reopens fresh from another entry',async()=>{
+  const app=settingsHarness();
+  app.showProfile();app.context.sync();app.field.value='Uncommitted name';
+  await app.context.route('account',app.profileDialog);
+  app.account.close();
+  app.account.showModal();app.context.sync();
+  await app.context.route('profile',app.account);
+  assert.equal(app.renders,2);
+  assert.equal(app.field.value,'Saved display name');
+  app.profileDialog.close();
+  app.showProfile();app.context.sync();
+  assert.equal(app.renders,3,'the original profile entry keeps its fresh render behavior');
+});
+
+test('failed async audio navigation reports the failure and releases the draft session',async()=>{
+  const app=settingsHarness();
+  app.showProfile();app.context.sync();app.field.value='Uncommitted name';
+  app.context.window.VumiroAudioSettings.open=()=>Promise.reject(Error('Audio device unavailable'));
+  await app.context.route('audio',app.profileDialog);
+  assert.equal(app.elements.status.textContent,'Audio device unavailable');
+  assert.equal(app.profileDialog.open||app.account.open||app.audio.open,false);
+  app.account.showModal();app.context.sync();
+  await app.context.route('profile',app.account);
+  assert.equal(app.renders,2);
+  assert.equal(app.field.value,'Saved display name');
+});

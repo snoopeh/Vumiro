@@ -757,8 +757,8 @@ $('watchNav').onclick=returnToRoom;
 $('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('topSettings').onclick=$('roomSettings').onclick=showSettings;
 $('reconnectService').onclick=()=>{clearPending();connect();};$('reconnectRoom').onclick=()=>{frame?.contentWindow.postMessage({type:'vumiro-call-reconnect'},location.origin);if(!ready)connect();status('Reconnecting your room…');};
 function requestUpdate(action){if(action==='install'&&!linuxHost&&(frame||pending)){status('Leave your room or finish the call invitation before installing an update.');return;}if(host)host.postMessage({type:'updates',action:linuxHost&&action==='install'?'download':action});else $('updateStatus').textContent='This browser client updates when reloaded. Get the desktop app from the project releases.';}
-$('updatesNav').onclick=()=>{browseRoom();showProfile();$('updateDetails').open=true;$('updateDetails').scrollIntoView({block:'nearest'});requestUpdate('state');};$('checkUpdate').onclick=()=>requestUpdate('check');$('installUpdate').onclick=()=>requestUpdate('install');
-if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button')&&event.detail<2)host.postMessage({type:'window',action:'drag'});};$('windowTitlebar').ondblclick=event=>{if(!event.target.closest('button')){event.preventDefault();host.postMessage({type:'window',action:'maximize'});}};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
+$('updatesNav').onclick=()=>{if(!$('profileDialog').open){browseRoom();showProfile();}$('updateDetails').open=true;$('updateDetails').scrollIntoView({block:'nearest'});requestUpdate('state');};$('checkUpdate').onclick=()=>requestUpdate('check');$('installUpdate').onclick=()=>requestUpdate('install');
+if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))host.postMessage({type:'window',action:'drag'});};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
 if(host)host.addEventListener('message',event=>{
   if(event.data?.type!=='window-state')return;
   const caption=document.querySelector('[data-window="maximize"]');
@@ -850,4 +850,216 @@ $('roomForm').onsubmit=async event=>{event.preventDefault();$('roomError').textC
 addEventListener('storage',event=>{if(event.key==='vumiro-stream-settings'&&event.newValue){try{settings=normalizeSettings(JSON.parse(event.newValue));renderSettings();frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);}catch{}}});
 addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++generation;peerProfiles?.reset();rejectSocialAcks();clearTimeout(reconnectTimer);clearTimeout(leaveTimer);clearTimeout(requestTimer);clearTimeout(lookupTimer);if(pending)clearTimeout(pending.timer);const previous=socket;socket=null;previous?.close();frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);});
 (async()=>{try{const savedService=read('st-friends-signaling');serviceUrl=normalizeService(savedService||query.get('signaling')||location.origin);if(savedService&&savedService!==serviceUrl)save('st-friends-signaling',serviceUrl);profile=await local.initialize();await window.VumiroAccount?.onProfileReady();blocked=await local.listBlocked();if(!profile){serviceState('Profile needed');status('Create your local profile to get started.');dialog('setupDialog');return;}renderProfile();await hydrateRequests();await reloadFriends();connect();showInvitation();}catch(error){serviceState('Not connected');status(error.message);$('setupError').textContent=error.message;}})();
+})();
+
+/* Full-page settings navigation. */
+/* A shared settings shell keeps native dialog focus and Escape behavior. */
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const profileDialog = $('profileDialog'), accountDialog = $('accountDialog');
+  if (!profileDialog) return;
+  const sections = [
+    ['profile', 'Your profile'], ['account', 'Account'], ['audio', 'Voice & audio'],
+    ['stream', 'Screen sharing'], ['connection', 'Connection'], ['blocked', 'Blocked people'], ['updates', 'App updates']
+  ];
+  const panels = new Map();
+  let currentSection = 'profile';
+  let profileDraftInSession = false, settingsTransitions = 0;
+  const titlebar = $('windowTitlebar');
+  const titlebarSlot = titlebar ? document.createComment('Desktop title bar home') : null;
+  if (titlebarSlot) titlebar.before(titlebarSlot);
+
+  function syncTitlebar() {
+    if (!titlebar) return;
+    const active = [...document.querySelectorAll('dialog.settingsScreen[open]')].at(-1);
+    if (active) {
+      if (titlebar.parentElement !== active) active.prepend(titlebar);
+    } else if (titlebarSlot?.parentNode && titlebar.previousSibling !== titlebarSlot) titlebarSlot.after(titlebar);
+  }
+
+  function syncSettingsSession() {
+    if (profileDialog.open) profileDraftInSession = true;
+    else if (!settingsTransitions && !document.querySelector('dialog.settingsScreen[open]')) profileDraftInSession = false;
+    syncTitlebar();
+  }
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+  function closeSettings() {
+    for (const dialog of document.querySelectorAll('dialog.settingsScreen[open]')) dialog.close();
+  }
+  function selectPanel(key) {
+    currentSection = key;
+    for (const [name, panel] of panels) panel.hidden = name !== key;
+    const heading = profileDialog.querySelector('.dialogHead h2');
+    if (heading) heading.textContent = sections.find(([name]) => name === key)?.[1] || 'Settings';
+    refreshNavigation();
+    profileDialog.querySelector('.settingsBody')?.scrollTo?.(0, 0);
+  }
+  async function navigate(key, from) {
+    if (profileDialog.open) profileDraftInSession = true;
+    settingsTransitions++;
+    try {
+      if (key === 'account' || key === 'audio') {
+        closeSettings();
+        const service = key === 'account' ? window.VumiroAccount : window.VumiroAudioSettings;
+        if (typeof service?.open !== 'function') throw Error('These settings are unavailable. Restart Vumiro and try again.');
+        await service.open();
+      } else {
+        if (from !== profileDialog) closeSettings();
+        if (!profileDialog.open) {
+          // Keep the existing field nodes and avatar draft throughout this settings visit.
+          if (profileDraftInSession) profileDialog.showModal();
+          else $('profileNav')?.click();
+        }
+        if (key === 'updates') $('updatesNav')?.click();
+        selectPanel(key);
+      }
+    } catch (error) {
+      if ($('status')) $('status').textContent = error.message;
+    } finally {
+      settingsTransitions--;
+      syncSettingsSession();
+    }
+  }
+  function navigation(dialog, active) {
+    const nav = element('nav', 'settingsNav');
+    nav.setAttribute('aria-label', 'Settings');
+    nav.append(element('div', 'settingsNavTitle', 'Settings'));
+    for (const [key, label] of sections) {
+      const button = element('button', '', label);
+      button.type = 'button'; button.dataset.settingsSection = key;
+      if (key === active) button.setAttribute('aria-current', 'page');
+      button.onclick = () => navigate(key, dialog);
+      nav.append(button);
+    }
+    nav.addEventListener('keydown', event => {
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const buttons = [...nav.querySelectorAll('button')], index = buttons.indexOf(document.activeElement);
+      if (index < 0) return;
+      event.preventDefault();
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next].focus();
+    });
+    const back = element('button', 'settingsReturn', '← Back to Vumiro');
+    back.type = 'button'; back.onclick = () => dialog.close(); nav.append(back);
+    return nav;
+  }
+  function refreshNavigation() {
+    for (const dialog of document.querySelectorAll('dialog.settingsScreen')) {
+      const active = dialog === profileDialog ? currentSection : dialog === accountDialog ? 'account' : 'audio';
+      for (const button of dialog.querySelectorAll('[data-settings-section]')) {
+        if (button.dataset.settingsSection === active) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+      }
+    }
+  }
+  function shell(dialog, active) {
+    if (!dialog || dialog.classList.contains('settingsScreen')) return;
+    const body = element('div', 'settingsBody');
+    while (dialog.firstChild) body.append(dialog.firstChild);
+    const layout = element('div', 'settingsLayout');
+    layout.append(navigation(dialog, active), body);
+    dialog.classList.add('settingsScreen'); dialog.append(layout);
+    dialog.addEventListener('close', syncSettingsSession);
+  }
+
+  // Group the existing controls without replacing nodes, event handlers or field IDs.
+  const original = [...profileDialog.children];
+  const heading = original.find(node => node.classList.contains('dialogHead'));
+  const details = original.filter(node => node.tagName === 'DETAILS' && node.id !== 'accountDetails');
+  const names = new Map(details.map(node => [node, node.id === 'streamDetails' ? 'stream' : node.id === 'updateDetails' ? 'updates' : node.querySelector('summary')?.textContent.includes('Connection') ? 'connection' : 'blocked']));
+  const profilePanel = element('section', 'settingsPanel'); profilePanel.id = 'settingsProfilePanel';
+  panels.set('profile', profilePanel);
+  if (heading?.querySelector('h2')) {
+    heading.querySelector('h2').id = 'settingsProfileHeading';
+    profileDialog.setAttribute('aria-labelledby', 'settingsProfileHeading');
+  }
+  for (const node of original) {
+    if (node === heading || node.id === 'profileError') continue;
+    if (node.tagName === 'HR') { node.remove(); continue; }
+    if (node.classList.contains('accountEntry')) { node.hidden = true; continue; }
+    const key = names.get(node);
+    if (key) {
+      node.open = true; node.classList.add('settingsPanel', 'settingsDetailPanel');
+      node.hidden = true; panels.set(key, node);
+    } else profilePanel.append(node);
+  }
+  if (heading) heading.after(profilePanel); else profileDialog.prepend(profilePanel);
+  shell(profileDialog, 'profile');
+  shell(accountDialog, 'account');
+  for (const id of ['profileNav', 'shareMyCode']) $(id)?.addEventListener('click', () => selectPanel('profile'), true);
+  for (const id of ['settingsNav', 'topSettings', 'roomSettings']) $(id)?.addEventListener('click', () => selectPanel('stream'), true);
+  $('updatesNav')?.addEventListener('click', () => selectPanel('updates'), true);
+
+  function actionRow(id, title, description, label, danger = false) {
+    const button = $(id); if (!button) return null;
+    const row = element('div', 'settingsActionRow' + (danger ? ' settingsDangerRow' : ''));
+    const copy = element('div', 'settingsActionCopy');
+    copy.append(element('h3', '', title), element('p', '', description));
+    if (label) button.textContent = label;
+    row.append(copy, button); return row;
+  }
+  function group(title, description) {
+    const section = element('section', 'settingsSection');
+    section.append(element('h3', 'settingsSectionTitle', title));
+    if (description) section.append(element('p', 'settingsSectionDescription', description));
+    return section;
+  }
+  function appendRows(section, rows) { for (const row of rows) if (row) section.append(row); }
+  const actions = $('accountActions');
+  if (actions && $('accountRestore')) {
+    const oldButtons = actions.querySelector('.quickActions');
+    const backup = group('Profile backup', 'Keep your profile, friends and preferences together across devices.');
+    appendRows(backup, [
+      actionRow('accountBackup', 'Back up this device', 'Save this device’s profile and contacts to your account.', 'Back up now'),
+      actionRow('accountRestore', 'Restore saved data', 'Replace this device’s data with your account backup.', 'Restore')
+    ]);
+    const password = group('Password & identity');
+    const changeForm = $('accountChangePasswordForm');
+    if (changeForm) {
+      const disclosure = element('details', 'settingsPasswordDisclosure');
+      disclosure.append(element('summary', '', 'Change your password'), changeForm); password.append(disclosure);
+    }
+    for (const id of ['accountSetPasswordForm', 'accountRecoveryPanel']) if ($(id)) password.append($(id));
+    const devices = group('Linked devices', 'Revoke a lost device to stop its account session from syncing.');
+    if ($('accountDevices')) devices.append($('accountDevices'));
+    if ($('accountDevicesRefresh')) { $('accountDevicesRefresh').textContent = 'Refresh devices'; devices.append($('accountDevicesRefresh')); }
+    const sessions = group('Sessions');
+    appendRows(sessions, [
+      actionRow('accountSignOut', 'Sign out on this device', 'Return to the sign-in screen. Your local profile stays on this device.', 'Sign out'),
+      actionRow('accountSignOutEverywhere', 'Sign out on all devices', 'End all saved account sessions, including this one.', 'Sign out everywhere')
+    ]);
+    const privacy = group('Your data');
+    appendRows(privacy, [
+      actionRow('accountExport', 'Export account data', 'Download a copy of the data saved in your account.', 'Export data'),
+      actionRow('accountDelete', 'Delete your account', 'Permanently remove your account and its saved data.', 'Delete account', true)
+    ]);
+    // Keep the sync status anchor in place for account security controls.
+    for (const child of [...actions.children]) {
+      if (child.id === 'accountReauthForm' || child.id === 'accountSyncStatus') continue;
+      if (![backup, password, devices, sessions, privacy].includes(child)) child.remove();
+    }
+    actions.append(backup, password, devices, sessions, privacy);
+    oldButtons?.remove();
+  }
+
+  // Audio settings are created lazily; decorate them once without changing capture state.
+  const decorateAudio = () => {
+    const audio = document.querySelector('dialog.vumiro-audio-dialog');
+    if (audio) shell(audio, 'audio');
+  };
+  decorateAudio();
+  new MutationObserver(records => {
+    if (!records.some(record => record.target === document.body || record.type === 'attributes')) return;
+    decorateAudio(); syncSettingsSession();
+  }).observe(document.body, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['open']
+  });
+  syncSettingsSession();
 })();

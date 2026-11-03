@@ -11,6 +11,7 @@ namespace Vumiro.Client
     {
         private bool contentFullscreen;
         private bool backdropEnabled;
+        private readonly CaptionClickTracker captionClicks = new CaptionClickTracker();
         private static readonly Dictionary<string, int> ResizeEdges = new Dictionary<string, int> {
             {"w",10}, {"e",11}, {"n",12}, {"nw",13}, {"ne",14}, {"s",15}, {"sw",16}, {"se",17}
         };
@@ -125,7 +126,21 @@ namespace Vumiro.Client
             else if (action == "maximize" && !contentFullscreen) WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
             else if (action == "drag" && !contentFullscreen && (Control.MouseButtons & MouseButtons.Left) != 0)
             {
-                ReleaseCapture(); SendMessage(Handle, 0x00a1, new IntPtr(2), IntPtr.Zero);
+                var point = Cursor.Position;
+                var threshold = SystemInformation.DoubleClickSize;
+                if (captionClicks.IsDoubleClick(unchecked((uint)Environment.TickCount), point.X, point.Y,
+                    SystemInformation.DoubleClickTime, threshold.Width, threshold.Height))
+                    WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+                else
+                {
+                    var before = Bounds;
+                    ReleaseCapture(); SendMessage(Handle, 0x00a1, new IntPtr(2), IntPtr.Zero);
+                    // A real move or snap must not become the first half of a
+                    // later double-click, even if the move was very quick.
+                    var after = Cursor.Position;
+                    if (Bounds != before || Math.Abs(after.X - point.X) > threshold.Width / 2 || Math.Abs(after.Y - point.Y) > threshold.Height / 2)
+                        captionClicks.Reset();
+                }
             }
             else if (action == "resize" && !contentFullscreen && WindowState == FormWindowState.Normal && (Control.MouseButtons & MouseButtons.Left) != 0)
             {

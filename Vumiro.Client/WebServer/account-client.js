@@ -15,7 +15,7 @@
   if(authPage&&desktop&&!window.vumiroDesktop){
     const titlebar=$('authTitlebar');if(titlebar)titlebar.hidden=false;
     for(const action of ['minimize','maximize','close'])if($(`authWindow${action}`))$(`authWindow${action}`).onclick=()=>desktop.postMessage({type:'window',action});
-    if(titlebar){titlebar.onpointerdown=event=>{if(event.button===0&&!event.target.closest('button')&&event.detail<2)desktop.postMessage({type:'window',action:'drag'});};titlebar.ondblclick=event=>{if(!event.target.closest('button')){event.preventDefault();desktop.postMessage({type:'window',action:'maximize'});}};}
+    if(titlebar)titlebar.onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))desktop.postMessage({type:'window',action:'drag'});};
     window.chrome.webview.addEventListener('message',event=>{if(event.data?.type==='window-state'&&$('authWindowmaximize')){const maximized=event.data.maximized===true;$('authWindowmaximize').setAttribute('aria-label',maximized?'Restore window':'Maximize window');$('authWindowmaximize').innerHTML=maximized?'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 1.5h7v7h-2m-7-5h7v7h-7z" fill="none" stroke="currentColor"/></svg>':'<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor"/></svg>';}});
   }
   if (!window.vumiroDesktop && window.chrome?.webview) window.chrome.webview.addEventListener('message', event => {
@@ -63,7 +63,7 @@
     $('accountSignInTab').onclick=()=>setAccountScreen('signin');$('accountSignUpTab').onclick=()=>setAccountScreen('signup');
     for(const [id,screen]of [['accountSignInTab','signin'],['accountSignUpTab','signup']])$(id).addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?'signin':event.key==='End'?'signup':screen==='signin'?'signup':'signin';setAccountScreen(next);$(next==='signin'?'accountSignInTab':'accountSignUpTab').focus();}});
     $('accountForgotPassword').onclick=()=>{$('accountResetEmail').value=$('accountEmail').value;setAccountScreen('recover');};
-    $('accountVerificationNav').onclick=()=>{if(pendingSignup)setAccountScreen('verify');else setAccountScreen('resume');};
+    if($('accountVerificationNav'))$('accountVerificationNav').hidden=true;
     $('accountBack').onclick=()=>setAccountScreen('signin');
     $('accountRetry').onclick=async()=>{authConfig=null;$('accountRetry').disabled=true;$('accountError').textContent='';try{await loadAccountAvailability();status('Account service connected.');}catch(error){status(error.message,true);}finally{$('accountRetry').disabled=false;}};
   }
@@ -77,26 +77,25 @@
   }
   function setAccountScreen(screen) {
     accountScreen=session&&screen!=='unlock'?'manage':screen;
-    const copy={signin:['Welcome back.','Sign in to restore your profile and friends.'],signup:['Make yourself at home.','Create an account to keep your profile and friends across devices.'],verify:['Check your email.','Enter the verification code we sent to your email address.'],resume:['Verify your email.','Enter the email address you used to create your account.'],recover:['Forgot your password?','We’ll send a recovery code to your account email.'],reset:['Choose a new password.','Enter the code from your recovery email and set a new password.'],unlock:['Bring your friends with you.','Unlock your encrypted Vumiro identity.'],manage:['Your account.','Manage your saved data, linked devices and account security.']};
+    const copy={signin:['Welcome back.','Pick up where you left off.'],signup:['Join Vumiro.','Your profile and friends, wherever you go.'],verify:['Check your email.','Enter the verification code we sent to your email address.'],recover:['Forgot your password?','We’ll send a recovery code to your account email.'],reset:['Choose a new password.','Enter the code from your recovery email and set a new password.'],unlock:['Bring your friends with you.','Unlock your encrypted Vumiro identity.'],manage:['Your account.','Manage your saved data, linked devices and account security.']};
     const [heading,description]=copy[accountScreen]||copy.signin;$('accountHeading').textContent=heading;$('accountDescription').textContent=description;
-    const formScreen=['signin','signup','resume'].includes(accountScreen);
+    const formScreen=['signin','signup'].includes(accountScreen);
     $('accountForm').hidden=!formScreen;$('accountActions').hidden=!session||accountScreen==='unlock';
     if($('accountUnlockForm'))$('accountUnlockForm').hidden=accountScreen!=='unlock';
     $('accountVerifyForm').hidden=accountScreen!=='verify';$('accountResetRequestForm').hidden=accountScreen!=='recover';$('accountResetForm').hidden=accountScreen!=='reset';
-    $('accountTabs').hidden=!['signin','signup'].includes(accountScreen);$('accountFooter').hidden=!!session;$('accountBack').hidden=!!session||accountScreen==='signin';
+    $('accountTabs').hidden=!['signin','signup'].includes(accountScreen);$('accountFooter').hidden=!!session;$('accountForgotPassword').hidden=accountScreen!=='signin';$('accountBack').hidden=!!session||['signin','signup'].includes(accountScreen);
     $('accountSignInTab').setAttribute('aria-selected',String(accountScreen==='signin'));$('accountSignUpTab').setAttribute('aria-selected',String(accountScreen==='signup'));
-    $('accountSignIn').hidden=accountScreen!=='signin';$('accountSignUp').hidden=accountScreen!=='signup';$('accountHaveVerifyCode').hidden=accountScreen!=='resume';
-    const passwordVisible=accountScreen!=='resume';$('accountPassword').hidden=!passwordVisible;const passwordLabel=$('accountForm').querySelector('label[for="accountPassword"]');if(passwordLabel)passwordLabel.hidden=!passwordVisible;
+    $('accountSignIn').hidden=accountScreen!=='signin';$('accountSignUp').hidden=accountScreen!=='signup';
+    const passwordVisible=true;$('accountPassword').hidden=!passwordVisible;const passwordLabel=$('accountForm').querySelector('label[for="accountPassword"]');if(passwordLabel)passwordLabel.hidden=!passwordVisible;
     if(authPage&&$('accountPasswordField')){$('accountPasswordField').hidden=!passwordVisible;$('accountPassword').type='password';$('accountPasswordReveal')?.setAttribute('aria-pressed','false');$('accountPasswordReveal')?.setAttribute('aria-label','Show password');}
     $('accountPassword').required=passwordVisible;$('accountPassword').minLength=accountScreen==='signup'?12:8;$('accountPassword').autocomplete=accountScreen==='signup'?'new-password':'current-password';
     $('accountPasswordConfirm').hidden=$('accountPasswordConfirmLabel').hidden=accountScreen!=='signup';$('accountPasswordConfirm').required=accountScreen==='signup';
     $('accountPasswordConfirm').value='';
-    if($('accountPrivacyRow'))$('accountPrivacyRow').hidden=!['signup','resume','manage'].includes(accountScreen);
-    if($('accountPrivacyNotice'))$('accountPrivacyNotice').hidden=!['signup','resume','manage'].includes(accountScreen);
-    $('accountRegistrationStatus').hidden=!['signin','signup'].includes(accountScreen);
+    if($('accountPasswordHint'))$('accountPasswordHint').hidden=accountScreen!=='signup';
+    if($('accountPrivacyRow'))$('accountPrivacyRow').hidden=accountScreen!=='signup'&&(accountScreen!=='manage'||!!readNoticeAck());
+    if($('accountPrivacyNotice'))$('accountPrivacyNotice').hidden=!['signup','manage'].includes(accountScreen);
+    $('accountRegistrationStatus').hidden=!['signin','signup'].includes(accountScreen)||!$('accountRegistrationStatus').textContent;
     if($('accountSocial'))$('accountSocial').hidden=!['signin','signup'].includes(accountScreen);
-    if(authPage&&$('accountPrivacyRow'))$('accountPrivacyRow').hidden=!['signin','signup','resume'].includes(accountScreen);
-    if(authPage&&$('accountPrivacyNotice'))$('accountPrivacyNotice').hidden=!['signin','signup','resume'].includes(accountScreen);
   }
   async function loadAccountAvailability() {
     let cfg;
@@ -104,11 +103,14 @@
     catch(error) {
       $('accountSignIn').disabled=$('accountSignUp').disabled=true;
       $('accountRegistrationStatus').textContent='';
+      $('accountRegistrationStatus').hidden=true;$('accountRetry').hidden=false;
       for(const id of ['accountGoogle','accountMicrosoft'])if($(id))$(id).disabled=true;
       throw error;
     }
     $('accountSignIn').disabled=!cfg.serviceEnabled;$('accountSignUp').disabled=!cfg.serviceEnabled||!cfg.registrationEnabled;
-    $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Accounts are temporarily unavailable. You can continue with your local profile.':cfg.registrationEnabled?'Your session stays signed in when you close or update Vumiro.':'New account registration is paused. Existing accounts can sign in.';
+    $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Accounts are temporarily unavailable. You can continue with your local profile.':cfg.registrationEnabled?'':'New account registration is paused. Existing accounts can sign in.';
+    $('accountRegistrationStatus').hidden=!['signin','signup'].includes(accountScreen)||!$('accountRegistrationStatus').textContent;
+    $('accountRetry').hidden=!!cfg.serviceEnabled;
     for(const [id,provider]of [['accountGoogle','google'],['accountMicrosoft','azure']])if($(id))$(id).disabled=!cfg.serviceEnabled||!cfg.oauthProviders?.includes(provider);
     return cfg;
   }
@@ -128,8 +130,7 @@
       if(paragraph.textContent.includes('Account data is not end-to-end encrypted'))paragraph.textContent='The signing-identity envelope is encrypted in the client. Other synced account fields are readable to authorized Vumiro infrastructure operators and providers.';
     }
     const signInActions=accountForm?.querySelector('.quickActions');
-    if(signInActions&&!$('accountHaveVerifyCode')){
-      const button=document.createElement('button');button.type='button';button.id='accountHaveVerifyCode';button.textContent='I have a verification code';signInActions.append(button);
+    if(signInActions&&!$('accountRegistrationStatus')){
       const state=document.createElement('div');state.id='accountRegistrationStatus';state.className='help';signInActions.after(state);
     }
     if(verifyForm&&!$('accountResendVerify')){
@@ -207,13 +208,13 @@
     if(oauthInFlight)return;
     $('accountError').textContent='';
     try {
-      if(!$('accountPrivacyAck').checked)throw Error('Review the privacy notice before continuing with a connected account.');
+      const creatingAccount=accountScreen==='signup';
+      if(creatingAccount&&!$('accountPrivacyAck').checked)throw Error('Review the privacy notice before creating an account.');
       await ensureSecureStorage();
       const cfg=await config();
       oauthInFlight=true;for(const id of ['accountGoogle','accountMicrosoft'])if($(id))$(id).disabled=true;
       const data=await providerSession(provider);
-      const acceptedAt=new Date().toISOString();
-      pendingSignup={email:data.user?.email||'',acceptedAt,noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION};
+      pendingSignup=creatingAccount?{email:data.user?.email||'',acceptedAt:new Date().toISOString(),noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION}:null;
       // Persist only Vumiro/Supabase refresh credentials. Google and Microsoft
       // access/refresh tokens never enter the secure session store.
       await activate(data);
@@ -245,7 +246,7 @@
   async function callJson(url, options={}) {
     const response=await fetch(url,{...options,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})}});
     let data={};try{data=await response.json();}catch{}
-    if(!response.ok){const error=Error(authError(data));error.status=response.status;throw error;}
+    if(!response.ok){const error=Error(authError(data));error.status=response.status;error.code=typeof data.code==='string'?data.code:typeof data.error_code==='string'?data.error_code:'';throw error;}
     return data;
   }
   async function config() {
@@ -294,7 +295,7 @@
     if(deviceId&&deviceToken&&(!deviceAccountId||!nextAccountId||deviceAccountId!==nextAccountId)){deviceId='';deviceToken='';}
     deviceAccountId=nextAccountId;
     session={accessToken:value.access_token,refreshToken:value.refresh_token,expiresAt:Date.now()+Math.max(30,Number(value.expires_in)||3600)*1000,user:value.user||{}};
-    if(pendingSignup?.acceptedAt&&accountId())writeNoticeAck(pendingSignup.acceptedAt,pendingSignup.noticeVersion||NOTICE_VERSION);
+    if(pendingSignup?.acceptedAt&&pendingSignup.email?.trim().toLowerCase()===value.user?.email?.trim().toLowerCase()&&accountId())writeNoticeAck(pendingSignup.acceptedAt,pendingSignup.noticeVersion||NOTICE_VERSION);
     pendingSignup=null;pendingEmail='';
     if(!deviceId)deviceId=crypto.randomUUID();
     identityUnlock=unlock;
@@ -327,7 +328,7 @@
     const data=await window.VumiroLocalProfile.accountSnapshot(); data.settings=readSettings();
     if(identityRecovery)data.identityRecovery=identityRecovery;
     const acknowledgement=readNoticeAck();
-    data.privacyNoticeVersion=acknowledgement?.version||NOTICE_VERSION;data.privacyNoticeAcceptedAt=acknowledgement?.acceptedAt||'';
+    data.privacyNoticeVersion=acknowledgement?.version||currentNoticeVersion();data.privacyNoticeAcceptedAt=acknowledgement?.acceptedAt||'';
     return data;
   }
   async function restore(data) {
@@ -383,14 +384,15 @@
   const accountId=()=>session?.user?.id||session?.user?.email||'';
   const ackKey=()=>`vumiro-account-ack:${accountId()}`;
   const privacyAckKey=()=>`vumiro-account-privacy:${accountId()}`;
+  function currentNoticeVersion() { return authConfig?.privacyNoticeVersion||NOTICE_VERSION; }
   function readNoticeAck() {
     if(!accountId())return null;
     const raw=localStorage.getItem(privacyAckKey());if(!raw)return null;
-    try { const value=JSON.parse(raw);return value?.version===NOTICE_VERSION&&Number.isFinite(Date.parse(value.acceptedAt))?value:null; }
-    catch { return Number.isFinite(Date.parse(raw))?{version:NOTICE_VERSION,acceptedAt:raw}:null; }
+    try { const value=JSON.parse(raw);return value?.version===currentNoticeVersion()&&Number.isFinite(Date.parse(value.acceptedAt))?value:null; }
+    catch { return currentNoticeVersion()===NOTICE_VERSION&&Number.isFinite(Date.parse(raw))?{version:NOTICE_VERSION,acceptedAt:raw}:null; }
   }
-  function writeNoticeAck(acceptedAt,version=NOTICE_VERSION) {
-    if(!accountId()||version!==NOTICE_VERSION||!Number.isFinite(Date.parse(acceptedAt)))return false;
+  function writeNoticeAck(acceptedAt,version=currentNoticeVersion()) {
+    if(!accountId()||version!==currentNoticeVersion()||!Number.isFinite(Date.parse(acceptedAt))||Date.parse(acceptedAt)>Date.now()+300000)return false;
     localStorage.setItem(privacyAckKey(),JSON.stringify({version,acceptedAt}));return true;
   }
   async function fingerprint(value) { const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join(''); }
@@ -423,6 +425,11 @@
   }
   async function syncInitial() {
     const remote=await accountRequest('GET');
+    // Reuse this account's recorded acknowledgement on a new device. Signing
+    // in is not evidence that a new or changed notice was acknowledged.
+    if(!readNoticeAck()&&Array.isArray(remote.noticeRecords))for(const record of remote.noticeRecords)if(record?.version===currentNoticeVersion()&&writeNoticeAck(record.acceptedAt,record.version))break;
+    $('accountPrivacyAck').checked=!!readNoticeAck();
+    setAccountScreen(accountScreen);
     $('accountEmail').value=remote.account?.email||session?.user?.email||'';
     accountRevision=remote.revision||0;
     identityRecovery=remote.data?.identityRecovery||null;
@@ -478,7 +485,8 @@
     session=null;active=false;clearTimeout(syncTimer);
     if(everywhere){deviceId='';deviceToken='';deviceAccountId='';}
     try{await persistCredentials();}finally{render();}
-    status(everywhere?'Signed out on every device. Other devices must sign in again.':'Signed out of your account. Your local profile, contacts and open room stay on this device.');
+    status(everywhere?'Signed out on every device. Other devices must sign in again.':'Signed out of your account. Your local profile and contacts stay on this device.');
+    navigate('auth.html',false,'signin');
   }
   function render() {
     const signed=!!session;
@@ -531,10 +539,17 @@
   $('accountForm').onsubmit=async event=>{
     event.preventDefault();$('accountError').textContent='';
     if(accountScreen==='signup'){await $('accountSignUp').onclick();return;}
-    if(accountScreen==='resume'){await $('accountHaveVerifyCode').onclick();return;}
     const submit=$('accountSignIn');submit.disabled=true;
     try { await ensureSecureStorage();const password=$('accountPassword').value;const data=await auth('/token?grant_type=password',{email:$('accountEmail').value.trim(),password});await activate(data,{password});$('accountPassword').value=''; }
-    catch(error){$('accountError').textContent=error.message;} finally{submit.disabled=false;}
+    catch(error){
+      if(error.code==='email_not_confirmed'){
+        pendingEmail=$('accountEmail').value.trim();
+        // Resuming verification does not fabricate a privacy acknowledgement.
+        if(pendingSignup?.email!==pendingEmail)pendingSignup={email:pendingEmail,acceptedAt:'',noticeVersion:currentNoticeVersion()};
+        await persistCredentials();setAccountScreen('verify');$('accountVerifyCode').focus();
+        status('Your email still needs verification. Enter the code from your signup email, or resend it.');
+      }else $('accountError').textContent=error.message;
+    } finally{submit.disabled=false;}
   };
   $('accountSignUp').onclick=async()=>{
     $('accountError').textContent='';
@@ -553,19 +568,10 @@
       setAccountScreen('verify');$('accountVerifyCode').focus();status(`Check ${pendingEmail} for a verification code, then enter it here.`);
     } catch(error){$('accountError').textContent=error.message;} finally{button.disabled=false;}
   };
-  $('accountHaveVerifyCode').onclick=async()=>{
-    $('accountError').textContent='';
-    try {
-      await ensureSecureStorage();if(!$('accountEmail').reportValidity())return;
-      if(!$('accountPrivacyAck').checked)throw Error('Review the privacy notice before verifying an account.');
-      const cfg=await config();pendingEmail=$('accountEmail').value.trim();pendingSignup={email:pendingEmail,acceptedAt:new Date().toISOString(),noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION};
-      await persistCredentials();render();$('accountVerifyCode').focus();
-    } catch(error){$('accountError').textContent=error.message;}
-  };
   $('accountResendVerify').onclick=async()=>{
     $('accountError').textContent='';const button=$('accountResendVerify');button.disabled=true;
     try {
-      if(!pendingSignup?.email)throw Error('Enter your email and choose “I have a verification code” first.');
+      if(!pendingSignup?.email)throw Error('Create an account or sign in with your unverified email first.');
       const cfg=await config();await callJson(`${cfg.authUrl}/auth/v1/resend`,{method:'POST',headers:{apikey:cfg.publishableKey},body:JSON.stringify({type:'signup',email:pendingSignup.email})});
       $('accountError').textContent='A new verification code was requested. Check your email.';
     } catch(error){$('accountError').textContent=error.message;} finally{button.disabled=false;}
@@ -648,7 +654,7 @@
       await loadAccountAvailability();
     } catch(error) {
       if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});session=null;deviceId='';deviceToken='';deviceAccountId='';}
-      else {status(error.message,true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;}
+      else {status(error.message,true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;}
     }
     render();
     if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&accountScreen!=='unlock')navigate('friends.html');}

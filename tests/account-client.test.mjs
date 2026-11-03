@@ -72,7 +72,13 @@ test('ordinary sign out uses local provider scope and retains only device creden
   assert.equal(persisted.deviceToken,'a'.repeat(64));
 });
 
-test('public account state is immutable and token-free and signals local logout without navigating',async()=>{
+test('sign out preserves invitation routing while returning to the sign in screen',async()=>{
+  const app=harness({stored:saved,route:commonRoute,href:'https://vumiro.local/friends.html?invite=room-code&view=local#room'});await app.start();
+  await app.element('accountSignOut').onclick();
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?invite=room-code&authView=signin#room');
+});
+
+test('public account state is immutable and token-free and logout returns to sign in with the local profile intact',async()=>{
   const localProfile={id:'local-identity',name:'Local'},callFrame={connected:true};
   const app=harness({stored:saved,route:commonRoute,localProfile,callFrame});
   const account=app.sandbox.window.VumiroAccount;
@@ -90,7 +96,7 @@ test('public account state is immutable and token-free and signals local logout 
   assert.ok(app.events.filter(event=>event.type==='vumiro-account-state-changed').length>changes);
   assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
   assert.equal(app.sandbox.document.querySelector('#callFrameSlot iframe'),callFrame);
-  assert.equal(app.navigations.length,0);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?authView=signin');
   const requests=app.calls.length;account.scheduleSync();
   await new Promise(resolve=>setTimeout(resolve,10));
   assert.equal(app.calls.length,requests,'signed-out profile changes cannot schedule account uploads');
@@ -111,7 +117,7 @@ test('ordinary logout refreshes an expired access token before revoking the loca
   assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
 });
 
-test('offline refresh and logout failures still clear saved authentication and preserve the local profile and call',async()=>{
+test('offline refresh and logout failures still clear saved authentication and return to sign in',async()=>{
   let offline=false;
   const localProfile={id:'local-identity',name:'Local'},callFrame={connected:true};
   const app=harness({stored:saved,localProfile,callFrame,route:url=>{
@@ -124,10 +130,7 @@ test('offline refresh and logout failures still clear saved authentication and p
   assert.equal(persisted.refreshToken,undefined);assert.equal(persisted.deviceToken,'a'.repeat(64));
   assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
   assert.equal(app.sandbox.document.querySelector('#callFrameSlot iframe'),callFrame);
-  assert.equal(app.navigations.length,0);
-  app.sandbox.window.VumiroAccount.open();
-  assert.equal(app.element('accountDialog').open,true,'account sign-in can open over an ongoing room');
-  assert.equal(app.navigations.length,0);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?authView=signin');
 });
 
 test('public logout waits for an in-flight account operation before clearing its session',async()=>{
@@ -157,6 +160,7 @@ test('explicit all-device sign out reauthenticates, revokes Worker devices, and 
   assert.ok(app.calls.some(call=>call.url.endsWith('/api/v1/account/devices/revoke-all')));
   assert.ok(app.calls.some(call=>call.url.endsWith('/auth/v1/logout?scope=global')));
   assert.equal(app.secure.value,'');
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?authView=signin');
 });
 
 for(const [name,statusCode,result] of [
@@ -232,7 +236,8 @@ test('reauthentication targets the existing reauth form id',()=>{
 test('dedicated account page shows signup and keeps local profile access available',async()=>{
   const app=harness({route:commonRoute,authPage:true,href:'https://vumiro.local/auth.html?room=invite#shared'});await app.start();
   app.sandbox.window.VumiroAccount.open('signup');
-  assert.equal(app.element('accountHeading').textContent,'Make yourself at home.');
+  assert.equal(app.element('accountHeading').textContent,'Join Vumiro.');
+  assert.equal(app.element('accountDescription').textContent,'Your profile and friends, wherever you go.');
   assert.equal(app.element('accountSignUp').hidden,false);
   assert.equal(app.element('accountSignIn').hidden,true);
   assert.equal(app.element('accountResetRequestForm').hidden,true);
@@ -241,8 +246,13 @@ test('dedicated account page shows signup and keeps local profile access availab
   assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html?room=invite&view=local#shared');
 });
 
-test('signup validates matching passwords then enters a dedicated verification screen',async()=>{
-  const app=harness({authPage:true,route:(url)=>url.endsWith('/auth/v1/signup')?response(200,{}):commonRoute(url)});await app.start();
+test('signup validates matching passwords then automatically verifies and carries its notice acknowledgement',async()=>{
+  const app=harness({authPage:true,route:(url)=>{
+    if(url.endsWith('/auth/v1/signup'))return response(200,{});
+    if(url.endsWith('/auth/v1/verify'))return response(200,{...session,user:{...session.user,email:'new@example.com'}});
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    return commonRoute(url);
+  }});await app.start();
   app.sandbox.window.VumiroAccount.open('signup');
   app.element('accountEmail').value='new@example.com';app.element('accountPassword').value='a safe password 123';app.element('accountPasswordConfirm').value='wrong';app.element('accountPrivacyAck').checked=true;
   await app.element('accountForm').onsubmit({preventDefault(){}});
@@ -254,6 +264,12 @@ test('signup validates matching passwords then enters a dedicated verification s
   assert.equal(app.element('accountVerifyForm').hidden,false);
   assert.equal(app.element('accountForm').hidden,true);
   assert.equal(app.secure.value.includes('a safe password 123'),false);
+  const acceptedAt=JSON.parse(app.secure.value).pendingSignup.acceptedAt;
+  app.element('accountVerifyCode').value='123456';
+  await app.element('accountVerifyForm').onsubmit({preventDefault(){}});
+  assert.equal(JSON.parse(app.storage.get(`vumiro-account-privacy:${session.user.id}`)).acceptedAt,acceptedAt);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+  assert.doesNotMatch(app.secure.value,/pendingSignup|a safe password 123|123456/);
 });
 
 test('forgot password only shows the request screen and recovery errors stay visible',async()=>{
@@ -272,10 +288,29 @@ test('unprovisioned account service shows an honest message and can retry withou
   const app=harness({authPage:true,route:url=>url.endsWith('/api/v1/account/config')?response(available?200:404,available?config:{}):commonRoute(url)});await app.start();
   app.sandbox.window.VumiroAccount.open('signin');
   assert.match(app.element('accountFeedback').textContent,/Accounts are not available yet/);
+  assert.equal(app.element('accountRetry').hidden,false);
   available=true;await app.element('accountRetry').onclick();
   assert.equal(app.element('accountError').textContent,'');
   assert.equal(app.element('accountFeedback').textContent,'Account service connected.');
   assert.equal(app.element('accountSignIn').disabled,false);
+  assert.equal(app.element('accountRetry').hidden,true);
+  assert.equal(app.element('accountRegistrationStatus').hidden,true);
+});
+
+test('registration availability stays quiet when healthy and shows paused or unavailable states',async()=>{
+  for(const [state,message,retryVisible]of [
+    [{registrationEnabled:true,serviceEnabled:true},'',false],
+    [{registrationEnabled:false,serviceEnabled:true},'New account registration is paused. Existing accounts can sign in.',false],
+    [{registrationEnabled:false,serviceEnabled:false},'Accounts are temporarily unavailable. You can continue with your local profile.',true]
+  ]){
+    const app=harness({authPage:true,route:url=>url.endsWith('/api/v1/account/config')?response(200,{...config,...state}):commonRoute(url)});await app.start();
+    assert.equal(app.element('accountDescription').textContent,'Pick up where you left off.');
+    assert.equal(app.element('accountRegistrationStatus').textContent,message);
+    assert.equal(app.element('accountRegistrationStatus').hidden,!message);
+    assert.equal(app.element('accountRetry').hidden,!retryVisible);
+    app.sandbox.window.VumiroAccount.open('signup');
+    assert.equal(app.element('accountRegistrationStatus').hidden,!message);
+  }
 });
 
 test('first run and signed-out account entry route to a dedicated page without dropping invitation parameters',async()=>{
@@ -304,13 +339,85 @@ test('Google uses a fresh PKCE challenge and persists only the app refresh token
   assert.match(app.navigations.at(-1),/friends\.html/);
 });
 
-test('OAuth waits for privacy acknowledgement, rejects invalid callbacks, and shows disabled providers truthfully',async()=>{
+test('returning OAuth sign in needs no repeated acknowledgement and rejects invalid callbacks',async()=>{
   let calls=0;
   const app=harness({authPage:true,oauth:{signIn:async()=>{calls++;return {code:''};}},route:url=>url.endsWith('/api/v1/account/config')?response(200,{...config,oauthProviders:['azure']}):commonRoute(url)});await app.start();
   assert.equal(app.element('accountGoogle').disabled,true);assert.equal(app.element('accountMicrosoft').disabled,false);
-  await app.element('accountMicrosoft').onclick();assert.equal(calls,0);assert.match(app.element('accountError').textContent,/privacy/);
-  app.element('accountPrivacyAck').checked=true;await app.element('accountMicrosoft').onclick();
+  assert.equal(app.element('accountPrivacyRow').hidden,true);
+  await app.element('accountMicrosoft').onclick();
   assert.equal(calls,1);assert.match(app.element('accountError').textContent,/valid sign-in code/);assert.equal(app.secure.value,'');
+});
+
+test('social signup still requires acknowledgement before opening a provider',async()=>{
+  let providerCalls=0;
+  const app=harness({authPage:true,oauth:{signIn:async()=>{providerCalls++;return {code:''};}},route:url=>url.endsWith('/api/v1/account/config')?response(200,{...config,oauthProviders:['google']}):commonRoute(url)});await app.start();
+  app.sandbox.window.VumiroAccount.open('signup');
+  await app.element('accountGoogle').onclick();
+  assert.equal(providerCalls,0);assert.match(app.element('accountError').textContent,/privacy notice before creating/);
+  app.element('accountPrivacyAck').checked=true;await app.element('accountGoogle').onclick();
+  assert.equal(providerCalls,1);
+});
+
+test('password sign in reuses the current backend notice record without prompting again',async()=>{
+  const acceptedAt='2026-11-01T12:00:00.000Z';
+  const app=harness({authPage:true,route:(url,options)=>{
+    if(url.includes('grant_type=password'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data'))return response(200,{account:{email:session.user.email},data:null,revision:0,devices:[],noticeRecords:[{version:config.privacyNoticeVersion,acceptedAt}]});
+    return commonRoute(url,options);
+  }});await app.start();
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='existing password';
+  assert.equal(app.element('accountPrivacyAck').checked,false);
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.match(app.navigations.at(-1),/friends\.html/);
+  assert.deepEqual(JSON.parse(app.storage.get(`vumiro-account-privacy:${session.user.id}`)),{version:config.privacyNoticeVersion,acceptedAt});
+  assert.equal(app.element('accountPrivacyRow').hidden,true);
+});
+
+test('an unfinished signup acknowledgement cannot be transferred to a different signed-in account',async()=>{
+  const pending={version:2,pendingSignup:{email:'another@example.com',acceptedAt:'2026-11-01T12:00:00.000Z',noticeVersion:config.privacyNoticeVersion}};
+  const app=harness({authPage:true,stored:JSON.stringify(pending),route:(url,options)=>{
+    if(url.includes('grant_type=password'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    return commonRoute(url,options);
+  }});await app.start();
+  app.element('accountBack').onclick();app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='existing password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+});
+
+for(const [name,noticeRecords]of [['absent',[]],['older',[{version:'2026-10-01',acceptedAt:'2026-10-01T12:00:00.000Z'}]],['malformed',[{acceptedAt:'2026-11-01T12:00:00.000Z'}]]])test(`OAuth sign in does not invent acknowledgement when a notice record is ${name}`,async()=>{
+  const app=harness({authPage:true,oauth:{signIn:async()=>({code:'one-use-code'})},route:(url,options)=>{
+    if(url.endsWith('/account/config'))return response(200,{...config,oauthProviders:['google']});
+    if(url.includes('grant_type=pkce'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data'))return response(200,{account:{email:session.user.email},data:null,revision:0,devices:[],noticeRecords});
+    return commonRoute(url,options);
+  }});await app.start();await app.element('accountGoogle').onclick();
+  assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+  await app.element('accountBackup').onclick();
+  assert.match(app.element('accountFeedback').textContent,/acknowledge the privacy notice/);
+  assert.equal(app.calls.some(call=>call.options.method==='PUT'&&call.url.endsWith('/account/data')),false);
+});
+
+test('unconfirmed password sign in resumes automatic signup verification without inventing privacy acceptance',async()=>{
+  const app=harness({authPage:true,route:(url,options)=>{
+    if(url.includes('grant_type=password'))return response(400,{code:'email_not_confirmed',msg:'Email not confirmed'});
+    if(url.endsWith('/auth/v1/verify'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    return commonRoute(url,options);
+  }});await app.start();
+  assert.equal(app.element('accountVerificationNav').hidden,true);
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='existing password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(app.element('accountVerifyForm').hidden,false);
+  assert.equal(JSON.parse(app.secure.value).pendingSignup.acceptedAt,'');
+  app.element('accountVerifyCode').value='123456';await app.element('accountVerifyForm').onsubmit({preventDefault(){}});
+  assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+  assert.doesNotMatch(app.secure.value,/existing password|123456/);
 });
 
 test('social security confirmation rejects a different user even when emails match',async()=>{

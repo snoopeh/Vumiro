@@ -214,9 +214,12 @@ namespace Vumiro.Client
             catch (InvalidOperationException failure) { error = failure.Message; }
             catch (Exception) { error = "Vumiro could not open account sign-in in your browser. Try again."; }
             if (!IsDisposed && browser.CoreWebView2 != null && browser.Source != null && browser.Source.AbsoluteUri == source.AbsoluteUri)
+            {
+                if (error == null && code != null) RestoreFromTray();
                 browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> {
                     ["type"] = "oauth-result", ["requestId"] = (string)requestValue, ["code"] = code, ["error"] = error
                 }));
+            }
             return true;
         }
 

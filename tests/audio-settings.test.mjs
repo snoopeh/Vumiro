@@ -8,6 +8,27 @@ const localSource=fs.readFileSync(new URL('../Vumiro.Client/WebServer/local-prof
 const audioSource=localSource.slice(localSource.indexOf('/* Local voice preferences'));
 const callSource=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js',import.meta.url),'utf8');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+
+test('embedded call audio opens the app settings only in the trusted app parent',()=>{
+  const start=callSource.indexOf('  function openAudioSettings()');
+  const end=callSource.indexOf("  $('audioOpen').onclick",start);
+  assert.ok(start>=0&&end>start);
+  function route(parent) {
+    let appOpens=0,localOpens=0;
+    const window={parent:parent==='self'?null:parent};
+    if(parent==='self')window.parent=window;
+    else if(parent?.VumiroAudioSettings)parent.VumiroAudioSettings.open=()=>{appOpens++;};
+    const context={window,location:{origin:'https://app.example'},URL,voice:{open(){localOpens++;}}};
+    vm.runInNewContext(callSource.slice(start,end)+';openAudioSettings();',context);
+    return {appOpens,localOpens};
+  }
+  assert.deepEqual(route({location:{href:'https://app.example/friends.html'},VumiroAudioSettings:{open(){}}}),{appOpens:1,localOpens:0});
+  assert.deepEqual(route({location:{href:'https://other.example/friends.html'},VumiroAudioSettings:{open(){}}}),{appOpens:0,localOpens:1});
+  assert.deepEqual(route({location:{href:'https://app.example/unrelated.html'},VumiroAudioSettings:{open(){}}}),{appOpens:0,localOpens:1});
+  assert.deepEqual(route({get location(){throw Error('Cross-origin access denied');}}),{appOpens:0,localOpens:1});
+  assert.deepEqual(route('self'),{appOpens:0,localOpens:1});
+});
+
 class Element {
   constructor(tag='div'){this.tagName=tag;this.children=[];this.attributes={};this.listeners=new Map();this.dataset={};this.style={};this.value='';this.hidden=false;this.open=false;this.disabled=false;this.volume=1;this.muted=false;this.sinkId='';this.classList={toggle(){},add(){}};}
   append(...children){for(const child of children){this.children.push(child);child.parentElement=this;}}

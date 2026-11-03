@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -11,6 +12,7 @@ const nodeRequire = createRequire(import.meta.url);
 
 function bridge() {
   let opened;
+  const windowActions = [];
   let notify;
   const browserOpened = new Promise(resolve => { notify = resolve; });
   const app = { getAppPath: () => root, getPath: () => root, setName() {}, setPath() {}, getVersion: () => '1.21.4', requestSingleInstanceLock: () => false, quit() {} };
@@ -20,8 +22,10 @@ function bridge() {
     __dirname: path.join(root, 'Vumiro.Linux'), process, URL, URLSearchParams, Response, AbortSignal,
     setTimeout, clearTimeout, console
   });
-  vm.runInContext(fs.readFileSync(path.join(root, 'Vumiro.Linux/main.cjs'), 'utf8') + '\nglobalThis.checkOAuth = { startOAuth, cancel: () => cancelOAuth && cancelOAuth() };', context);
-  return { ...context.checkOAuth, browserOpened, get opened() { return opened; } };
+  vm.runInContext(fs.readFileSync(path.join(root, 'Vumiro.Linux/main.cjs'), 'utf8') + '\nglobalThis.checkOAuth = { startOAuth, cancel: () => cancelOAuth && cancelOAuth(), setWindow: window => { mainWindow = window; } };', context);
+  context.checkOAuth.setWindow({ isDestroyed: () => false, isMinimized: () => true, isVisible: () => false,
+    restore: () => windowActions.push('restore'), show: () => windowActions.push('show'), focus: () => windowActions.push('focus') });
+  return { ...context.checkOAuth, windowActions, browserOpened, get opened() { return opened; } };
 }
 
 const request = { authUrl: 'https://project-example.supabase.co', provider: 'google', codeChallenge: 'a'.repeat(43) };
@@ -47,12 +51,21 @@ test('desktop OAuth opens a PKCE URL and accepts only its loopback transaction',
     assert.equal((await fetch(duplicate)).status, 400);
     const ambiguous = new URL(callback); ambiguous.search = '?code=one&error=denied';
     assert.equal((await fetch(ambiguous)).status, 400);
+    assert.deepEqual(native.windowActions, [], 'Unrelated or invalid callbacks cannot activate the app.');
     callback.search = '?code=one-use-code';
     const response = await fetch(callback);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.ok(!(await response.text()).includes('one-use-code'));
+    const body = await response.text();
+    assert.ok(!body.includes('one-use-code'));
+    const script = body.match(/<script>(.*?)<\/script>/)[1];
+    assert.match(script, /history\.replaceState/);
+    assert.match(script, /window\.close\(\)/);
+    assert.match(body, /If this tab stays open/);
+    const scriptHash = createHash('sha256').update(script).digest('base64');
+    assert.ok(response.headers.get('content-security-policy').includes(`'sha256-${scriptHash}'`));
     assert.equal((await flow).code, 'one-use-code');
+    assert.deepEqual(native.windowActions, ['restore', 'show', 'focus']);
   } finally { native.cancel(); await flow.catch(() => {}); }
 });
 
@@ -71,8 +84,11 @@ test('desktop OAuth restricts provider origins and Microsoft requests email scop
     const callback = new URL(authorize.searchParams.get('redirect_to'));
     callback.search = '?error=access_denied&error_description=private-details';
     const result = await fetch(callback);
-    assert.ok(!(await result.text()).includes('private-details'));
+    const body = await result.text();
+    assert.ok(!body.includes('private-details'));
+    assert.ok(!body.includes('window.close'));
     await rejection;
+    assert.deepEqual(native.windowActions, [], 'Provider denial cannot steal focus.');
   } finally { native.cancel(); await flow.catch(() => {}); }
 });
 
@@ -83,6 +99,7 @@ test('cancelling desktop OAuth rejects pending sign-in and releases the callback
   await first.browserOpened;
   first.cancel();
   await rejection;
+  assert.deepEqual(first.windowActions, [], 'Cancelling sign-in cannot steal focus.');
   const second = bridge();
   const resumed = second.startOAuth(request);
   try {
