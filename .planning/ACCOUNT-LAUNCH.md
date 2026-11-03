@@ -1,11 +1,11 @@
 # Account service launch — 1.21.7
 
-Status recorded: **2026-11-03**, publication completed.
+Status recorded: **2026-11-03**, publication completed; Google and Microsoft subsequently enabled on the same date. The 1.21.7/1.21.8 publication records below preserve their original configuration states; the current rollout state and social-provider section supersede their disabled-provider statements.
 
 ## Rollout state
 
 - The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with `serviceEnabled: true`. The deployed Worker now reports `registrationEnabled: true`; verified-email registration is enabled. The flag was checked after deployment.
-- Supabase **Allow new users to sign up** is now **enabled**, independently of the Worker flag. **Confirm email** remains enabled. Google/Microsoft sign-in remains disabled and unverified.
+- Supabase **Allow new users to sign up** is now **enabled**, independently of the Worker flag. **Confirm email** remains enabled. Google and Microsoft are now enabled in Supabase and both Worker flags; live configuration advertises `["google", "azure"]`. Real authorization-code/PKCE acceptance passed for both providers. Brand/publisher verification and full installed-desktop/device acceptance remain separate outstanding items.
 - Version **1.21.7** has passed local package checks and the **46/46** regression suite. Release commit, deployment, tag and published release evidence are recorded below. Local packaging is not evidence of a published release or full desktop runtime acceptance.
 
 ## Provider and operator configuration
@@ -26,7 +26,7 @@ Status recorded: **2026-11-03**, publication completed.
 - The hosted smoke script passed password login, asymmetric session, refresh, primary/secondary enrollment, device-credential enforcement, snapshot write/read, stale revision **409**, export and authoritative notice evidence, second-device snapshot restore, revocation with **401/403**, revoked-device enrollment **403**, real deletion, provider identity **404**, completed tombstone **410**, and cleanup.
 - Both synthetic admin-created fixture accounts were cleaned up. One additional unverified email-test fixture remains because automatic approval review rejected its cleanup request; this is minor outstanding test-data cleanup, not a failed delivered signup/recovery acceptance check.
 - The initial synthetic export assertion exposed PowerShell timestamp conversion. The assertion now compares UTC instants and the full hosted rerun passed.
-- Regression suite: **46/46 passed**. Local **1.21.7** package checks passed. Earlier native OAuth callback checks passed **18/18**, but live Google/Microsoft consent round trips remain unverified and disabled.
+- Regression suite at **1.21.7**: **46/46 passed**. Local **1.21.7** package checks passed. Earlier native OAuth callback checks passed **18/18**. Social providers were disabled and real round trips unverified at that release; the subsequent social-provider acceptance below supersedes that state.
 - Public Worker dry-run with the edge rate-limit binding passed. Earlier deployed checks passed desktop CORS **204**, untrusted-origin rejection **403**, and delivery of pending-deletion handling assets.
 
 ## Hardening and operating limits
@@ -44,7 +44,9 @@ These records predate the 1.21.7 release publication and do not identify its fin
 - Source `1c3a9073fda4b9be07fbe3f3bfdf2e9cf50efef4` was pushed to main. [Build CI `41539684948`](https://github.com/snoopeh/Vumiro/actions/runs/41539684948) succeeded for Windows/Linux; that build was not itself a new desktop release.
 - Earlier public Worker version: `d7e5ac0a-cd61-4efa-ae7e-d39c44bc776d`; internal storage owner version: `2fb21cd5-bc06-4700-9e57-6d9efe206e45`. Original Durable Object bindings were retained. Secrets and flags changed afterward.
 
-## Immediate publication follow-through
+## Original publication follow-through — historical
+
+This was the plan before 1.21.7 publication. Its publication and social-provider gating steps are superseded by the completed records below; remaining desktop/device acceptance and alert work are still open.
 
 1. Publish the prepared compatible source, Worker and desktop release; record commit/tag, CI/release URL and current Worker version.
 2. Verify live `/api/v1/account/config` reports the intended registration flag, and verify packaged notice/assets. Supabase signup is already enabled.
@@ -53,7 +55,7 @@ These records predate the 1.21.7 release publication and do not identify its fin
 
 ## Publication completed — 2026-11-03
 
-Source `4eb6963` is tagged [client-v1.21.7](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.7). [Release CI41573912179](https://github.com/snoopeh/Vumiro/actions/runs/41573912179) passed Windows and Linux; all seven expected assets are published. [Main CI41573829233](https://github.com/snoopeh/Vumiro/actions/runs/41573829233) also passed. Public Worker code version `99f524a2-db20-41cb-aff2-348189daee21` and internal storage version `f408d741-ed26-4edb-90f6-258c40bc0b3b` deployed with original bindings. A subsequent encrypted-secret update enabled registration; live config confirms both service and registration true, social providers empty.
+Source `4eb6963` is tagged [client-v1.21.7](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.7). [Release CI41573912179](https://github.com/snoopeh/Vumiro/actions/runs/41573912179) passed Windows and Linux; all seven expected assets are published. [Main CI41573829233](https://github.com/snoopeh/Vumiro/actions/runs/41573829233) also passed. Public Worker code version `99f524a2-db20-41cb-aff2-348189daee21` and internal storage version `f408d741-ed26-4edb-90f6-258c40bc0b3b` deployed with original bindings. A subsequent encrypted-secret update enabled registration; config at that publication confirmed both service and registration true, social providers empty. The later provider enablement below supersedes that empty list.
 
 Public health monitoring is now in `.github/workflows/account-health.yml`, every30minutes, with no user credentials. The manually dispatched [first run41574144529](https://github.com/snoopeh/Vumiro/actions/runs/41574144529) succeeded. Failed runs use GitHub Actions notification preferences; a separate email/pager channel and deletion-queue alerts are not yet configured.
 
@@ -61,6 +63,21 @@ Public health monitoring is now in `.github/workflows/account-health.yml`, every
 
 Source `0826933` is tagged [client-v1.21.8](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.8). [Release CI 41575384805](https://github.com/snoopeh/Vumiro/actions/runs/41575384805) and [main CI 41575373132](https://github.com/snoopeh/Vumiro/actions/runs/41575373132) passed Windows and Linux. All seven expected assets have positive sizes and published SHA-256 digests.
 
-The public Worker is now `ecf57d68-409b-492b-8321-764a83a512b8`; internal storage owner is `6cbc8f79-ee73-40fb-a895-5791abcb0364`. Original bindings are retained. All nine served web assets match committed source byte-for-byte. Live account service and registration remain enabled; social providers remain disabled.
+The 1.21.8 public Worker code version was `ecf57d68-409b-492b-8321-764a83a512b8`; internal storage owner was `6cbc8f79-ee73-40fb-a895-5791abcb0364`. Original bindings were retained. All nine served web assets matched committed source byte-for-byte. At that deployment, account service and registration remained enabled and social providers remained disabled. Later secret/configuration updates enabled both social providers as recorded below.
 
 The release adds compact navigation, the profile/account disclosure and explicit local account logout, Voice & audio device preferences/tests, supported speech processing, master playback and deafen. There are 73 passing automated regressions. Independent media review and Windows build/package checks passed. Browser review confirmed disclosure keyboard/focus behavior, audio entry without capture, pending-request closure and preference persistence. Physical audio-device/platform acceptance and installed-desktop two-device account acceptance remain outstanding; they are not inferred from mocks or package validation.
+
+## Google and Microsoft enabled — 2026-11-03
+
+Both providers are enabled in Supabase. Encrypted Worker flags `ACCOUNT_OAUTH_GOOGLE_ENABLED` and `ACCOUNT_OAUTH_MICROSOFT_ENABLED` are now `"true"`; live `/api/v1/account/config` returns `oauthProviders: ["google", "azure"]` with service and registration still enabled. Existing **1.21.8** clients receive the options after a reload/restart; provider configuration does not require another desktop binary release.
+
+- Google Cloud project: **vumiro-accounts**. OAuth web client: `963352735641-jfapfk6k71f12e4ptk4l37e1fiktqtvd.apps.googleusercontent.com`. Audience **External**, publishing status **In production**; Data Access explicitly saved with only non-sensitive `openid email profile` scopes. Google brand verification remains unverified.
+- Microsoft Entra tenant: `5f032e19-a8b2-48a0-a72b-0cb99898f440`. Application/client ID: `a2676974-ebbd-4266-a0bf-726cb6c585d8`. Audience `AzureADandPersonalMicrosoftAccount`; Supabase Azure tenant endpoint **common**. ID-token claims `email` and `xms_edov`, plus access-token `xms_edov`, were saved in the registration. Default Graph `User.Read` was removed, leaving only delegated Graph `email` (administrator consent not intrinsically required). Homepage and privacy branding URLs point to the public GitHub project and notice. Publisher remains unverified.
+- Both providers use the Web callback `https://rrrflwevxojheaejbcnp.supabase.co/auth/v1/callback`. Supabase's desktop redirect allowlist remains `http://127.0.0.1:43821/vumiro-auth/**`. No provider secret was committed or included in client assets.
+- Microsoft credential expiration: **2027-05-02**; planned rotation deadline **2027-04-02**. [The operations runbook](../docs/ACCOUNT-OPERATIONS.md#provider-credential-rotation) records the replacement, validation and retirement procedure. No automatic reminder or Google secret expiry is implied.
+
+**Real production acceptance passed independently for Google and Microsoft personal accounts:** provider authorization and randomized loopback callback, PKCE code exchange, authenticated `/user` and matching provider identity, fresh `oauth` AMR, refresh retaining the same immutable account ID, and local-scope test-session logout. The reusable command is `node scripts/Test-OAuthProvider.mjs --provider google` or `--provider azure`; `--check` performs only fixture/listener, incorrect-transaction rejection and cancellation checks. Codes, PKCE verifiers and tokens remain in memory; the harness does not enroll devices, read user stores or delete identities.
+
+Microsoft passed the complete real flow again after the permission reduction. Google passed again after publication and saving its scope declarations. The three Electron OAuth regressions and 18 native Windows callback checks also passed. The live public login page was checked after configuration loaded and both Google/Microsoft buttons were enabled. Ignored local screenshot evidence: `dist/social-login-setup/providers-live.jpg`.
+
+The harness uses the **production Electron callback/listener through a VM fixture**, intercepting only the external-browser launch. These are real hosted provider flows, but they do not establish full installed Windows/Linux UI and secure-storage acceptance or second-device encrypted-identity restoration. No actual Microsoft work/school fixture was available; organizational consent can require tenant administrator approval. Full platform/device acceptance, denial/timeout scenarios and organization-specific consent remain separate follow-through work.

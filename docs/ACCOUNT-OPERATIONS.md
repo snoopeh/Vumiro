@@ -1,6 +1,6 @@
 # Vumiro account operations
 
-This runbook records operating procedures and acceptance requirements for Vumiro accounts. Email/password alpha registration is live; [the launch record](../.planning/ACCOUNT-LAUNCH.md) distinguishes completed hosted checks from outstanding desktop, hardware and operational acceptance. Unchecked items here must not be reported as completed. This runbook does not replace legal review.
+This runbook records operating procedures and acceptance requirements for Vumiro accounts. Email/password, Google and Microsoft registration are live as of **2026-11-03**; [the launch record](../.planning/ACCOUNT-LAUNCH.md) distinguishes completed hosted checks from outstanding installed-desktop, hardware and operational acceptance. Unchecked items here must not be reported as completed. This runbook does not replace legal review.
 
 ## Required operator information
 
@@ -37,6 +37,46 @@ The dedicated desktop sign-in page supports Google, Microsoft, and Vumiro email/
 3. In the Supabase redirect allowlist, add `http://127.0.0.1:43821/vumiro-auth/**`. Vumiro binds only IPv4 loopback on this port and generates a random callback path for each transaction. Provider credentials are entered in the external system browser. Only a one-use authorization code returns to the app, which exchanges it with an in-memory PKCE verifier.
 4. Keep `ACCOUNT_OAUTH_GOOGLE_ENABLED` and `ACCOUNT_OAUTH_MICROSOFT_ENABLED` false until each provider has passed a real desktop round trip. Then set the corresponding Worker flag to `"true"`. Keep new-user creation restrictions aligned in Supabase as well as `ACCOUNT_REGISTRATION_ENABLED`; disabling the Vumiro registration UI alone does not prevent provider-side account creation.
 5. Test consent denied, timeout, occupied callback port, browser closed, wrong account during sensitive-action reauthentication, restart persistence, and both new and existing accounts. A social account needs a separate Vumiro backup password or its identity recovery code to restore the encrypted signing identity on another device.
+
+#### Production configuration — 2026-11-03
+
+Both providers are enabled in Supabase and the encrypted Worker flags `ACCOUNT_OAUTH_GOOGLE_ENABLED` and `ACCOUNT_OAUTH_MICROSOFT_ENABLED` are `"true"`. Live `/api/v1/account/config` advertises `oauthProviders: ["google", "azure"]`. Existing **1.21.8** clients obtain the enabled options after reloading or restarting; no new desktop binary is required for this configuration change.
+
+| Setting | Google | Microsoft |
+| --- | --- | --- |
+| Registration | Google Cloud project `vumiro-accounts` | Entra tenant `5f032e19-a8b2-48a0-a72b-0cb99898f440` |
+| Public application/client ID | `963352735641-jfapfk6k71f12e4ptk4l37e1fiktqtvd.apps.googleusercontent.com` | `a2676974-ebbd-4266-a0bf-726cb6c585d8` |
+| Audience | External, **In production** | `AzureADandPersonalMicrosoftAccount`, Supabase tenant endpoint **common** |
+| Requested scopes | `openid email profile` | `email` |
+| Additional token claims | Standard basic identity claims | ID token: `email`, `xms_edov`; access token: `xms_edov` |
+| Brand/publisher verification | Brand remains unverified | Publisher remains unverified |
+
+Google Data Access was explicitly saved with only the three non-sensitive email, profile and OpenID scopes. The Microsoft registration's default Microsoft Graph `User.Read` permission was removed; its configured Graph permission is only delegated `email` (the permission does not intrinsically require administrator consent). Microsoft homepage/privacy branding URLs were saved to the public GitHub project and notice. Organizational policies can still impose administrator approval independently of that permission setting.
+
+Both registrations use the Web callback `https://rrrflwevxojheaejbcnp.supabase.co/auth/v1/callback`. Supabase then returns the single-use authorization code to the randomized desktop loopback allowlist described above. Credentials are stored in Supabase provider configuration; none are recorded here or shipped to clients.
+
+Real Google and Microsoft **personal-account** flows passed the production callback, PKCE exchange, authenticated `/user` identity check, fresh OAuth authentication method, same-account token refresh and local session logout. Organizational Microsoft accounts are supported by the registration, but an actual work/school fixture has not been tested. A company's consent policy may require its administrator to approve Vumiro. The successful personal-account check does not establish consent availability in every tenant.
+
+The Microsoft real flow passed again after removing `User.Read`. The public login page was also checked after configuration loaded: both social buttons were enabled. Local screenshot evidence is retained in ignored `dist/social-login-setup/providers-live.jpg`.
+
+#### Manual provider acceptance check
+
+Run `node scripts/Test-OAuthProvider.mjs --provider google` or use `--provider azure` for Microsoft. Open the printed `AUTHORIZE_URL` in a browser and finish provider sign-in within five minutes. The script uses the production Electron OAuth callback/listener logic through the existing VM test seam, intercepting the external-browser launch so the operator controls which browser session is used. It requests production public configuration and performs real authorization-code/PKCE, identity, OAuth-authentication-method, refresh and local-logout checks.
+
+Codes, PKCE verifiers and tokens stay in process memory; they are not printed or written. The script does not read a user's local profile or secure store, enroll devices, administer providers or delete identities. Its final logout applies to its own test session. For an offline fixture/listener check, append `--check`; that mode rejects an incorrect callback transaction, cancels the pending operation and confirms the callback port is released without contacting a provider.
+
+This evidence covers the real hosted authorization flow and production Electron listener. It does **not** establish full installed Windows/Linux UI, secure-storage persistence, hardware behavior or cross-device restoration. Keep those acceptance items open until exercised separately. Provider cancellation, timeout, occupied port, sensitive-action wrong-account checks and organizational consent also require the appropriate separate acceptance cases.
+
+#### Provider credential rotation
+
+The current Microsoft client secret expires **2027-05-02**. Rotate it by **2027-04-02** to leave time for validation; the expiry date is an operating deadline, not an automatically scheduled reminder.
+
+1. In the Entra application above, create a replacement client secret while the current one remains valid. Enter its one-time secret value directly into the Supabase Azure provider configuration and save; retain secret values only in approved encrypted credential storage.
+2. Run the real Microsoft acceptance check and confirm live provider configuration and normal desktop sign-in. If the replacement fails, restore the still-valid previous credential and investigate before deleting it.
+3. After successful validation, delete the old Entra credential, record the replacement's expiration and next rotation date here, and repeat the real flow after the old credential is removed.
+4. If a Google client secret needs rotation, use the Google Auth Platform credentials for the registered web client, update Supabase Google provider configuration, validate the real flow, then retire the previous credential through Google's supported controls. Record any provider-specified expiry; no Google secret expiry was established during this setup.
+
+Rotate immediately after suspected credential exposure. Never paste provider secrets into chat, logs, Git, client assets or the acceptance command line. Provider flag changes can pause one social option while preserving email/password and existing account access.
 
 Provider setup references: [Google](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [Microsoft](https://supabase.com/docs/guides/auth/social-sign-in/auth-azure), [redirect allowlists](https://supabase.com/docs/guides/auth/redirect-urls), and [PKCE](https://supabase.com/docs/guides/auth/sessions/pkce-flow).
 
