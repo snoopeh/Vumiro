@@ -4,7 +4,8 @@ const MAX_SNAPSHOT_BYTES = 262144;
 const ACTIVE_DEVICE_LIMIT = 16;
 const REVOKED_DEVICE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const COMPLETED_TOMBSTONE_RETENTION_MS = 2 * 60 * 60 * 1000;
-const PRIVACY_NOTICE_VERSION = '2026-11-01';
+const PRIVACY_NOTICE_VERSION = '2026-11-03';
+const LEGACY_PRIVACY_NOTICE_VERSION = '2026-11-01';
 const JWKS_REFRESH_COOLDOWN_MS = 30000;
 const cache = new Map();
 
@@ -17,7 +18,7 @@ function validOrigin(origin, requestUrl) {
   try { const host = new URL(origin).hostname; return ['localhost', '127.0.0.1', '[::1]'].includes(requestUrl.hostname) && ['localhost', '127.0.0.1', '[::1]'].includes(host); } catch { return false; }
 }
 function corsHeaders(origin) {
-  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Vumiro-Device, X-Vumiro-Device-Token', 'Vary': 'Origin' };
+  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Vumiro-Device, X-Vumiro-Device-Token, X-Vumiro-Profile-Cards', 'Vary': 'Origin, X-Vumiro-Profile-Cards' };
 }
 const DEVICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -142,6 +143,29 @@ async function validFriend(friend) {
     return publicKey.algorithm.namedCurve === 'P-256' && encodeB64url(await crypto.subtle.digest('SHA-256', spki)) === friend.id;
   } catch { return false; }
 }
+const CONNECTION_PATHS = {
+  steam: ['steamcommunity.com', /^\/(?:id\/[A-Za-z0-9_-]{1,64}|profiles\/[0-9]{17})\/?$/],
+  spotify: ['open.spotify.com', /^\/user\/[A-Za-z0-9._-]{1,100}\/?$/],
+  twitch: ['www.twitch.tv', /^\/[A-Za-z0-9_]{1,25}\/?$/],
+  youtube: ['www.youtube.com', /^\/(?:@[\p{L}\p{N}_.%-]{1,100}|(?:channel|c|user)\/[A-Za-z0-9_%-]{1,100})\/?$/u],
+  github: ['github.com', /^\/[A-Za-z0-9-]{1,39}\/?$/],
+  xbox: ['www.xbox.com', /^\/(?:[a-z]{2}-[a-z]{2}\/)?play\/user\/[A-Za-z0-9%_-]{1,100}\/?$/i]
+};
+function validProfileCard(profile) {
+  if ('bio' in profile && (typeof profile.bio !== 'string' || profile.bio.length > 240 || profile.bio !== profile.bio.normalize('NFC').trim() || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(profile.bio))) return false;
+  if ('banner' in profile && (typeof profile.banner !== 'string' || profile.banner.length > 16384 || !AVATAR.test(profile.banner))) return false;
+  if (!('connections' in profile)) return true;
+  if (!Array.isArray(profile.connections) || profile.connections.length > 5) return false;
+  const seen = new Set();
+  return profile.connections.every(item => {
+    if (!onlyKeys(item, ['provider', 'url']) || typeof item.provider !== 'string' || !Object.hasOwn(CONNECTION_PATHS, item.provider) || typeof item.url !== 'string' || item.url.length > 240 || seen.has(item.provider)) return false;
+    try {
+      const url = new URL(item.url), rule = CONNECTION_PATHS[item.provider];
+      if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || url.hostname.replace(/^www\./, '') !== rule[0].replace(/^www\./, '') || !rule[1].test(url.pathname) || /%2f|%5c|%00/i.test(url.pathname)) return false;
+      seen.add(item.provider); return true;
+    } catch { return false; }
+  });
+}
 async function recoveryPublicKeyMatches(identityId, publicKey) {
   try {
     const spki = b64url(publicKey, 384);
@@ -187,7 +211,7 @@ async function validIdentityRecovery(value, now) {
 export async function validateSnapshot(value, now = Date.now()) {
   const required = ['version', 'profile', 'friends', 'blocked', 'settings', 'privacyNoticeVersion', 'privacyNoticeAcceptedAt'];
   if (!onlyKeysWithOptional(value, required, ['identityRecovery']) || !await validIdentityRecovery(value.identityRecovery, now) || value.version !== 1 ||
-    !onlyKeys(value.profile, ['name', 'username', 'avatar']) || !Array.isArray(value.friends) || !Array.isArray(value.blocked) || !validSettings(value.settings)) return false;
+    !onlyKeysWithOptional(value.profile, ['name', 'username', 'avatar'], ['bio', 'banner', 'connections']) || !validProfileCard(value.profile) || !Array.isArray(value.friends) || !Array.isArray(value.blocked) || !validSettings(value.settings)) return false;
   if (value.friends.length > 128 || value.blocked.length > 64 || !cleanText(value.profile.name, 1, 48) || typeof value.profile.username !== 'string' ||
     value.profile.username !== value.profile.username.trim().toLowerCase() || !USERNAME.test(value.profile.username) || typeof value.profile.avatar !== 'string' || value.profile.avatar.length > 44000 || !AVATAR.test(value.profile.avatar)) return false;
   const acceptedAt = Date.parse(value.privacyNoticeAcceptedAt);
@@ -253,11 +277,14 @@ export async function handleAccountRequest(request, env) {
     } catch { return json({ error: 'Account request protection is temporarily unavailable. Try again shortly.' }, 503, cors); }
   }
   if (env.ACCOUNT_SERVICE_ENABLED !== 'true') return json({ error: 'Vumiro account service is not enabled yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
+  const profileCardsHeader = request.headers.get('X-Vumiro-Profile-Cards');
+  if (profileCardsHeader !== null && profileCardsHeader !== '1') return json({ error: 'The profile-card capability is unsupported.' }, 400, cors);
+  const supportsProfileCards = profileCardsHeader === '1';
   if (url.pathname === '/api/v1/account/config' && request.method === 'GET') {
     const base = String(env.SUPABASE_URL || '').replace(/\/$/, ''), publishable = String(env.SUPABASE_PUBLISHABLE_KEY || '');
     if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || !/^(?:sb_publishable_[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(publishable)) return json({ error: 'Account service is not configured yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
     const oauthProviders = [env.ACCOUNT_OAUTH_GOOGLE_ENABLED === 'true' ? 'google' : null, env.ACCOUNT_OAUTH_MICROSOFT_ENABLED === 'true' ? 'azure' : null].filter(Boolean);
-    return json({ authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: PRIVACY_NOTICE_VERSION }, 200, cors);
+    return json({ authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: supportsProfileCards ? PRIVACY_NOTICE_VERSION : LEGACY_PRIVACY_NOTICE_VERSION }, 200, cors);
   }
   if (!env.ACCOUNT_DB) return json({ error: 'Account storage is not configured yet.' }, 503, cors);
   const user = await authenticate(request, env);
@@ -316,16 +343,33 @@ export async function handleAccountRequest(request, env) {
     }
     if (url.pathname === '/api/v1/account/data' && request.method === 'GET') {
       const row = await env.ACCOUNT_DB.prepare('SELECT payload, updated_at, revision FROM account_data WHERE account_id = ?').bind(user.id).first();
-      return json({ version: 1, account: { email: user.email }, data: row ? JSON.parse(row.payload) : null, revision: row?.revision || 0, devices: await devicesForAccount(env, user.id), currentDevice: deviceId, updatedAt: row?.updated_at || null, noticeRecords: await noticesForAccount(env, user.id) }, 200, cors);
+      const data = row ? JSON.parse(row.payload) : null;
+      // Older installed clients enforce a closed profile schema. They receive
+      // their original shape, while exports always retain all saved fields.
+      if (data?.profile && !supportsProfileCards) for (const field of ['bio', 'banner', 'connections']) delete data.profile[field];
+      return json({ version: 1, account: { email: user.email }, data, revision: row?.revision || 0, devices: await devicesForAccount(env, user.id), currentDevice: deviceId, updatedAt: row?.updated_at || null, noticeRecords: await noticesForAccount(env, user.id) }, 200, cors);
     }
     if (url.pathname === '/api/v1/account/export' && request.method === 'GET') {
       const row = await env.ACCOUNT_DB.prepare('SELECT payload, updated_at, revision FROM account_data WHERE account_id = ?').bind(user.id).first();
       return json({ version: 1, exportedAt: now, account: { id: user.id, email: user.email }, data: row ? JSON.parse(row.payload) : null, sync: { revision: row?.revision || 0, updatedAt: row?.updated_at || null }, devices: await devicesForAccount(env, user.id), currentDevice: deviceId, noticeRecords: await noticesForAccount(env, user.id) }, 200, cors);
     }
     if (url.pathname === '/api/v1/account/data' && request.method === 'PUT') {
-      const body = await readBody(request), snapshot = body?.snapshot, expectedRevision = body?.expectedRevision;
+      const body = await readBody(request), expectedRevision = body?.expectedRevision;
+      let snapshot = body?.snapshot;
       if (!onlyKeys(body, ['snapshot', 'expectedRevision']) || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return json({ error: 'Account sync version is invalid. Reload account data and try again.' }, 400, cors);
+      if (!supportsProfileCards && snapshot?.privacyNoticeVersion === LEGACY_PRIVACY_NOTICE_VERSION) return json({ error: 'Update Vumiro to review the current privacy notice before backing up or syncing. Sign-in, restore, export and account deletion remain available.' }, 426, cors);
       if (!await validateSnapshot(snapshot)) return json({ error: 'The account data format is invalid.' }, 400, cors);
+      if (!supportsProfileCards) {
+        if (['bio', 'banner', 'connections'].some(field => Object.hasOwn(snapshot.profile, field))) return json({ error: 'This client must advertise profile-card support before saving profile details.' }, 400, cors);
+        if (expectedRevision > 0) {
+          const current = await env.ACCOUNT_DB.prepare('SELECT payload, revision FROM account_data WHERE account_id = ?').bind(user.id).first();
+          if (!current || current.revision !== expectedRevision) return json({ error: 'Account data changed on another device. Restore the latest copy or choose to replace it with this device.' }, 409, cors);
+          const storedProfile = JSON.parse(current.payload).profile;
+          const preserved = Object.fromEntries(['bio', 'banner', 'connections'].filter(field => Object.hasOwn(storedProfile, field)).map(field => [field, storedProfile[field]]));
+          snapshot = {...snapshot, profile: {...snapshot.profile, ...preserved}};
+          if (!await validateSnapshot(snapshot)) return json({ error: 'The saved account data format is invalid.' }, 400, cors);
+        }
+      }
       const payload = JSON.stringify(snapshot), timestamp = new Date().toISOString();
       let result;
       if (expectedRevision === 0) result = await env.ACCOUNT_DB.prepare('INSERT INTO account_data (account_id, payload, updated_at, revision) VALUES (?, ?, ?, 1) ON CONFLICT(account_id) DO NOTHING').bind(user.id, payload, timestamp).run();

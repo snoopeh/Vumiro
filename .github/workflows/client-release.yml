@@ -28,7 +28,7 @@ jobs:
       - name: Build portable client and update helper
         shell: pwsh
         run: |
-          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs tests/invite-volume.test.mjs tests/oauth-desktop.test.mjs tests/audio-settings.test.mjs tests/sidebar.test.mjs
+          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs tests/invite-volume.test.mjs tests/oauth-desktop.test.mjs tests/audio-settings.test.mjs tests/sidebar.test.mjs tests/call-layout.test.mjs tests/profile-card-data.test.mjs tests/friend-tag-client.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'Client regression tests failed.' }
           dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
           if ($LASTEXITCODE -ne 0) { throw 'Native OAuth callback checks failed.' }

@@ -57,7 +57,7 @@
       const ticket = ++peer.profileRequested; clearTimeout(peer.finish); peer.finish = 0;
       peer.profiles = peer.profiles.then(async () => {
         const own = identity(); if (!own || !active(peer)) return;
-        const value = {type:'profile',id:own.id,key:own.key,nonce:crypto.randomUUID(),expires:serverNow()+60000,profile:{name:own.name,username:own.username||'',avatar:own.avatar||''}};
+        const value = {type:'profile',id:own.id,key:own.key,nonce:crypto.randomUUID(),expires:serverNow()+60000,profile:{name:own.name,username:own.username||'',avatar:own.avatar||'',bio:own.bio||'',banner:own.banner||'',connections:own.connections||[]}};
         value.signature = await local.sign(profileText(own.id,peer.id,value));
         if (!active(peer)) return;
         if (channelSend(peer,value)) { peer.sent = value.nonce; peer.acknowledged = false; peer.profileSent = ticket; clearTimeout(peer.finish); peer.finish = 0; }
@@ -74,10 +74,12 @@
       const friend = getFriend(peer.id), own = identity();
       if (value?.type !== 'profile' || value.id !== peer.id || value.key !== friend?.key || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires <= serverNow() || value.expires > serverNow()+60000 || !value.profile || typeof value.profile !== 'object' || Array.isArray(value.profile)) return;
       const profile = value.profile;
+      if (Object.keys(profile).some(key => !['name','username','avatar','bio','banner','connections'].includes(key))) return;
       if (typeof profile.name !== 'string' || !profile.name.trim() || profile.name.length > 48 || typeof profile.username !== 'string' || (profile.username && !/^[a-z0-9_.-]{3,24}$/.test(profile.username)) || typeof profile.avatar !== 'string') return;
       local.validateAvatar(profile.avatar);
+      const bio = local.validateBio(profile.bio), banner = local.validateBanner(profile.banner), connections = local.validateConnections(profile.connections);
       if (!await local.verify(friend,profileText(peer.id,own.id,value),value.signature) || !active(peer) || getFriend(peer.id)?.key !== friend.key || value.expires <= serverNow()) return;
-      await onProfile(peer.id,{name:profile.name,username:profile.username,avatar:profile.avatar});
+      await onProfile(peer.id,{name:profile.name,username:profile.username,avatar:profile.avatar,bio,banner,connections});
       if (!active(peer)) return;
       peer.received = true; channelSend(peer,{type:'received',nonce:value.nonce}); finish(peer);
     }

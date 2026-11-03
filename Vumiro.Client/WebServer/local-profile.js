@@ -56,6 +56,38 @@
     if (typeof value !== 'string' || value.length > 32768 || !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) throw Error('Choose a PNG, JPEG or WebP profile picture under 32 KiB after resizing.');
     return value;
   }
+  function cleanBio(value = '') {
+    if (typeof value !== 'string') throw Error('Your bio must be text.');
+    const result = value.normalize('NFC').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim();
+    if (result.length > 240) throw Error('Keep your bio to 240 characters.');
+    return result;
+  }
+  function cleanBanner(value = '') {
+    if (typeof value !== 'string' || value.length > 16384 || (value && !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value))) throw Error('Choose a PNG, JPEG or WebP banner under 16 KiB after resizing.');
+    return value;
+  }
+  const connectionPaths = {
+    steam: ['steamcommunity.com', /^\/(?:id\/[A-Za-z0-9_-]{1,64}|profiles\/[0-9]{17})\/?$/],
+    spotify: ['open.spotify.com', /^\/user\/[A-Za-z0-9._-]{1,100}\/?$/],
+    twitch: ['www.twitch.tv', /^\/[A-Za-z0-9_]{1,25}\/?$/],
+    youtube: ['www.youtube.com', /^\/(?:@[\p{L}\p{N}_.%-]{1,100}|(?:channel|c|user)\/[A-Za-z0-9_%-]{1,100})\/?$/u],
+    github: ['github.com', /^\/[A-Za-z0-9-]{1,39}\/?$/],
+    xbox: ['www.xbox.com', /^\/(?:[a-z]{2}-[a-z]{2}\/)?play\/user\/[A-Za-z0-9%_-]{1,100}\/?$/i]
+  };
+  function cleanConnections(value = []) {
+    if (!Array.isArray(value) || value.length > 5) throw Error('Choose up to five profile links.');
+    const seen = new Set();
+    return value.map(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item) || Object.keys(item).sort().join(',') !== 'provider,url' || typeof item.provider !== 'string' || !Object.hasOwn(connectionPaths, item.provider) || typeof item.url !== 'string' || item.url.length > 240) throw Error('This profile link is invalid.');
+      const rule = connectionPaths[item.provider]; let url;
+      try { url = new URL(item.url); } catch { throw Error('Enter a complete HTTPS profile link.'); }
+      const host = url.hostname.toLowerCase().replace(/^www\./, '');
+      if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash || host !== rule[0].replace(/^www\./, '') || !rule[1].test(url.pathname) || /%2f|%5c|%00/i.test(url.pathname) || seen.has(item.provider)) throw Error('Use one HTTPS profile link for each supported provider.');
+      seen.add(item.provider); url.hostname = rule[0];
+      return {provider: item.provider, url: url.href};
+    });
+  }
+  const cardFields = value => ({bio: cleanBio(value?.bio), banner: cleanBanner(value?.banner), connections: cleanConnections(value?.connections)});
   function open() {
     if (database) return database;
     database = new Promise((resolve, reject) => {
@@ -74,7 +106,7 @@
       tx.onerror = tx.onabort = () => reject(tx.error || Error('Could not save the local profile.'));
     });
   }
-  const publicProfile = () => identity ? {id: identity.id, name: identity.name, key: identity.key, username: identity.username || '', avatar: identity.avatar || ''} : null;
+  const publicProfile = () => identity ? {id: identity.id, name: identity.name, key: identity.key, username: identity.username || '', avatar: identity.avatar || '', ...cardFields(identity)} : null;
   async function initialize() {
     if (!window.isSecureContext || !crypto.subtle || !window.indexedDB) throw Error('Open Vumiro in its desktop app or over HTTPS to use local profiles.');
     identity = await transaction('state', 'readonly', store => store.get('profile')) || null;
@@ -99,6 +131,9 @@
     if ('name' in update) patch.name = cleanName(update.name);
     if ('username' in update) patch.username = cleanUsername(update.username);
     if ('avatar' in update) patch.avatar = cleanAvatar(update.avatar);
+    if ('bio' in update) patch.bio = cleanBio(update.bio);
+    if ('banner' in update) patch.banner = cleanBanner(update.banner);
+    if ('connections' in update) patch.connections = cleanConnections(update.connections);
     let candidate;
     await transaction('state', 'readwrite', (store, tx) => {
       const request = store.get('profile');
@@ -154,7 +189,7 @@
     const publicKey = await crypto.subtle.importKey('spki', spki, algorithm, false, ['verify']);
     if (publicKey.algorithm.namedCurve !== 'P-256' || base64url(await crypto.subtle.digest('SHA-256', spki)) !== contact.id) throw Error('The public key does not match this contact’s identity.');
     if (contact.id === identity?.id) throw Error('This is your own identity. Ask your friend for theirs.');
-    return {id: contact.id, name, key: contact.key, username: cleanUsername(contact.username), avatar: cleanAvatar(contact.avatar)};
+    return {id: contact.id, name, key: contact.key, username: cleanUsername(contact.username), avatar: cleanAvatar(contact.avatar), ...cardFields(contact)};
   }
   async function parseContactCode(code, fallbackName) {
     if (typeof code !== 'string' || code.length > 2048) throw Error('Paste a complete vm1. or stfriend1. contact code.');
@@ -263,12 +298,15 @@
     if ('name' in update) fields.name = cleanName(update.name);
     if ('username' in update) fields.username = cleanUsername(update.username);
     if ('avatar' in update) fields.avatar = cleanAvatar(update.avatar);
+    if ('bio' in update) fields.bio = cleanBio(update.bio);
+    if ('banner' in update) fields.banner = cleanBanner(update.banner);
+    if ('connections' in update) fields.connections = cleanConnections(update.connections);
     await transaction('friends', 'readwrite', store => {
       const request = store.get(id); request.onsuccess = () => {
         if (!request.result) return;
         const old = decorate(request.result), next = {...old, ...fields};
         if (!next.nicknameOverride) next.nickname = next.name;
-        if (Object.keys(fields).some(key => (old[key] || '') !== fields[key])) { store.put(next); didChange = true; }
+        if (Object.keys(fields).some(key => JSON.stringify(old[key] ?? (key === 'connections' ? [] : '')) !== JSON.stringify(fields[key]))) { store.put(next); didChange = true; }
       };
     }); if (didChange) changed();
   }
@@ -287,12 +325,13 @@
   async function accountSnapshot() {
     if (!identity) throw Error('Create a local profile before syncing account data.');
     const friends = (await listFriends()).map(friend => ({id:friend.id,key:friend.key,name:friend.name,username:friend.username||'',avatar:'',nickname:friend.nicknameOverride?friend.nickname:''}));
-    return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||''},friends,blocked:await listBlocked(),settings:{}};
+    return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||'',...cardFields(identity)},friends,blocked:await listBlocked(),settings:{}};
   }
   async function applyAccountSnapshot(snapshot) {
     if (!identity) throw Error('Create a local profile before restoring account data.');
     if (!snapshot || snapshot.version !== 1 || !snapshot.profile || !Array.isArray(snapshot.friends) || snapshot.friends.length > 128 || !Array.isArray(snapshot.blocked) || snapshot.blocked.length > 64) throw Error('The saved account data is invalid.');
-    const profilePatch={name:cleanName(snapshot.profile.name),username:cleanUsername(snapshot.profile.username||''),avatar:cleanAvatar(snapshot.profile.avatar||'')};
+    if(Object.keys(snapshot.profile).some(key=>!['name','username','avatar','bio','banner','connections'].includes(key)))throw Error('The saved profile is invalid.');
+    const profilePatch={name:cleanName(snapshot.profile.name),username:cleanUsername(snapshot.profile.username||''),avatar:cleanAvatar(snapshot.profile.avatar||''),...cardFields(snapshot.profile)};
     if(snapshot.blocked.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id))||new Set(snapshot.blocked).size!==snapshot.blocked.length)throw Error('The saved block list is invalid.');
     // A snapshot can contain this installation's current identity when it was
     // produced by a different device. It is not a valid friend/block locally,
@@ -307,7 +346,7 @@
       if(raw.nickname!=null&&typeof raw.nickname!=='string')throw Error('The saved nickname is invalid.');
       const nickname=typeof raw.nickname==='string'&&raw.nickname.trim()?cleanName(raw.nickname):'';
       if (wanted.has(contact.id)) throw Error('The saved contact list contains duplicates.');
-      if (!blocked.includes(contact.id)) wanted.set(contact.id,{...contact,avatar:'',nickname:nickname||contact.name,nicknameOverride:!!nickname,added:Date.now()});
+      if (!blocked.includes(contact.id)) wanted.set(contact.id,{...contact,avatar:'',bio:'',banner:'',connections:[],nickname:nickname||contact.name,nicknameOverride:!!nickname,added:Date.now()});
     }
     const db=await open();
     let candidate;
@@ -379,7 +418,7 @@
       if(!transition||transition.fromId!==identity.id||transition.fromKey!==identity.key||transition.toId!==value.identityId||transition.toKey!==value.publicKey||
         !await verify(identity,transitionText(transition),transition.signature))throw Error('This device already has a different local identity and the account has no valid transition from it.');
     }
-    const candidate={id:value.identityId,key:value.publicKey,privateKey:value.privateKey,name:cleanName(profile?.name||identity?.name||'Vumiro user'),username:cleanUsername(profile?.username||identity?.username||''),avatar:cleanAvatar(profile?.avatar||identity?.avatar||''),...(transition?{transition}:{})};
+    const candidate={id:value.identityId,key:value.publicKey,privateKey:value.privateKey,name:cleanName(profile?.name||identity?.name||'Vumiro user'),username:cleanUsername(profile?.username||identity?.username||''),avatar:cleanAvatar(profile?.avatar||identity?.avatar||''),...cardFields(profile || identity),...(transition?{transition}:{})};
     await transaction('state','readwrite',store=>{
       const request=store.get('profile');
       request.onsuccess=()=>{if(request.result&&request.result.id!==candidate.id&&request.result.id!==transition?.fromId)store.transaction.abort();else store.put(candidate,'profile');};
@@ -390,7 +429,7 @@
     if(!value||Object.keys(value).sort().join(',')!==['createdAt','fromId','fromKey','signature','toId','toKey','version'].sort().join(',')||value.version!==1||
       !/^[A-Za-z0-9_-]{43}$/.test(value.fromId||'')||!/^[A-Za-z0-9_-]{43}$/.test(value.toId||'')||value.fromId===value.toId||
       typeof value.createdAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||Date.parse(value.createdAt)>Date.now()+300000)throw Error('The identity transition is invalid.');
-    const contact=await validateContact({id:value.toId,key:value.toKey,name:nextProfile?.name,username:nextProfile?.username||'',avatar:nextProfile?.avatar||''});
+    const contact=await validateContact({id:value.toId,key:value.toKey,name:nextProfile?.name,username:nextProfile?.username||'',avatar:nextProfile?.avatar||'',...cardFields(nextProfile)});
     if(contact.id===identity?.id)throw Error('A friend identity cannot replace your own identity.');
     const current=await transaction('friends','readonly',store=>store.get(value.fromId));
     if(!current){const existing=await transaction('friends','readonly',store=>store.get(value.toId));return existing?existing:null;}
@@ -407,7 +446,7 @@
     changed();return next;
   }
   const identityTransition=()=>identity?.transition||null;
-  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar};
+  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar, validateBio: cleanBio, validateBanner: cleanBanner, validateConnections: cleanConnections};
 })();
 
 /* Local voice preferences and audio diagnostics. Deliberately separate from account snapshots. */
@@ -626,9 +665,10 @@
   function ensureDialog() {
     if (dialog) return;
     const style = document.createElement('style');
-    style.textContent = `dialog.vumiro-audio-dialog{color-scheme:dark;color:#f7f2ef;background:#211c1c;border:1px solid #63413f;border-radius:22px;width:min(540px,calc(100vw - 30px));max-height:calc(100svh - 40px);padding:25px;overflow:auto;box-shadow:0 30px 100px #0009;font:13px/1.5 Sora,'Segoe UI',sans-serif}dialog.vumiro-audio-dialog::backdrop{background:#090707b8;backdrop-filter:blur(5px)}.vumiro-audio-dialog h2{font-size:21px;margin:0 0 5px}.vumiro-audio-dialog p{font-size:11px;color:#c1b3ae;margin:6px 0 16px}.vumiro-audio-dialog .va-close{float:right;background:transparent;border:0;font-size:23px;color:#e3d5cf;padding:0 6px}.vumiro-audio-dialog .va-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.vumiro-audio-dialog label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#e2d2cb}.vumiro-audio-dialog select,.vumiro-audio-dialog button{font:inherit;color:#f7eee8;background:#332827;border:1px solid #68504b;border-radius:9px;padding:9px 11px;min-width:0}.vumiro-audio-dialog select{width:100%}.vumiro-audio-dialog button{cursor:pointer}.vumiro-audio-dialog button:hover{background:#49322f}.vumiro-audio-dialog button:disabled,.vumiro-audio-dialog input:disabled,.vumiro-audio-dialog select:disabled{opacity:.5;cursor:default}.vumiro-audio-dialog :focus-visible{outline:2px solid #ff7471;outline-offset:3px}.vumiro-audio-dialog .va-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.vumiro-audio-dialog .va-check{flex-direction:row;align-items:center;gap:9px;margin:10px 0}.vumiro-audio-dialog input[type=checkbox]{accent-color:#ee3a40;width:15px;height:15px;margin:0}.vumiro-audio-dialog input[type=range]{width:100%;accent-color:#ed454b;padding:0}.vumiro-audio-dialog meter{width:100%;height:14px}.vumiro-audio-dialog .va-level{font-size:10px;color:#c4b2aa}.vumiro-audio-dialog .va-section{margin-top:18px;padding-top:17px;border-top:1px solid #59413b}.vumiro-audio-dialog [data-audio-status]{font-size:11px;background:#161211;border-radius:10px;padding:11px;margin:16px 0 0;min-height:38px;color:#e4c9bd}.vumiro-audio-dialog .va-volume{display:flex;justify-content:space-between}.vumiro-audio-dialog [hidden]{display:none!important}@media(max-width:470px){.vumiro-audio-dialog .va-grid{grid-template-columns:1fr}}`;
+    // Audio controls must not style the shared settings navigation or its layout.
+    style.textContent = `dialog.vumiro-audio-dialog:not(.settingsScreen){color-scheme:dark;color:#f7f2ef;background:#211c1c;border:1px solid #63413f;border-radius:18px;width:min(620px,calc(100vw - 30px));max-height:calc(100svh - 40px);padding:25px;overflow:auto;box-shadow:0 30px 100px #0009;font:13px/1.5 Sora,'Segoe UI',sans-serif}dialog.vumiro-audio-dialog:not(.settingsScreen)::backdrop{background:#090707b8;backdrop-filter:blur(5px)}.va-content{min-width:0;width:100%;max-width:760px;margin-inline:auto}.va-content .va-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0 0 10px}.va-content h2{font:600 30px/1.2 Outfit,Sora,'Segoe UI',sans-serif;letter-spacing:-.8px;margin:0}.va-content h3{font:550 19px/1.4 Outfit,Sora,'Segoe UI',sans-serif;margin:0 0 18px}.va-content p{font-size:12px;line-height:1.7;color:var(--muted,#c1b3ae);margin:10px 0 0}.va-content .va-intro{font-size:13px;margin:0 0 30px}.va-content .va-close{position:static;float:none;margin:0;display:grid;place-items:center;flex:none;width:34px;height:34px;background:transparent;border:1px solid var(--line,#483a39);border-radius:50%;font-size:23px;line-height:1;color:#e3d5cf;padding:0}.va-content .va-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.va-content label{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:12px;color:#e2d2cb}.va-content select,.va-content button{box-sizing:border-box;font:inherit;color:#f7eee8;background:var(--surface,#292423);border:1px solid var(--line,#48403e);border-radius:10px;padding:9px 12px;min-width:0}.va-content select{width:100%;max-width:100%;text-overflow:ellipsis}.va-content button{cursor:pointer}.va-content button:hover{background:#38302e;border-color:#6a5651}.va-content button:disabled,.va-content input:disabled,.va-content select:disabled{opacity:.5;cursor:default}.va-content :focus-visible{outline:2px solid #ff7471;outline-offset:3px}.va-content .va-actions{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.va-content .va-check{flex-direction:row;align-items:center;gap:10px;margin:14px 0}.va-content input[type=checkbox]{accent-color:#ee3a40;width:15px;height:15px;margin:0}.va-content input[type=range]{width:100%;max-width:none;accent-color:#ed454b;padding:0}.va-content meter{display:block;width:100%;height:14px}.va-content .va-level{font-size:11px;color:var(--muted,#c4b2aa);margin:5px 0 0}.va-content .va-section{margin-top:28px;padding-top:26px;border-top:1px solid var(--line,#483a39)}.va-content [data-audio-status]{font-size:12px;background:#ffffff03;border:1px solid var(--line,#483a39);border-radius:10px;padding:13px 16px;margin:28px 0 0;min-height:38px;color:var(--muted,#e4c9bd)}.va-content .va-volume{display:flex;justify-content:space-between;gap:12px}.va-content [hidden]{display:none!important}@media(max-width:620px){.va-content .va-grid{grid-template-columns:1fr}}`;
     document.head.append(style); dialog = document.createElement('dialog'); dialog.className = 'vumiro-audio-dialog'; dialog.setAttribute('aria-labelledby', 'vumiro-audio-title');
-    dialog.innerHTML = `<button type="button" class="va-close" data-audio-close aria-label="Close voice and audio">×</button><h2 id="vumiro-audio-title">Voice &amp; audio</h2><p>Choose what you speak through and where you listen. Saved only on this device.</p><div class="va-grid"><label>Microphone<select data-audio-input aria-label="Microphone device"></select></label><label>Speaker / headphones<select data-audio-output aria-label="Speaker device"></select></label></div><div class="va-actions"><button type="button" data-audio-refresh>Refresh devices</button><button type="button" data-audio-permission>Enable mic meter</button></div><meter data-audio-meter min="0" max="100" value="0" aria-label="Microphone input level"></meter><div class="va-level" data-audio-level>Microphone off</div><div class="va-actions"><button type="button" data-audio-test>Record &amp; play test</button><button type="button" data-audio-stop disabled>Stop test / meter</button></div><p>Tests stay on this device. A microphone test pauses room voice and playback until it ends. The meter alone does not change your call mute.</p><div class="va-section"><label><span class="va-volume">Playback volume <output data-audio-volume-value>100%</output></span><input data-audio-volume type="range" min="0" max="100" step="1" aria-label="Master playback volume"></label><div class="va-actions"><button type="button" data-audio-speaker-test>Test speaker</button></div><p data-audio-speaker-help></p></div><div class="va-section"><label class="va-check"><input data-audio-echoCancellation type="checkbox">Echo cancellation</label><label class="va-check"><input data-audio-noiseSuppression type="checkbox">Noise suppression</label><label class="va-check"><input data-audio-autoGainControl type="checkbox">Automatic microphone level</label><p data-audio-processing></p></div><div data-audio-status role="status" aria-live="polite">Microphone stays off until you enable the meter or start a test.</div>`;
+    dialog.innerHTML = `<div class="va-content"><div class="dialogHead va-header"><h2 id="vumiro-audio-title">Voice &amp; audio</h2><button type="button" class="va-close" data-audio-close aria-label="Close voice and audio">×</button></div><p class="va-intro">Choose what you speak through and where you listen. Saved only on this device.</p><section aria-label="Microphone and speaker devices"><div class="va-grid"><label>Microphone<select data-audio-input aria-label="Microphone device"></select></label><label>Speaker / headphones<select data-audio-output aria-label="Speaker device"></select></label></div><div class="va-actions"><button type="button" data-audio-refresh>Refresh devices</button><button type="button" data-audio-permission>Enable mic meter</button></div><meter data-audio-meter min="0" max="100" value="0" aria-label="Microphone input level"></meter><div class="va-level" data-audio-level>Microphone off</div><div class="va-actions"><button type="button" data-audio-test>Record &amp; play test</button><button type="button" data-audio-stop disabled>Stop test / meter</button></div><p>Tests stay on this device. A microphone test pauses room voice and playback until it ends. The meter alone does not change your call mute.</p></section><section class="va-section" aria-labelledby="va-playback-title"><h3 id="va-playback-title">Playback</h3><label><span class="va-volume">Playback volume <output data-audio-volume-value>100%</output></span><input data-audio-volume type="range" min="0" max="100" step="1" aria-label="Master playback volume"></label><div class="va-actions"><button type="button" data-audio-speaker-test>Test speaker</button></div><p data-audio-speaker-help></p></section><section class="va-section" aria-labelledby="va-processing-title"><h3 id="va-processing-title">Voice processing</h3><label class="va-check"><input data-audio-echoCancellation type="checkbox">Echo cancellation</label><label class="va-check"><input data-audio-noiseSuppression type="checkbox">Noise suppression</label><label class="va-check"><input data-audio-autoGainControl type="checkbox">Automatic microphone level</label><p data-audio-processing></p></section><div data-audio-status role="status" aria-live="polite">Microphone stays off until you enable the meter or start a test.</div></div>`;
     document.body.append(dialog);
     const get = selector => dialog.querySelector('[data-audio-' + selector + ']');
     get('close').onclick = () => dialog.close(); dialog.addEventListener('close', () => { stopPreview(); opener?.focus?.(); });

@@ -51,7 +51,7 @@
 
   function openParticipantProfile(id,isLocal) {
     const profile=profileCache.get(id) || {name:id===identity?.id?($('name').value||'You'):peers.get(id)?.name||'Participant',username:'',avatar:''};
-    $('profileName').textContent=profile.name+(isLocal?' (you)':'');$('profileUsername').textContent=profile.username?'@'+profile.username:'';$('profileUsername').hidden=!profile.username;$('profileAvatar').src=profile.avatar||fallbackAvatar(profile.name);$('profileNote').textContent='';
+    profileViewingId=id;profileViewingLocal=isLocal;renderParticipantCard(profile,isLocal);$('profileTag').hidden=true;$('profileTag').textContent='';$('profileNote').textContent='';
     const action=$('profileFriend');action.hidden=isLocal;action.disabled=true;action.textContent='Checking friendship…';profileAddBusy=false;profileRequestId=isLocal?'':id;clearTimeout(profileRequestTimer);
     if(!isLocal) {
       if(embedded) { parentMessage({type:'vumiro-friend-status-query',id});profileRequestTimer=setTimeout(()=>{ if(profileRequestId===id) { action.hidden=true;$('profileNote').textContent='Could not check friend status. Open the Friends page to manage this person.'; } },5000); }
@@ -59,8 +59,22 @@
     }
     const dialog=$('profilePopover');if(!dialog.open) dialog.showModal();$('profileClose').focus();
   }
+  function renderParticipantCard(profile,isLocal) {
+    $('profileName').textContent=profile.name+(isLocal?' (you)':'');$('profileUsername').textContent=profile.username?'@'+profile.username:'';$('profileUsername').hidden=!profile.username;$('profileAvatar').src=profile.avatar||fallbackAvatar(profile.name);
+    $('profileBanner').hidden=!profile.banner;if(profile.banner)$('profileBanner').src=profile.banner;else $('profileBanner').removeAttribute('src');
+    $('profileBio').textContent=profile.bio||'';$('profileBio').hidden=!profile.bio;
+    const links=$('profileLinks');links.replaceChildren();
+    const labels={steam:'Steam',spotify:'Spotify',twitch:'Twitch',youtube:'YouTube',github:'GitHub',xbox:'Xbox'};
+    for(const connection of profile.connections||[]) {
+      const anchor=document.createElement('a');anchor.href=connection.url;anchor.target='_blank';anchor.rel='noopener noreferrer';anchor.textContent=labels[connection.provider]+' ↗';anchor.setAttribute('aria-label','Open '+labels[connection.provider]+' profile (external website)');links.append(anchor);
+    }
+    $('profileConnections').hidden=!links.children.length;
+  }
   function friendStatus(message) {
     if(message.id!==profileRequestId) return;clearTimeout(profileRequestTimer);const action=$('profileFriend'),note=$('profileNote');action.disabled=profileAddBusy;
+    // Friend numbers come only from the trusted app parent's directory result,
+    // never from direct peer display metadata or a claimed profile name.
+    const tag=typeof message.friendTag==='string'&&/^#[0-9]{5}-[0-9]{5}$/.test(message.friendTag)?message.friendTag:'';$('profileTag').textContent=tag;$('profileTag').hidden=!tag;
     if(message.status==='friend') { action.hidden=false;action.disabled=true;action.textContent='Already friends';note.textContent=message.message||'You are friends.'; }
     else if(message.status==='pending') { action.hidden=false;action.disabled=true;action.textContent='Request pending';note.textContent=message.message||'A friend request is already pending.'; }
     else if(message.status==='sent') { profileAddBusy=false;action.hidden=false;action.disabled=true;action.textContent='Request sent';note.textContent=message.message||'Friend request sent.'; }
@@ -69,18 +83,18 @@
   }
   $('profileClose').onclick=()=>{ clearTimeout(profileRequestTimer);profileRequestId='';$('profilePopover').close(); };
   $('profilePopover').addEventListener('click',event=>{ if(event.target===$('profilePopover')) $('profilePopover').close(); });
-  $('profilePopover').addEventListener('close',()=>{ clearTimeout(profileRequestTimer);profileRequestTimer=0;profileRequestId='';profileAddBusy=false; });
+  $('profilePopover').addEventListener('close',()=>{ clearTimeout(profileRequestTimer);profileRequestTimer=0;profileRequestId='';profileViewingId='';profileAddBusy=false; });
   $('profileFriend').onclick=()=>{ const id=profileRequestId;if(!id||profileAddBusy) return;if(!embedded) { location.href=new URL('/friends.html',location.href).href;return; }profileAddBusy=true;$('profileFriend').disabled=true;$('profileFriend').textContent='Sending…';$('profileNote').textContent='';parentMessage({type:'vumiro-add-friend',id});profileRequestTimer=setTimeout(()=>{ if(profileRequestId===id&&profileAddBusy) { profileAddBusy=false;$('profileFriend').disabled=false;$('profileFriend').textContent='Add friend';$('profileNote').textContent='No response from Vumiro. You can try again.'; } },8000); };
   function avatarElement(profile) { const image=document.createElement('img');image.className='avatar';image.alt='';image.src=profile.avatar || fallbackAvatar(profile.name);return image; }
   function fallbackAvatar(name) { const initial=Array.from(String(name || '?').trim())[0] || '?',svg='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="32" fill="#3b303a"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#f8dce1" font-family="sans-serif">'+initial.replace(/[<>&"']/g,'')+'</text></svg>';return 'data:image/svg+xml,'+encodeURIComponent(svg); }
   function updateMessageProfiles(id) { const profile=profileCache.get(id);if(!profile) return;for(const row of $('chatLog').children) if(row.dataset.sender===id) { row.querySelector('.message-avatar').src=profile.avatar || fallbackAvatar(profile.name);row.querySelector('.message-label').textContent=profile.name+(id===identity?.id?' (you)':''); } }
-  function cacheProfile(id,profile) { profileCache.set(id,profile);if(profileCache.size>128) profileCache.delete(profileCache.keys().next().value);updateMessageProfiles(id); }
+  function cacheProfile(id,profile) { profileCache.set(id,profile);if(profileCache.size>128) profileCache.delete(profileCache.keys().next().value);updateMessageProfiles(id);if(profileViewingId===id&&$('profilePopover').open)renderParticipantCard(profile,profileViewingLocal); }
   const peers = new Map();
   const local = window.VumiroLocalProfile;
   let identity = null, roomNonce = '', roomFriendsRevision = 0;
   const identityReady = local.initialize().then(value => { identity = value; return value; });
   let selfId = '', socket = null, joined = false, reconnectTimer = 0, retry = 0, generation = 0;
-  let profileRequestId='', profileRequestTimer=0, profileAddBusy=false;
+  let profileRequestId='', profileRequestTimer=0, profileAddBusy=false,profileViewingId='',profileViewingLocal=false;
   let screen = null, microphone = null, localTile = null, joining = false;
   const voice = window.VumiroAudioSettings || null;
   let micMuted = false, micSuppressed = false, micChanging = false, microphoneEpoch = 0;
@@ -105,13 +119,19 @@
     try { peer.channel.send(value);return true; } catch { return false; }
   }
   function cleanProfile(value) {
-    if(!value || typeof value.name!=='string') return null;
+    if(!value || typeof value.name!=='string' || Array.isArray(value)) return null;
     const name=value.name.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g,'').trim();
     if(!name || name.length>48 || (value.username!==undefined && typeof value.username!=='string') || (value.username && !/^[a-z0-9_.-]{3,24}$/.test(value.username))) return null;
     const avatar=typeof value.avatar==='string' && value.avatar.length<=32768 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value.avatar) ? value.avatar : '';
-    return {name,username:value.username || '',avatar};
+    // The same validators protect saved profiles and untrusted room metadata.
+    // Older clients without these validators safely omit the optional fields.
+    try {
+      const bio=typeof local.validateBio==='function'?local.validateBio(value.bio):'',banner=typeof local.validateBanner==='function'?local.validateBanner(value.banner):'',connections=typeof local.validateConnections==='function'?local.validateConnections(value.connections):[];
+      const profile={name,username:value.username || '',avatar,bio,banner,connections};
+      return encoder.encode(JSON.stringify({type:'profile',profile})).length<=65536?profile:null;
+    } catch { return null; }
   }
-  function showProfile(target,profile,isLocal=false) { target.heading.textContent=profile.name+(isLocal?' (you)':'');target.avatar.hidden=false;target.avatar.src=profile.avatar || fallbackAvatar(profile.name);target.placeholderAvatar.textContent=profile.avatar?'':Array.from(profile.name)[0];target.placeholderAvatar.style.backgroundImage=profile.avatar?'url('+profile.avatar+')':'';refreshLayout(); }
+  function showProfile(target,profile,isLocal=false) { target.heading.textContent=profile.name+(isLocal?' (you)':'');target.avatar.hidden=false;target.avatar.src=profile.avatar || fallbackAvatar(profile.name);target.placeholderAvatar.src=target.avatar.src;refreshLayout(); }
   function ownProfile() { return cleanProfile(local.profile?.() || identity); }
   function announceProfile(peer) { const profile=ownProfile();if(profile) channelSend(peer,{type:'profile',profile}); }
   async function receiveProfile(peer,value) {
@@ -236,7 +256,7 @@
     const full = document.createElement('button'); full.className='fullscreen-button';full.title='Fullscreen';full.setAttribute('aria-label','Fullscreen '+name);const fullIcon=document.createElement('span');fullIcon.setAttribute('aria-hidden','true');fullIcon.innerHTML='<svg class="icon"><use href="#i-fullscreen"/></svg>';const fullLabel=document.createElement('span');fullLabel.textContent='Fullscreen';full.append(fullIcon,fullLabel);tools.append(view, full); header.append(identityBox, tools);
     const stage = document.createElement('div'); stage.className='stage';
     const video = document.createElement('video'); video.autoplay=true; video.playsInline=true; video.muted=true;
-    const placeholder=document.createElement('div'); placeholder.className='placeholder'; const placeholderAvatar=document.createElement('div'),placeholderLabel=document.createElement('small');placeholderAvatar.className='placeholder-avatar';placeholderAvatar.textContent=Array.from(name)[0] || '?';placeholderLabel.textContent='Here with you · not sharing a screen';placeholder.append(placeholderAvatar,placeholderLabel);
+    const placeholder=document.createElement('div'); placeholder.className='placeholder'; const placeholderAvatar=document.createElement('img'),placeholderLabel=document.createElement('small');placeholderAvatar.className='placeholder-avatar';placeholderAvatar.alt='';placeholderAvatar.src=fallbackAvatar(name);placeholderLabel.textContent='Here with you · not sharing a screen';placeholder.append(placeholderAvatar,placeholderLabel);
     const stats=document.createElement('div'); stats.className='stats'; stats.textContent=local?'Your screen preview':'Waiting for direct connection…';
     stage.append(video,placeholder); element.append(header,stage,stats); $('tiles').append(element);
     view.onchange = () => { stage.classList.toggle('actual', view.value === 'actual'); resize(); };

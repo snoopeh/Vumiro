@@ -1,6 +1,6 @@
 # Vumiro alpha account privacy notice
 
-Notice version: **2026-11-01**
+Notice version: **2026-11-03**
 
 **Emanuel Queiroz (snoopeh)** operates the Vumiro alpha account service. Contact **[snopeeh@gmail.com](mailto:snopeeh@gmail.com)** for privacy requests, questions, or security incidents. Never send a password, verification code, identity recovery code, private key, or device credential in a request.
 
@@ -11,19 +11,23 @@ An account is optional. You can use Vumiro with a local profile without account 
 | Information | Purpose and location |
 | --- | --- |
 | Email address, password verifier, authentication and session records | Supabase Auth handles registration, sign-in, verification and recovery. The app sends your password to Supabase for authentication; the Vumiro account backend does not store it. Brevo processes the recipient address and message content to deliver authentication and security emails. |
-| Display name, online username and profile picture | Restore your profile through the Vumiro account database. These public profile fields are also shared with peers when you use the connection features. |
-| Friends' public keys, display names, usernames and your local nicknames; blocked identity codes | Restore your contact book and block list through the account database. These records can identify other people. Friend pictures are not synced. |
+| Display name, online username, profile picture, and optional bio, background image and provider profile links | Restore your own profile through the Vumiro account database when you enable backup. Profile-card details are exchanged directly with connected friends through signed peer messages and cached on their devices. Provider links are entered by the user; they are not verified integrations, OAuth connections or evidence of account ownership. Opening a link contacts that external provider. |
+| Friends' public keys, display names, usernames and your local nicknames; blocked identity codes | Restore your contact book and block list through the account database. These records can identify other people. Friends' cached pictures, bios, backgrounds and profile links are not included in your account backup. |
 | Stream preferences | Restore the defaults you selected. |
 | Account identifier, linked-device identifiers, activity/revocation timestamps and device-credential hashes | Associate sync data with your account, protect sessions and revoke lost devices. Raw device credentials stay in secure storage on the device. |
 | Sync revisions/timestamps and notice version/acknowledgement records | Resolve sync changes and record which notice you reviewed. |
 | Encrypted signing-identity recovery envelope and signed public-key transition | Restore the same contact identity on another device and let friends verify an identity migration. The private signing key is encrypted in the app with AES-256-GCM before upload; the service stores ciphertext and public recovery metadata. |
 | Rate-limit windows, deletion-job status and service logs | Limit abuse, diagnose failures and finish account deletion. Providers also process technical information such as IP addresses and request metadata to operate and secure their services. |
+| Cryptographic identity-to-friend-tag assignments and identity-migration replay records | The Cloudflare friend directory allocates a stable numeric friend tag to a signing identity and remembers an identity migration to prevent its replay. These records are separate from Supabase accounts and do not contain email addresses, profile-card images or private keys. A friend tag is an identifier, not a password. |
+| Hourly hashed connecting-IP allocation counters | Limit creation of new friend tags. The directory stores a hash derived from the IP address and current hour, its count and expiry; it does not store the raw IP in this allocation table. The hash is pseudonymous and does not make provider network processing anonymous. |
 
 Screens, audio/video, chat, microphone data and room passwords are not part of account sync. Raw private signing keys and identity recovery codes are not uploaded to the account service. Your recovery code remains in operating-system secure storage and any offline copy you save. Refresh tokens are saved through Windows DPAPI or Electron's operating-system-backed `safeStorage`; access tokens remain in memory.
 
 The signing-identity backup is encrypted in the app. Other synced profile, contact, block, device, preference and notice fields are **readable by authorized Vumiro infrastructure operators and the database provider**. They are not end-to-end encrypted. Encryption during transport and at rest does not change that access.
 
 Google or Microsoft sign-in, when enabled and chosen by you, shares your email and basic profile for authentication. Vumiro does not request your mailbox, files or address book for this sign-in.
+
+While connected, the friend directory handles your public identity, display name, optional username, online presence, friend requests and room availability. Friend-tag lookup works while the target is online. Profile pictures, backgrounds, bios and provider links travel directly between connected friends rather than through this discovery directory. The optional Supabase account backup is a separate path that can store your own profile-card details.
 
 ## Your controls and requests
 
@@ -35,9 +39,13 @@ Deleting an account removes the synced snapshot, linked devices, notice records 
 
 Account deletion does not erase an offline device's local profile, contacts or signing keys. Remove local app data separately if you want to erase those copies. Deleting active database rows also does not immediately remove provider logs or recovery copies described below.
 
+The friend directory is tied to the local cryptographic identity, not the Supabase account. Account deletion does **not** remove its friend-tag assignment or identity-migration replay mapping. These mappings have no automatic expiry and there is currently no in-app control to delete them. Contact the operator about directory records; the account deletion button must not be treated as evidence that these separate records were erased. Friends can also retain profile-card details they previously received on their own devices.
+
 ## Retention
 
 Synced account data remains while the account exists; no automatic inactive-account deletion period is implemented. Revoked-device records are eligible for cleanup after **90 days**, and account rate-limit windows after **two days**. Hourly maintenance removes eligible rows; account deletion also removes that account's device and rate-limit rows. Pending deletion jobs and completed deletion records follow the separate process above.
+
+Friend-tag assignments and identity-migration replay records remain without an automatic expiry. Connecting-IP allocation counters expire at the end of their hourly window and are removed by directory alarms or subsequent pruning; service outages can delay physical cleanup. Pending friend-request records are retained until their signed expiry; answered or cancelled requests are normally retained for **seven days** for delivery and replay handling. Locally cached friend-card details remain until changed, the contact is removed or local app data is erased. Remote copies on a friend's device are outside the account deletion process.
 
 Cloudflare D1's always-on Time Travel recovery history covers the preceding **seven days** on the Free plan. Deleted data can therefore remain in recovery history during that period. [D1 backups](https://developers.cloudflare.com/d1/reference/time-travel/)
 
@@ -54,7 +62,7 @@ Brevo is configured for anonymous email tracking: opens and clicks are not assoc
 | Provider | Role and locations |
 | --- | --- |
 | Supabase | Authentication. This project's Auth service and database are hosted in AWS **São Paulo, Brazil (`sa-east-1`)**. Supabase also processes logs in EU data centers and can process support/operations information outside the selected region, including Singapore and the United States. |
-| Cloudflare | Worker API and D1 account storage. The current D1 location is **Eastern North America (`ENAM`)**. This is a location designation/hint, not a guarantee that all processing is confined to one country. Workers and supporting network/security services can process requests internationally. |
+| Cloudflare | Worker API, friend-directory Durable Object storage and D1 account storage. The current D1 location is **Eastern North America (`ENAM`)**; this designation does not establish the friend-directory storage location or guarantee that all processing stays in one country. Workers and supporting network/security services can process requests internationally. |
 | Brevo | Transactional authentication/security email via encrypted SMTP. Brevo describes EU database hosting in **France, Germany and Belgium**, with replicated copies and encrypted backups. That description does not establish that every support or subprocessor operation stays in those countries. |
 
 Supabase's regional hosting does not mean all account processing remains in Brazil, and Cloudflare does not offer a South America D1 location hint. Brevo replaces the Gmail sender domain for delivery: tested account email uses the display name Vumiro and sender `snopeeh@12660220.brevosend.com`. Vumiro's contact address remains [snopeeh@gmail.com](mailto:snopeeh@gmail.com). [Supabase locations/transfers](https://supabase.com/legal/privacy-resources/data-residency-and-transfers-faq), [D1 locations](https://developers.cloudflare.com/d1/configuration/data-location/), [Brevo locations/backups](https://help.brevo.com/hc/en-us/articles/360001005510-Data-storage-location), [Brevo sender rewriting](https://help.brevo.com/hc/en-us/articles/16045394674066-Troubleshooting-Domain-authentication)
@@ -65,4 +73,4 @@ The providers publish processing terms and subprocessor/transfer information: [S
 
 The alpha uses verified-email authentication, a minimum 12-character password, six-digit email codes expiring after 600 seconds, and ES256 access tokens configured for 3,600 seconds. Password-change and email-change security notifications are enabled. The Worker validates token signatures, ownership and linked-device credentials; it stores device-credential hashes rather than raw credentials. Identity recovery encryption protects the private-key backup; other account fields retain the operator/provider visibility explained above. These measures reduce risk but do not guarantee that incidents cannot occur.
 
-This notice ships as `PRIVACY.md` on Windows or `licenses/PRIVACY.md` on Linux. The app shows a shorter notice before account creation. Operator procedures, provider configuration evidence and incident/request handling are maintained in [Account operations](ACCOUNT-OPERATIONS.md).
+This notice ships as `PRIVACY.md` on Windows or `licenses/PRIVACY.md` on Linux. The app shows a shorter notice before account creation and in account settings. Returning users can sign in without repeatedly acknowledging it. A changed notice is acknowledged before backing up or syncing under the new version; sign-in alone does not record acceptance. Operator procedures, provider configuration evidence and incident/request handling are maintained in [Account operations](ACCOUNT-OPERATIONS.md).

@@ -35,7 +35,7 @@
       setTimeout(()=>{const pending=pendingStore.get(requestId);if(pending){pendingStore.delete(requestId);reject(Error('Secure account storage did not respond.'));}},10000);
     });
   }
-  const NOTICE_VERSION = '2026-11-01';
+  const NOTICE_VERSION = '2026-11-03';
   let authConfig, session = null, active = false, accountService = '', pendingSignup = null, pendingEmail = '', syncTimer = 0, restoring = false, reauthAction = null, accountRevision = 0;
   let deviceId = '', deviceToken = '', deviceAccountId = '';
   let identityRecovery = null, identityRecoveryCode = '', identityUnlock = null, identityRewrapPending = false;
@@ -212,6 +212,7 @@
       if(creatingAccount&&!$('accountPrivacyAck').checked)throw Error('Review the privacy notice before creating an account.');
       await ensureSecureStorage();
       const cfg=await config();
+      if(creatingAccount)requireBundledNotice();
       oauthInFlight=true;for(const id of ['accountGoogle','accountMicrosoft'])if($(id))$(id).disabled=true;
       const data=await providerSession(provider);
       pendingSignup=creatingAccount?{email:data.user?.email||'',acceptedAt:new Date().toISOString(),noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION}:null;
@@ -254,7 +255,7 @@
     // Accounts are pinned to the canonical Vumiro Worker. A user supplied
     // signaling URL may run calls, but it must never select a password target.
     accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
-    const response=await fetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store'});
+    const response=await fetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store',headers:{'X-Vumiro-Profile-Cards':'1'}});
     let data={};try{data=await response.json();}catch{}
     if(!response.ok)throw Error(response.status===404?'Accounts are not available yet. You can continue with your local profile and try again later.':authError(data));
     if(typeof data.authUrl!=='string'||typeof data.publishableKey!=='string')throw Error('The account service is not configured.');
@@ -318,7 +319,7 @@
   async function accountRequest(method,body,tokenOverride,path='/api/v1/account/data') {
     const token=tokenOverride||await accessToken();
     if(!deviceToken)await enrollDevice(token);
-    try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken},...(body===undefined?{}:{body:JSON.stringify(body)})});}
+    try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1'}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
     catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
   }
   function readSettings() {
@@ -369,6 +370,13 @@
   }
   function validateSnapshot(data) {
     if(!data||data.version!==1||!data.profile||typeof data.profile!=='object'||!Array.isArray(data.friends)||data.friends.length>128||!Array.isArray(data.blocked)||data.blocked.length>64||!data.settings||typeof data.settings!=='object'||Array.isArray(data.settings))throw Error('The saved account data is invalid.');
+    if(Array.isArray(data.profile)||Object.keys(data.profile).some(key=>!['name','username','avatar','bio','banner','connections'].includes(key)))throw Error('The saved profile is invalid.');
+    for(const [field,validator] of [['bio','validateBio'],['banner','validateBanner'],['connections','validateConnections']]) {
+      if(Object.hasOwn(data.profile,field)) {
+        const validate=window.VumiroLocalProfile?.[validator];
+        if(typeof validate!=='function'||JSON.stringify(validate(data.profile[field]))!==JSON.stringify(data.profile[field]))throw Error('The saved profile details are invalid.');
+      }
+    }
     if(data.blocked.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id))||new Set(data.blocked).size!==data.blocked.length)throw Error('The saved block list is invalid.');
     if(data.friends.some(friend=>!friend||typeof friend!=='object'||typeof friend.id!=='string'||typeof friend.key!=='string'||typeof friend.name!=='string'||(friend.username!=null&&typeof friend.username!=='string')||(friend.nickname!=null&&typeof friend.nickname!=='string')))throw Error('The saved contact list is invalid.');
     if(new Set(data.friends.map(friend=>friend.id)).size!==data.friends.length)throw Error('The saved contact list contains duplicates.');
@@ -385,6 +393,7 @@
   const ackKey=()=>`vumiro-account-ack:${accountId()}`;
   const privacyAckKey=()=>`vumiro-account-privacy:${accountId()}`;
   function currentNoticeVersion() { return authConfig?.privacyNoticeVersion||NOTICE_VERSION; }
+  function requireBundledNotice() { if(currentNoticeVersion()!==NOTICE_VERSION)throw Error('Update Vumiro to review the current privacy notice before creating an account or backing up. Existing accounts can still sign in.'); }
   function readNoticeAck() {
     if(!accountId())return null;
     const raw=localStorage.getItem(privacyAckKey());if(!raw)return null;
@@ -392,13 +401,14 @@
     catch { return currentNoticeVersion()===NOTICE_VERSION&&Number.isFinite(Date.parse(raw))?{version:NOTICE_VERSION,acceptedAt:raw}:null; }
   }
   function writeNoticeAck(acceptedAt,version=currentNoticeVersion()) {
-    if(!accountId()||version!==currentNoticeVersion()||!Number.isFinite(Date.parse(acceptedAt))||Date.parse(acceptedAt)>Date.now()+300000)return false;
+    if(!accountId()||version!==NOTICE_VERSION||version!==currentNoticeVersion()||!Number.isFinite(Date.parse(acceptedAt))||Date.parse(acceptedAt)>Date.now()+300000)return false;
     localStorage.setItem(privacyAckKey(),JSON.stringify({version,acceptedAt}));return true;
   }
   async function fingerprint(value) { const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join(''); }
   async function saveAcknowledged(value) { if(accountId())localStorage.setItem(ackKey(),await fingerprint(value)); }
   async function differsFromAcknowledged(value) { try{return await fingerprint(value)!==localStorage.getItem(ackKey());}catch{return true;} }
   async function upload(replaceLatest=false) {
+    await config(); requireBundledNotice();
     if(!readNoticeAck()) {
       if(!$('accountPrivacyAck').checked)throw Error('Review and acknowledge the privacy notice before syncing account data.');
       writeNoticeAck(new Date().toISOString());
@@ -561,6 +571,7 @@
     try {
       await ensureSecureStorage();
       const cfg=await config();if(!cfg.registrationEnabled)throw Error('New Vumiro account registration is currently unavailable. Existing accounts can still sign in.');
+      requireBundledNotice();
       pendingEmail=$('accountEmail').value.trim();const password=$('accountPassword').value;
       await callJson(`${cfg.authUrl}/auth/v1/signup`,{method:'POST',headers:{apikey:cfg.publishableKey},body:JSON.stringify({email:pendingEmail,password})});
       pendingSignup={email:pendingEmail,acceptedAt:new Date().toISOString(),noticeVersion:cfg.privacyNoticeVersion||NOTICE_VERSION};
@@ -597,7 +608,7 @@
     catch(error){status(error.message,true);}
   };
   $('accountRestore').onclick=async()=>{ $('accountRestore').disabled=true;try{if(!confirm('Replace this device’s profile, contacts, blocks, stream settings, and compatible signed identity with the copy saved in your account?'))return;requestReauth((_token,password)=>{identityUnlock={password,recoveryCode:identityRecoveryCode};return enqueue(restoreRemote).catch(error=>status(error.message,true)).finally(()=>{identityUnlock=null;});});}catch(error){status(error.message,true);}finally{$('accountRestore').disabled=false;} };
-  $('accountBackup').onclick=async()=>{ $('accountBackup').disabled=true;try{if(!readNoticeAck()&&!$('accountPrivacyAck').checked)throw Error('Review and acknowledge the privacy notice for this account before syncing data.');if(!confirm('Copy this device’s profile, friends, settings, and encrypted recovery identity into the signed-in account? This may replace data already saved there.'))return;if(!readNoticeAck())writeNoticeAck(new Date().toISOString());if(identityRecovery)await enqueue(()=>upload(true));else requestReauth((_token,password)=>{if(!password){status('Add a separate Vumiro password below, then choose Back up again to encrypt your identity.',true);$('accountSetPasswordForm').hidden=false;$('accountSetPasswordValue').focus();return;}return enqueue(()=>enableIdentityRecovery(password)).catch(error=>status(error.message,true));}); }catch(error){status(error.message,true);}finally{$('accountBackup').disabled=false;} };
+  $('accountBackup').onclick=async()=>{ $('accountBackup').disabled=true;try{await config();requireBundledNotice();if(!readNoticeAck()&&!$('accountPrivacyAck').checked)throw Error('Review and acknowledge the privacy notice for this account before syncing data.');if(!confirm('Copy this device’s profile, friends, settings, and encrypted recovery identity into the signed-in account? This may replace data already saved there.'))return;if(!readNoticeAck())writeNoticeAck(new Date().toISOString());if(identityRecovery)await enqueue(()=>upload(true));else requestReauth((_token,password)=>{if(!password){status('Add a separate Vumiro password below, then choose Back up again to encrypt your identity.',true);$('accountSetPasswordForm').hidden=false;$('accountSetPasswordValue').focus();return;}return enqueue(()=>enableIdentityRecovery(password)).catch(error=>status(error.message,true));}); }catch(error){status(error.message,true);}finally{$('accountBackup').disabled=false;} };
   if($('accountUnlockForm'))$('accountUnlockForm').onsubmit=async event=>{event.preventDefault();const password=$('accountUnlockPassword').value,recoveryCode=$('accountUnlockCode').value.trim();if(!password&&!recoveryCode){status('Enter your Vumiro password or identity recovery code.',true);return;}try{identityUnlock={password,recoveryCode};await enqueue(restoreRemote);$('accountUnlockPassword').value='';$('accountUnlockCode').value='';navigate('friends.html');}catch(error){status(error.message,true);}finally{identityUnlock=null;}};
   if($('accountSetPasswordForm'))$('accountSetPasswordForm').onsubmit=event=>{event.preventDefault();const password=$('accountSetPasswordValue').value;if(password.length<12||password!==$('accountSetPasswordConfirm').value){status('Use at least 12 characters and enter the same Vumiro password twice.',true);return;}if(identityRecovery){status('Use Change password with your recovery code to update an existing encrypted identity.',true);return;}requestReauth(async token=>{try{await auth('/user',{password},token,'PUT');$('accountSetPasswordValue').value='';$('accountSetPasswordConfirm').value='';status('Your Vumiro password is set. Use it to sign in by email and enable encrypted identity backup.');}catch(error){status(error.message,true);}});};
   $('accountExport').onclick=()=>enqueue(exportData).catch(error=>status(error.message,true));

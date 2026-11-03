@@ -16,6 +16,18 @@ Record these values in the published privacy notice before launch:
 
 The privacy checkbox records acknowledgement of the notice. Do not describe it as consent unless a reviewed purpose actually relies on consent and withdrawal is implemented without making an unrelated service unusable.
 
+### Profile cards and friend directory — notice 2026-11-03
+
+The bundled notice and account API advertise version **2026-11-03**. Existing users may sign in without a repeated acknowledgement; sign-in must not fabricate acceptance of a new version. Signup requires acknowledgement, and an account without a current recorded acknowledgement must review it before backup or sync resumes.
+
+The configuration request also advertises `X-Vumiro-Profile-Cards: 1`. Clients without this capability receive the legacy **2026-11-01** notice version matching their bundled prose, so they cannot record a review of text they cannot display. Legacy snapshot writes bearing that old notice return **426** with an update instruction; sign-in, data reads/restoration, export and account deletion remain available. Current clients also refuse new signup or backup acknowledgement if the server later requires a notice newer than their bundled copy. This does not block existing-account sign-in.
+
+Optional own-profile bios, backgrounds and manually entered provider links are backed up with the owner's profile and exchanged directly with connected friends. These links are user-supplied and unverified; no provider access token, mailbox permission or external-account verification is implied. Cached friend pictures, bios, backgrounds and links remain excluded from account snapshots. `X-Vumiro-Profile-Cards: 1` negotiates the extended snapshot profile. Legacy reads omit these optional keys, legacy writes preserve previously saved values under the same revision check, and account exports retain all fields.
+
+The friend directory stores durable identity-to-friend-tag assignments and a `from_id`/`to_id` migration replay mapping, separately from the Supabase account database. These rows have no automatic expiry; Supabase account deletion does not remove them, and no in-app deletion tool exists. Rights-request handling must identify directory records separately and record the actual action taken rather than reporting them deleted after an account deletion. Do not request private keys to prove a request.
+
+Friend-tag allocation quotas use an hourly hash of the connecting IP and hour, count and expiry. Their rows expire at the next hourly boundary and are pruned by directory alarms or subsequent operations, subject to outages. The allocation table does not store raw IP addresses; provider network/security processing is separate. Pending friend requests remain until signed expiry; answered or cancelled requests are normally retained seven days for delivery and replay handling. Tag assignments and migration replay rows are not included in that expiry policy.
+
 ## Provider launch configuration
 
 1. Create a production Supabase project in the selected region.

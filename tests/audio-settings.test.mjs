@@ -98,6 +98,18 @@ test('opening audio settings and refreshing devices never requests microphone ca
   assert.ok(app.document.head.children[0].textContent.includes('vumiro-audio-dialog'));
 });
 
+test('injected audio styles cannot change shared settings navigation or shell controls',()=>{
+  const app=harness();app.api.open();
+  const css=app.document.head.children[0].textContent;
+  // This stylesheet is added after the app shell. Every audio descendant rule
+  // must be bounded by its content wrapper; dialog rules are standalone only.
+  const selectors=[...css.matchAll(/(?:^|})([^{}]+)\{/g)]
+    .flatMap(match=>match[1].trim().startsWith('@')?[]:match[1].split(','));
+  assert.ok(selectors.length>20);
+  for(const selector of selectors)assert.ok(selector.includes('.va-content')||selector.includes('dialog.vumiro-audio-dialog:not(.settingsScreen)'),selector);
+  assert.ok(!css.includes('.vumiro-audio-dialog button'));
+});
+
 test('active input failures do not save the requested device or report success',async()=>{
   const app=harness();app.api.registerRoom({apply:async()=>{throw Error('Device busy');}});
   await assert.rejects(app.api.update({inputId:'mic-b'}),/Device busy/);assert.equal(app.api.snapshot().inputId,'');assert.equal(app.saved.length,0);

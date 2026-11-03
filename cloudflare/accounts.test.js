@@ -18,13 +18,13 @@ async function snapshot() {
     friends: [await contact()],
     blocked: [],
     settings: { fps: 60, mbps: 20, resolution: 'native', contentHint: 'detail', audio: true, excludeDiscord: true },
-    privacyNoticeVersion: '2026-11-01',
-    privacyNoticeAcceptedAt: '2026-11-01T12:00:00.000Z'
+    privacyNoticeVersion: '2026-11-03',
+    privacyNoticeAcceptedAt: '2026-11-03T12:00:00.000Z'
   };
 }
 
 test('strict snapshot validation accepts the canonical client schema', async () => {
-  assert.equal(await validateSnapshot(await snapshot(), Date.parse('2026-11-01T12:01:00.000Z')), true);
+  assert.equal(await validateSnapshot(await snapshot(), Date.parse('2026-11-03T12:01:00.000Z')), true);
 });
 
 test('snapshot validation rejects unknown settings, duplicate identities, and friend avatars', async () => {
@@ -100,7 +100,14 @@ test('service and signup availability are independent config flags', async () =>
   assert.equal(config.serviceEnabled, true);
   assert.equal(config.registrationEnabled, false);
   assert.deepEqual(config.oauthProviders, []);
-  assert.equal(config.privacyNoticeVersion, '2026-11-01');
+  assert.equal(config.privacyNoticeVersion, '2026-11-01','legacy clients must not claim to display a newer bundled notice');
+  const modern = await handleAccountRequest(new Request('https://accounts.example/api/v1/account/config',{headers:{'X-Vumiro-Profile-Cards':'1'}}),{
+    ACCOUNT_SERVICE_ENABLED:'true',ACCOUNT_REGISTRATION_ENABLED:'true',
+    SUPABASE_URL:'https://account-test.supabase.co',SUPABASE_PUBLISHABLE_KEY:`sb_publishable_${'a'.repeat(24)}`
+  });
+  assert.equal((await modern.json()).privacyNoticeVersion,'2026-11-03');
+  const invalid = await handleAccountRequest(new Request('https://accounts.example/api/v1/account/config',{headers:{'X-Vumiro-Profile-Cards':'2'}}),{ACCOUNT_SERVICE_ENABLED:'true'});
+  assert.equal(invalid.status,400);
 });
 
 test('social providers are explicitly enabled independently of registration', async () => {

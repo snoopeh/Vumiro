@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType><TargetFramework>net48</TargetFramework><UseWindowsForms>true</UseWindowsForms>
-    <PlatformTarget>x64</PlatformTarget><AssemblyName>Vumiro.Updater</AssemblyName><RootNamespace>Vumiro.Client</RootNamespace><Version>1.21.9</Version>
+    <PlatformTarget>x64</PlatformTarget><AssemblyName>Vumiro.Updater</AssemblyName><RootNamespace>Vumiro.Client</RootNamespace><Version>1.22.0</Version>
     <Product>Vumiro</Product><Title>Vumiro Update</Title>
   </PropertyGroup>
   <ItemGroup>

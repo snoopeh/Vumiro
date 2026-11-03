@@ -1,5 +1,5 @@
-// Ephemeral coordination only. Attachments contain bounded public profile,
-// identity proofs, subscriptions and requests, never private keys or media.
+// Bounded public coordination; persist requests, pseudonymous friend-tag
+// assignments and expiring hashed allocation budgets. No private keys or media.
 import { DurableObject } from 'cloudflare:workers';
 
 export const FRIEND_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -7,6 +7,7 @@ const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const USERNAME_PATTERN = /^[a-z0-9_.-]{3,24}$/;
 const MAX_BYTES = 16 * 1024;
+const TAG_ALLOCATION_HOUR = 3600000;
 const encoder = new TextEncoder();
 
 function encoded(bytes) {
@@ -33,7 +34,28 @@ function read(ws) {
   try { return ws.deserializeAttachment(); } catch { return null; }
 }
 
-function publicProfile(session) { return {id: session.id, name: session.name, username: session.username || '', key: session.key, socialVersion: session.socialVersion === 2 ? 2 : 1}; }
+function formattedTag(tag) { return `#${tag.slice(0,5)}-${tag.slice(5)}`; }
+function parsedTag(query) {
+  if (!/^#?[\d -]+$/.test(query)) return '';
+  const digits=query.replace(/^#/, '').replace(/[ -]/g, '');
+  return /^\d{10}$/.test(digits) ? digits : '';
+}
+function randomTag() {
+  // Rejection sampling avoids biased decimal digits; UNIQUE enforces allocation.
+  const parts=[];
+  while(parts.length<2) { const value=crypto.getRandomValues(new Uint32Array(1))[0];if(value<4294900000)parts.push(String(value%100000).padStart(5,'0')); }
+  return parts.join('');
+}
+async function allocationBucket(request,now=Date.now()) {
+  // worker.js passes the original edge request directly to this DO. Trust only
+  // Cloudflare's client-IP header, never client-supplied forwarding headers.
+  const ip=request.headers.get('CF-Connecting-IP');
+  if(!ip || !/^[0-9a-f:.]{3,64}$/i.test(ip))return null;
+  const hour=Math.floor(now/TAG_ALLOCATION_HOUR);
+  const digest=await crypto.subtle.digest('SHA-256',encoder.encode(`vumiro-friend-tag-budget-v1\n${hour}\n${ip.toLowerCase()}`));
+  return {key:encoded(digest),hour};
+}
+function publicProfile(session) { return {id: session.id, name: session.name, username: session.username || '', key: session.key, socialVersion: session.socialVersion === 2 ? 2 : 1, ...(session.friendTag ? {friendTag:session.friendTag} : {})}; }
 function ids(value, self) { return Array.isArray(value) && value.length <= 128 && value.every(id => typeof id === 'string' && FRIEND_ID_PATTERN.test(id) && id !== self) && new Set(value).size === value.length; }
 function blocked(a, b) { return (a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id); }
 function mutual(a, b) { return a.watch.includes(b.id) && b.watch.includes(a.id) && !blocked(a, b); }
@@ -80,6 +102,12 @@ export class FriendDirectory extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     const sql=ctx.storage.sql;
+    sql.exec('CREATE TABLE IF NOT EXISTS friend_tags (identity_id TEXT PRIMARY KEY, tag TEXT NOT NULL UNIQUE)');
+    // A signed transition can move a tag once. Remembering that move prevents a
+    // replay from replacing the stable destination tag after the old key returns.
+    sql.exec('CREATE TABLE IF NOT EXISTS friend_tag_moves (from_id TEXT PRIMARY KEY, to_id TEXT NOT NULL)');
+    sql.exec('CREATE TABLE IF NOT EXISTS friend_tag_allocations (bucket TEXT PRIMARY KEY, expires INTEGER NOT NULL, count INTEGER NOT NULL)');
+    sql.exec('CREATE INDEX IF NOT EXISTS friend_tag_allocations_expiry ON friend_tag_allocations(expires)');
     sql.exec(`CREATE TABLE IF NOT EXISTS friend_requests (
       nonce TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL,
       expires INTEGER NOT NULL, retain_until INTEGER NOT NULL, state TEXT NOT NULL,
@@ -92,12 +120,51 @@ export class FriendDirectory extends DurableObject {
     sql.exec('CREATE INDEX IF NOT EXISTS friend_requests_retain ON friend_requests(retain_until)');
   }
   rows(query,...bindings) { return [...this.ctx.storage.sql.exec(query,...bindings)]; }
+  assignFriendTag(id,allocation=null) {
+    let tag='';
+    this.ctx.storage.transactionSync(()=>{
+      tag=this.rows('SELECT tag FROM friend_tags WHERE identity_id=?',id)[0]?.tag || '';
+      if(tag)return;
+      const now=Date.now(),hour=Math.floor(now/TAG_ALLOCATION_HOUR),expires=(hour+1)*TAG_ALLOCATION_HOUR;
+      if(allocation && (allocation.hour!==hour || !FRIEND_ID_PATTERN.test(allocation.key||'')))throw new Error('Friend number allocation connection expired. Reconnect to retry.');
+      const bucket=allocation?.key || 'unknown',limit=allocation?10:256;
+      this.ctx.storage.sql.exec('DELETE FROM friend_tag_allocations WHERE expires<=?',now);
+      const count=Number(this.rows('SELECT count FROM friend_tag_allocations WHERE bucket=?',bucket)[0]?.count||0);
+      if(count>=limit)throw new Error('Too many new friend numbers from this connection. Try again in an hour.');
+      for(let attempt=0;attempt<32;attempt++) {
+        const candidate=randomTag();
+        this.ctx.storage.sql.exec('INSERT OR IGNORE INTO friend_tags(identity_id,tag) VALUES(?,?)',id,candidate);
+        tag=this.rows('SELECT tag FROM friend_tags WHERE identity_id=?',id)[0]?.tag || '';
+        if(tag) {
+          this.ctx.storage.sql.exec('INSERT INTO friend_tag_allocations(bucket,expires,count) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET count=count+1',bucket,expires);
+          return;
+        }
+      }
+      throw new Error('Friend tag allocation is temporarily unavailable.');
+    });
+    return formattedTag(tag);
+  }
+  transitionFriendTag(session,transition) {
+    if(!transition || this.owner(transition.fromId))return session.friendTag;
+    let tag='';
+    this.ctx.storage.transactionSync(()=>{
+      if(this.rows('SELECT to_id FROM friend_tag_moves WHERE from_id=?',transition.fromId).length)return;
+      const source=this.rows('SELECT tag FROM friend_tags WHERE identity_id=?',transition.fromId)[0];
+      if(!source)return;
+      this.ctx.storage.sql.exec('DELETE FROM friend_tags WHERE identity_id=?',session.id);
+      this.ctx.storage.sql.exec('UPDATE friend_tags SET identity_id=? WHERE identity_id=?',session.id,transition.fromId);
+      this.ctx.storage.sql.exec('INSERT INTO friend_tag_moves(from_id,to_id) VALUES(?,?)',transition.fromId,session.id);
+      tag=source.tag;
+    });
+    return tag ? formattedTag(tag) : session.friendTag;
+  }
   pruneFriendRows(now=Date.now()) {
     this.ctx.storage.sql.exec('DELETE FROM friend_requests WHERE retain_until<=?',now);
+    this.ctx.storage.sql.exec('DELETE FROM friend_tag_allocations WHERE expires<=?',now);
   }
   async syncFriendAlarm() {
     const current=await this.ctx.storage.getAlarm();
-    const rows=this.rows('SELECT MIN(retain_until) AS at FROM friend_requests');
+    const rows=this.rows('SELECT MIN(at) AS at FROM (SELECT MIN(retain_until) AS at FROM friend_requests UNION ALL SELECT MIN(expires) AS at FROM friend_tag_allocations)');
     const next=rows[0]?.at == null ? null : Number(rows[0].at);
     if(next===null) { if(current!==null) await this.ctx.storage.deleteAlarm(); }
     else if(current!==next) await this.ctx.storage.setAlarm(next);
@@ -263,11 +330,14 @@ export class FriendDirectory extends DurableObject {
       if (!session.auth && Date.now() - session.time > 30000) this.reject(pending, 'Identity challenge expired.');
     }
     if (this.sessions().length >= 256) return new Response('Presence directory is full.', {status: 429});
-    const [client, server] = Object.values(new WebSocketPair());
     const now = Date.now();
+    const tagAllocation=await allocationBucket(request,now);
+    // Hashing yields: recheck capacity before accepting an interleaved socket.
+    if (this.sessions().length >= 256) return new Response('Presence directory is full.', {status: 429});
+    const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({id, auth: false, nonce: encoded(crypto.getRandomValues(new Uint8Array(32))),
-      time: now, watch: [], blocked: [], pending: [], seen: [], window: now, count: 0, departed: false, authStarted: false});
+      time: now, watch: [], blocked: [], pending: [], seen: [], window: now, count: 0, departed: false, authStarted: false,tagAllocation});
     this.send(server, {type: 'challenge', nonce: read(server).nonce});
     return new Response(null, {status: 101, webSocket: client});
   }
@@ -414,6 +484,7 @@ export class FriendDirectory extends DurableObject {
     }
     if(!await validIdentityTransition(transition,session)){this.error(ws,'invalid-transition','The signed identity transition is invalid.');return;}
     session=read(ws);if(!session?.auth||session.departed||this.owner(session.id)!==ws)return;
+    session.friendTag=this.transitionFriendTag(session,transition);
     session.name = message.name; session.username = username; session.socialVersion=message.socialVersion===2?2:1; session.blocked = blocks;session.transition=transition;
     if (!this.save(ws, session)) return;
     this.send(ws, {type: 'profile-ready', profile: publicProfile(session), socialVersion:2, serverTime:Date.now()});
@@ -424,10 +495,12 @@ export class FriendDirectory extends DurableObject {
   }
   lookup(ws, session, message) {
     if (!onlyFields(message, ['type', 'query', 'nonce']) || typeof message.query !== 'string' || message.query.length > 2048 || typeof message.nonce !== 'string' || !NONCE_PATTERN.test(message.nonce)) {
-      this.error(ws, 'invalid-lookup', 'Enter a username or contact code.', message.nonce); return;
+      this.error(ws, 'invalid-lookup', 'Enter a friend number, username or contact code.', message.nonce); return;
     }
     let query = message.query.trim(), id = '';
-    if (query.startsWith('stfriend1.')) {
+    const friendTag=parsedTag(query);
+    if(friendTag) id=this.rows('SELECT identity_id FROM friend_tags WHERE tag=?',friendTag)[0]?.identity_id || '';
+    else if (query.startsWith('stfriend1.')) {
       try {
         const bytes = decoded(query.slice(10), 1500), contact = bytes && JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
         if (contact?.v === 1 && FRIEND_ID_PATTERN.test(contact.id || '')) id = contact.id;
@@ -436,7 +509,7 @@ export class FriendDirectory extends DurableObject {
     else query = query.replace(/^@/, '').toLowerCase();
     const target = this.authenticated().find(other => {
       const value = read(other);
-      return value.name && !blocked(session, value) && (id ? value.id === id : USERNAME_PATTERN.test(query) && value.username === query);
+      return value.name && !blocked(session, value) && (id ? value.id === id : !friendTag && USERNAME_PATTERN.test(query) && value.username === query);
     });
     this.send(ws, {type: 'lookup-result', nonce: message.nonce, profile: target ? publicProfile(read(target)) : null});
   }
@@ -549,6 +622,8 @@ export class FriendDirectory extends DurableObject {
     const current = read(ws);
     if (!current || current.departed || ws.readyState !== 1) return;
     if (!verified || Date.now() - current.time > 30000) { this.reject(ws, 'Identity authentication failed.'); return; }
+    try { current.friendTag=this.assignFriendTag(current.id,current.tagAllocation); }
+    catch { this.reject(ws, 'New friend number limit reached. Retry after an hour; existing profiles can still reconnect.',1013);return; }
     // Publish the replacement before retiring the old socket. Its close event
     // cannot cause a transient offline notification for this identity.
     current.auth = true;
@@ -563,7 +638,8 @@ export class FriendDirectory extends DurableObject {
         try { previous.close(4001, 'Identity connected from another session.'); } catch { /* already closed */ }
       }
     }
-    if (this.send(ws, {type: 'ready', id: current.id, socialVersion:2, serverTime:Date.now()})) { this.presence(current.id); this.rooms(); }
+    if (this.send(ws, {type: 'ready', id: current.id, friendTag:current.friendTag, socialVersion:2, serverTime:Date.now()})) { this.presence(current.id); this.rooms(); }
+    await this.syncFriendAlarm();
   }
 
   depart(ws) {

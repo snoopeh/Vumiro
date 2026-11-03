@@ -50,7 +50,7 @@ function harness({stored='',route,authPage=false,oauth,href='https://vumiro.loca
   return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,clock,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
 }
 
-const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-01'};
+const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-03'};
 const session={access_token:'header.payload.signature',refresh_token:'refresh-next',expires_in:3600,user:{id:'11111111-1111-4111-8111-111111111111',email:'person@example.com'}};
 const saved=JSON.stringify({version:2,refreshToken:'refresh-old',deviceId:'22222222-2222-4222-8222-222222222222',deviceToken:'a'.repeat(64)});
 
@@ -203,7 +203,7 @@ test('password recovery changes the password before activating and enrolling',as
 });
 
 test('pending signup verification resumes without storing the password',async()=>{
-  const pending={version:2,pendingSignup:{email:'pending@example.com',acceptedAt:'2026-11-01T12:00:00.000Z',noticeVersion:'2026-11-01'}};
+  const pending={version:2,pendingSignup:{email:'pending@example.com',acceptedAt:'2026-11-03T12:00:00.000Z',noticeVersion:'2026-11-03'}};
   const app=harness({authPage:true,stored:JSON.stringify(pending),route:url=>url.endsWith('/api/v1/account/config')?response(200,config):response(404,{error:'not found'})});await app.start();
   assert.equal(app.element('accountVerifyForm').hidden,false);
   assert.equal(app.element('accountEmail').value,'pending@example.com');
@@ -212,7 +212,7 @@ test('pending signup verification resumes without storing the password',async()=
 
 test('manual backup and export share one serialized account-operation queue',async()=>{
   let inFlight=0,maxInFlight=0,measure=false;
-  const remoteSnapshot={version:1,profile:{name:'Remote',username:'',avatar:''},friends:[],blocked:[],settings:{},privacyNoticeVersion:'2026-11-01',privacyNoticeAcceptedAt:'2026-11-01T12:00:00.000Z',identityRecovery:{version:1}};
+  const remoteSnapshot={version:1,profile:{name:'Remote',username:'',avatar:''},friends:[],blocked:[],settings:{},privacyNoticeVersion:'2026-11-03',privacyNoticeAcceptedAt:'2026-11-03T12:00:00.000Z',identityRecovery:{version:1}};
   const route=async (url,options)=>{
     if(measure){inFlight++;maxInFlight=Math.max(maxInFlight,inFlight);await new Promise(resolve=>setTimeout(resolve,5));inFlight--;}
     if(url.endsWith('/api/v1/account/config'))return response(200,config);
@@ -223,9 +223,15 @@ test('manual backup and export share one serialized account-operation queue',asy
     throw new Error(`Unexpected request ${url}`);
   };
   const app=harness({stored:saved,route});await app.start();measure=true;
+  assert.equal(app.calls.find(call=>call.url.endsWith('/api/v1/account/config')).options.headers['X-Vumiro-Profile-Cards'],'1');
   app.element('accountPrivacyAck').checked=true;
   await Promise.all([app.element('accountBackup').onclick(),app.element('accountExport').onclick()]);
   assert.equal(maxInFlight,1);
+  const dataCalls=app.calls.filter(call=>call.url.endsWith('/api/v1/account/data'));
+  assert.ok(dataCalls.some(call=>call.options.method==='GET'));
+  assert.ok(dataCalls.some(call=>call.options.method==='PUT'));
+  for(const call of dataCalls)assert.equal(call.options.headers['X-Vumiro-Profile-Cards'],'1');
+  assert.equal(app.calls.find(call=>call.url.endsWith('/api/v1/account/export')).options.headers['X-Vumiro-Profile-Cards'],undefined);
 });
 
 test('reauthentication targets the existing reauth form id',()=>{
@@ -359,7 +365,7 @@ test('social signup still requires acknowledgement before opening a provider',as
 });
 
 test('password sign in reuses the current backend notice record without prompting again',async()=>{
-  const acceptedAt='2026-11-01T12:00:00.000Z';
+  const acceptedAt='2026-11-03T12:00:00.000Z';
   const app=harness({authPage:true,route:(url,options)=>{
     if(url.includes('grant_type=password'))return response(200,session);
     if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
@@ -375,7 +381,7 @@ test('password sign in reuses the current backend notice record without promptin
 });
 
 test('an unfinished signup acknowledgement cannot be transferred to a different signed-in account',async()=>{
-  const pending={version:2,pendingSignup:{email:'another@example.com',acceptedAt:'2026-11-01T12:00:00.000Z',noticeVersion:config.privacyNoticeVersion}};
+  const pending={version:2,pendingSignup:{email:'another@example.com',acceptedAt:'2026-11-03T12:00:00.000Z',noticeVersion:config.privacyNoticeVersion}};
   const app=harness({authPage:true,stored:JSON.stringify(pending),route:(url,options)=>{
     if(url.includes('grant_type=password'))return response(200,session);
     if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
@@ -387,7 +393,7 @@ test('an unfinished signup acknowledgement cannot be transferred to a different 
   assert.match(app.navigations.at(-1),/friends\.html/);
 });
 
-for(const [name,noticeRecords]of [['absent',[]],['older',[{version:'2026-10-01',acceptedAt:'2026-10-01T12:00:00.000Z'}]],['malformed',[{acceptedAt:'2026-11-01T12:00:00.000Z'}]]])test(`OAuth sign in does not invent acknowledgement when a notice record is ${name}`,async()=>{
+for(const [name,noticeRecords]of [['absent',[]],['older',[{version:'2026-10-01',acceptedAt:'2026-10-01T12:00:00.000Z'}]],['previous-release',[{version:'2026-11-01',acceptedAt:'2026-11-01T12:00:00.000Z'}]],['malformed',[{acceptedAt:'2026-11-03T12:00:00.000Z'}]]])test(`OAuth sign in does not invent acknowledgement when a notice record is ${name}`,async()=>{
   const app=harness({authPage:true,oauth:{signIn:async()=>({code:'one-use-code'})},route:(url,options)=>{
     if(url.endsWith('/account/config'))return response(200,{...config,oauthProviders:['google']});
     if(url.includes('grant_type=pkce'))return response(200,session);
@@ -418,6 +424,39 @@ test('unconfirmed password sign in resumes automatic signup verification without
   assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
   assert.match(app.navigations.at(-1),/friends\.html/);
   assert.doesNotMatch(app.secure.value,/existing password|123456/);
+});
+
+test('a newer server notice permits sign-in but cannot be acknowledged through older bundled prose',async()=>{
+  const future={...config,privacyNoticeVersion:'2099-01-01',oauthProviders:['google']};
+  let providerCalls=0;
+  const app=harness({authPage:true,oauth:{signIn:async()=>{providerCalls++;return {code:'one-use-code'};}},route:(url,options)=>{
+    if(url.endsWith('/account/config'))return response(200,future);
+    if(url.includes('grant_type=pkce'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data'))return response(200,{account:{email:session.user.email},data:null,revision:0,devices:[],noticeRecords:[{version:future.privacyNoticeVersion,acceptedAt:new Date().toISOString()}]});
+    return commonRoute(url,options);
+  }});await app.start();await app.element('accountGoogle').onclick();
+  assert.equal(providerCalls,1);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+  assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
+  app.element('accountPrivacyAck').checked=true;
+  await app.element('accountBackup').onclick();
+  assert.match(app.element('accountFeedback').textContent,/Update Vumiro.*privacy notice/);
+  assert.equal(app.storage.has(`vumiro-account-privacy:${session.user.id}`),false);
+  assert.equal(app.calls.some(call=>call.options.method==='PUT'&&call.url.endsWith('/account/data')),false);
+});
+
+test('email and social signup require the notice bundled with this version',async()=>{
+  let providerCalls=0;
+  const app=harness({authPage:true,oauth:{signIn:async()=>{providerCalls++;return {code:'unused'};}},route:(url,options)=>url.endsWith('/account/config')?response(200,{...config,privacyNoticeVersion:'2099-01-01',oauthProviders:['google']}):commonRoute(url,options)});
+  await app.start();app.sandbox.window.VumiroAccount.open('signup');
+  app.element('accountEmail').value='new@example.com';app.element('accountPassword').value='a safe password 123';app.element('accountPasswordConfirm').value='a safe password 123';app.element('accountPrivacyAck').checked=true;
+  await app.element('accountSignUp').onclick();
+  assert.match(app.element('accountError').textContent,/Update Vumiro.*privacy notice/);
+  assert.equal(app.calls.some(call=>call.url.endsWith('/auth/v1/signup')),false);
+  await app.element('accountGoogle').onclick();
+  assert.match(app.element('accountError').textContent,/Update Vumiro.*privacy notice/);
+  assert.equal(providerCalls,0);
 });
 
 test('social security confirmation rejects a different user even when emails match',async()=>{

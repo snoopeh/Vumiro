@@ -81,6 +81,7 @@ async function fixture(t) {
   async function request(path = '/data', method = 'GET', body, credentials = {}) {
     const headers = { Authorization: `Bearer ${credentials.token || token}`, 'X-Vumiro-Device': credentials.deviceId || deviceId };
     if (credentials.deviceToken) headers['X-Vumiro-Device-Token'] = credentials.deviceToken;
+    if (credentials.profileCards !== undefined) headers['X-Vumiro-Profile-Cards'] = credentials.profileCards;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const response = await handleAccountRequest(new Request(`https://accounts.example/api/v1/account${path}`, {
       method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) })
@@ -101,7 +102,7 @@ function snapshot(name = 'Owner') {
     version: 1,
     profile: { name, username: 'owner.name', avatar: '' },
     friends: [], blocked: [], settings: { fps: 60, audio: true },
-    privacyNoticeVersion: '2026-11-01', privacyNoticeAcceptedAt: new Date().toISOString()
+    privacyNoticeVersion: '2026-11-03', privacyNoticeAcceptedAt: new Date().toISOString()
   };
 }
 
@@ -147,6 +148,40 @@ test('account routes require enrollment and device credentials, enforce revision
   assert.equal(exported.body.devices[0].id, app.deviceId);
   assert.equal(Object.hasOwn(exported.body.devices[0], 'credential_hash'), false);
   assert.equal(JSON.stringify(exported.body).includes(credentials.deviceToken), false);
+});
+
+test('profile-card capability keeps legacy reads compatible and legacy writes preserve saved details', async t => {
+  const app = await fixture(t), legacy = await app.enroll(), modern = {...legacy, profileCards:'1'};
+  const original = snapshot();
+  const card = {bio:'Here together.',banner:'data:image/png;base64,AA==',connections:[{provider:'github',url:'https://github.com/snoopeh'}]};
+  Object.assign(original.profile,card);
+  assert.equal((await app.request('/data','PUT',{snapshot:original,expectedRevision:0},legacy)).status,400,'metadata writes require capability');
+  assert.equal((await app.request('/data','PUT',{snapshot:original,expectedRevision:0},modern)).status,200);
+  const oldRead = await app.request('/data','GET',undefined,legacy);
+  assert.equal(oldRead.status,200);
+  assert.deepEqual(oldRead.body.data.profile,{name:'Owner',username:'owner.name',avatar:''});
+  const newRead = await app.request('/data','GET',undefined,modern);
+  assert.deepEqual(newRead.body.data.profile,original.profile);
+  const outdated = structuredClone(oldRead.body.data); outdated.privacyNoticeVersion='2026-11-01';
+  const upgradeRequired = await app.request('/data','PUT',{snapshot:outdated,expectedRevision:1},legacy);
+  assert.equal(upgradeRequired.status,426);
+  assert.match(upgradeRequired.body.error,/Update Vumiro.*current privacy notice/);
+  assert.equal((await app.request('/data','GET',undefined,legacy)).body.revision,1,'old notice rejection does not change saved data');
+  assert.equal((await app.request('/export','GET',undefined,legacy)).status,200,'old clients retain export access');
+  const oldWrite = structuredClone(oldRead.body.data); oldWrite.profile.name='Changed on an older device';
+  assert.equal((await app.request('/data','PUT',{snapshot:oldWrite,expectedRevision:1},legacy)).status,200);
+  const preserved = await app.request('/data','GET',undefined,modern);
+  assert.deepEqual(preserved.body.data.profile,{...oldWrite.profile,...card});
+  assert.equal(preserved.body.revision,2);
+  const stale = structuredClone(oldWrite); stale.profile.name='Stale writer';
+  assert.equal((await app.request('/data','PUT',{snapshot:stale,expectedRevision:1},legacy)).status,409);
+  assert.deepEqual((await app.request('/export','GET',undefined,legacy)).body.data.profile,preserved.body.data.profile,'exports include every field even on older clients');
+  assert.equal((await app.request('/data','GET',undefined,{...legacy,profileCards:'2'})).status,400);
+  assert.equal((await app.request('/data','GET',undefined,{...legacy,profileCards:'1,1'})).status,400);
+  assert.match(newRead.headers.get('Access-Control-Allow-Headers'),/X-Vumiro-Profile-Cards/);
+  const cleared = snapshot('Cleared intentionally'); Object.assign(cleared.profile,{bio:'',banner:'',connections:[]});
+  assert.equal((await app.request('/data','PUT',{snapshot:cleared,expectedRevision:2},modern)).status,200);
+  assert.deepEqual((await app.request('/data','GET',undefined,modern)).body.data.profile,cleared.profile);
 });
 
 test('device enrollment and revocation require recent auth and revoked or other-account credentials are rejected', async t => {
