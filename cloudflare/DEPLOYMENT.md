@@ -1,5 +1,14 @@
 # Active Vumiro deployment
 
+## Interface release completed — 1.21.8
+
+Source `0826933` is tagged [client-v1.21.8](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.8). [Release CI 41575384805](https://github.com/snoopeh/Vumiro/actions/runs/41575384805) and [main CI 41575373132](https://github.com/snoopeh/Vumiro/actions/runs/41575373132) passed Windows and Linux. All seven expected assets have positive sizes and published SHA-256 digests.
+
+The public Worker is now `ecf57d68-409b-492b-8321-764a83a512b8`; internal storage owner is `6cbc8f79-ee73-40fb-a895-5791abcb0364`. Original bindings are retained. All nine served web assets match committed source byte-for-byte. Live account service and registration remain enabled; social providers remain disabled.
+
+The release adds compact navigation, the profile/account disclosure and explicit local account logout, Voice & audio device preferences/tests, supported speech processing, master playback and deafen. There are 73 passing automated regressions. Independent media review and Windows build/package checks passed. Browser review confirmed disclosure keyboard/focus behavior, audio entry without capture, pending-request closure and preference persistence. Physical audio-device/platform acceptance and installed-desktop two-device account acceptance remain outstanding; they are not inferred from mocks or package validation.
+
+
 ## Account service and 1.21.7 publication — 2026-11-03
 
 The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with **service enabled**. The deployed Worker reports **new registration enabled**, verified after deployment. Supabase **Allow new users to sign up** is already **enabled**, with confirmed email required. Hosted Google/Microsoft sign-in remains disabled and unverified.

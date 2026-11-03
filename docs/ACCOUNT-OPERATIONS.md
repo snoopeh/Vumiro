@@ -1,6 +1,6 @@
 # Vumiro account operations
 
-This runbook is the release gate and operating procedure for Vumiro accounts. It does not replace legal review. Account registration must remain disabled until every launch item has an owner and evidence.
+This runbook records operating procedures and acceptance requirements for Vumiro accounts. Email/password alpha registration is live; [the launch record](../.planning/ACCOUNT-LAUNCH.md) distinguishes completed hosted checks from outstanding desktop, hardware and operational acceptance. Unchecked items here must not be reported as completed. This runbook does not replace legal review.
 
 ## Required operator information
 

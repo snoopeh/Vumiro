@@ -1,8 +1,8 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-03",
+  "timestamp": "2026-11-03T04:03:18Z",
   "active_user_fixes": {
-    "status": "desktop_released_hosted_accounts_pending",
+    "status": "published",
     "handoff": ".planning/USER-FIXES-HANDOFF.md",
     "implemented": [
       "visible selectable invite link",
@@ -15,28 +15,29 @@
     ],
     "validation": "27 JS,18 native callback,9 backend tests pass. Windows build/package checks pass. Full actual Windows loopback->WebView shared buffers->production parent/iframe->WebRTC remote decode passes RMS0.007350 with156packets. Auth page maximize/restore and browser UI checks pass. Remote migration0006 and both Worker deployments completed with accounts disabled.",
     "remaining": [
-      "hosted accounts blocked: no Supabase, SMTP, Google/Entra provider projects or operator privacy inputs",
-      "hosted signup, verification, recovery, provider round trips, refresh, second-device restore and deletion acceptance checks"
+      "Optional Google/Microsoft provider registrations",
+      "Physical platform and installed-desktop two-device acceptance"
     ],
     "git": "main pushed; source49e0ffb tagged/published client-v1.21.4; main CI41494815454 and releaseCI41495376140 green. Actual published updater passed both stages, local identity preserved and22/22files match released complete archive.",
     "processes": "Original install repaired to1.21.6 after duplicate-instance update failure; previousPID16036 no longer running. Repaired app reopened normally. Recheck live processes before any future overwrite."
   },
   "latest_ui_release": {
-    "version": "1.21.5",
+    "version": "1.21.8",
     "status": "published",
-    "source_commit": "4b87d4a",
-    "handoff": ".planning/UI-CONCEPT-HANDOFF.md",
-    "ci": "Main41499935490 and publish41500142172 succeeded for Windows/Linux.",
-    "scope": "Supplied scenic login concept, cleaner call layout and controls, Watch Together navigation, small-window dock sizing; account-provider gates retained.",
-    "runtime": "1.21.5 visual changes included in locally repaired1.21.6; see latest_updater_fix and UPDATE-LOCK-HANDOFF.md."
+    "source_commit": "0826933",
+    "release": "https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.8",
+    "ci": "Release41575384805 and main41575373132 both succeeded on Windows/Linux. Seven assets verified.",
+    "scope": "Compact sidebar/profile disclosure, explicit account logout preserving local data/call, local audio device/processing/test controls, master playback and deafen.",
+    "validation": "73 regressions; independent audio review; Windows build0warnings/errors and frozen package checks; browser disclosure/focus/audio/preference review.",
+    "limits": "Physical-device audio/Linux permission and installed-desktop two-device account acceptance remain unverified. OAuth disabled. One unverified disposable fixture remains after automatic approval rejection."
   },
   "phase": "account-launch-and-interface-polish",
-  "phase_name": "Production account sync, recovery, identity continuity, LGPD operations, and release compatibility",
+  "phase_name": "Published email accounts, sidebar/logout and voice controls",
   "phase_dir": ".planning",
   "plan": 1,
   "task": 8,
   "total_tasks": 8,
-  "status": "publishing",
+  "status": "published",
   "completed_tasks": [
     {
       "id": 1,
@@ -81,13 +82,7 @@
       "progress": "Updated privacy/architecture/protocol/operations/release docs and CI; regenerated eight-asset Cloudflare/Linux sets; validated local migrations 0001-0006, Wrangler dry run, 18 tests, .NET builds, and both Windows packages."
     }
   ],
-  "remaining_tasks": [
-    {
-      "id": 8,
-      "name": "Publish 1.21.7, enable email registration, then deliver sidebar/logout/audio controls",
-      "status": "in_progress"
-    }
-  ],
+  "remaining_tasks": [],
   "blockers": [],
   "async_jobs": [],
   "human_actions_pending": [],
@@ -161,8 +156,8 @@
     "tests/account-client.test.mjs",
     "tests/identity-recovery.test.mjs"
   ],
-  "next_action": "Complete sidebar/logout/audio1.21.8; review and test real controls, publish compatible update.1.21.7andregistrationalreadylive.",
-  "context_notes": "Supabase/Brevo configured; real signup/OTP and recovery/password change/login passed. Hosted route acceptance and46 regression tests pass. Worker service enabled and registration staged false pending publication; Supabase signup enabled. See ACCOUNT-LAUNCH.md for current evidence. Prior external blockers below are historical.",
+  "next_action": "Requested publication and interface pass are complete. Review FEATURE-REVIEW.md for remaining platform/operational priorities; do not report those acceptance checks as passed.",
+  "context_notes": "Account providers configured, real email/signup/recovery and hosted lifecycle passed; registration true.1.21.7and1.21.8published. Current Worker ecf57d68-409b-492b-8321-764a83a512b8; original storage bindings retained. See current launch record rather than historical blocked notes.",
   "latest_updater_fix": {
     "version": "1.21.6",
     "status": "published_and_original_install_repaired",

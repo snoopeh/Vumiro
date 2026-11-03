@@ -27,7 +27,7 @@ Sidebar: `friends.html`, `friends-client.js`; account state and serialized logou
 
 - [x] Profile disclosure, account state and robust logout; account regressions.
 - [x] Real device/preferences/test panel and active-call integration; capture teardown/routing/gating tests.
-- [ ] Browser visual and keyboard review, build/package validation, 1.21.8 publication.
+- [x] Browser visual and keyboard review, build/package validation, 1.21.8 publication.
 
 Hardware device switching, acoustic echo quality and Linux desktop permissions require real platform acceptance; mock tests cannot establish them. Record actual verification separately.
 
@@ -36,3 +36,11 @@ Hardware device switching, acoustic echo quality and Linux desktop permissions r
 73combinedbackend/client/identity/OAuth/sidebar/audio tests passed. Independent audio review caught and verified fixes for selected-output startup, tracks arriving during output changes, mute/deafen during input replacement, and ended-input rollback. Windows build and both frozen-manifest package checks passed with zero warnings/errors. Browser review confirmed menu grouping, local-mode state, Escape focus return, and opening audio settings without capture. Closing a pending microphone permission request restored focus; actual microphone permission/hardware acceptance was not established. Browser viewport override did not change the rendered1280×720viewport, so narrow positioning is covered by behavioral tests and code review, not claimed as a physical-window screenshot check.
 
 Release1.21.7 already published and email registration enabled. This change is1.21.8; publication evidence follows afterCI.
+
+## Interface release completed — 1.21.8
+
+Source `0826933` is tagged [client-v1.21.8](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.8). [Release CI 41575384805](https://github.com/snoopeh/Vumiro/actions/runs/41575384805) and [main CI 41575373132](https://github.com/snoopeh/Vumiro/actions/runs/41575373132) passed Windows and Linux. All seven expected assets have positive sizes and published SHA-256 digests.
+
+The public Worker is now `ecf57d68-409b-492b-8321-764a83a512b8`; internal storage owner is `6cbc8f79-ee73-40fb-a895-5791abcb0364`. Original bindings are retained. All nine served web assets match committed source byte-for-byte. Live account service and registration remain enabled; social providers remain disabled.
+
+The release adds compact navigation, the profile/account disclosure and explicit local account logout, Voice & audio device preferences/tests, supported speech processing, master playback and deafen. There are 73 passing automated regressions. Independent media review and Windows build/package checks passed. Browser review confirmed disclosure keyboard/focus behavior, audio entry without capture, pending-request closure and preference persistence. Physical audio-device/platform acceptance and installed-desktop two-device account acceptance remain outstanding; they are not inferred from mocks or package validation.
