@@ -161,7 +161,7 @@
     "tests/account-client.test.mjs",
     "tests/identity-recovery.test.mjs"
   ],
-  "next_action": "Finish 1.21.7 commit, Worker deploy, registration flag and release. Then implement requested sidebar/logout/audio improvements as1.21.8.",
+  "next_action": "Complete sidebar/logout/audio1.21.8; review and test real controls, publish compatible update.1.21.7andregistrationalreadylive.",
   "context_notes": "Supabase/Brevo configured; real signup/OTP and recovery/password change/login passed. Hosted route acceptance and46 regression tests pass. Worker service enabled and registration staged false pending publication; Supabase signup enabled. See ACCOUNT-LAUNCH.md for current evidence. Prior external blockers below are historical.",
   "latest_updater_fix": {
     "version": "1.21.6",
@@ -176,8 +176,11 @@
   },
   "latest_account_launch": {
     "version": "1.21.7",
-    "status": "publishing",
+    "status": "published_and_registration_enabled",
     "evidence": ".planning/ACCOUNT-LAUNCH.md",
-    "limits": "Hardware/desktop restart acceptance not fully repeated. Push alert delivery not yet configured. One extra unverified disposable email fixture remains after automatic cleanup rejection."
+    "limits": "Hardware/desktop restart acceptance not fully repeated. Push alert delivery not yet configured. One extra unverified disposable email fixture remains after automatic cleanup rejection.",
+    "source_commit": "4eb6963",
+    "release": "https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.7",
+    "health": "GitHub workflow every30minutes; first run41574144529passed; failed-run delivery follows GitHub notifications"
   }
 }

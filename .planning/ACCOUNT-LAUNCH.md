@@ -1,12 +1,12 @@
 # Account service launch — 1.21.7
 
-Status recorded: **2026-11-03**, immediately before publication.
+Status recorded: **2026-11-03**, publication completed.
 
 ## Rollout state
 
-- The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with `serviceEnabled: true`. The deployed Worker still reports `registrationEnabled: false`; enabling new registration is staged for the immediate release deployment. Verify the live flag after deployment before calling signup public.
+- The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with `serviceEnabled: true`. The deployed Worker now reports `registrationEnabled: true`; verified-email registration is enabled. The flag was checked after deployment.
 - Supabase **Allow new users to sign up** is now **enabled**, independently of the Worker flag. **Confirm email** remains enabled. Google/Microsoft sign-in remains disabled and unverified.
-- Version **1.21.7** has passed local package checks and the **46/46** regression suite. Release commit, deployment, tag and published release evidence must be recorded separately when completed. Local packaging is not evidence of a published release or full desktop runtime acceptance.
+- Version **1.21.7** has passed local package checks and the **46/46** regression suite. Release commit, deployment, tag and published release evidence are recorded below. Local packaging is not evidence of a published release or full desktop runtime acceptance.
 
 ## Provider and operator configuration
 
@@ -24,7 +24,7 @@ Status recorded: **2026-11-03**, immediately before publication.
 
 - **Real end-user email flow passed:** signup email delivered, six-digit OTP verified, authenticated session established, recovery email/code accepted, password changed, and login with the new password succeeded. Worker enrollment and account deletion also passed. This is separate from the synthetic admin fixtures below.
 - The hosted smoke script passed password login, asymmetric session, refresh, primary/secondary enrollment, device-credential enforcement, snapshot write/read, stale revision **409**, export and authoritative notice evidence, second-device snapshot restore, revocation with **401/403**, revoked-device enrollment **403**, real deletion, provider identity **404**, completed tombstone **410**, and cleanup.
-- Both synthetic admin-created fixture accounts were cleaned up. One additional unverified email-test fixture remains because provider policy rejected its cleanup request; this is minor outstanding test-data cleanup, not a failed delivered signup/recovery acceptance check.
+- Both synthetic admin-created fixture accounts were cleaned up. One additional unverified email-test fixture remains because automatic approval review rejected its cleanup request; this is minor outstanding test-data cleanup, not a failed delivered signup/recovery acceptance check.
 - The initial synthetic export assertion exposed PowerShell timestamp conversion. The assertion now compares UTC instants and the full hosted rerun passed.
 - Regression suite: **46/46 passed**. Local **1.21.7** package checks passed. Earlier native OAuth callback checks passed **18/18**, but live Google/Microsoft consent round trips remain unverified and disabled.
 - Public Worker dry-run with the edge rate-limit binding passed. Earlier deployed checks passed desktop CORS **204**, untrusted-origin rejection **403**, and delivery of pending-deletion handling assets.
@@ -33,7 +33,7 @@ Status recorded: **2026-11-03**, immediately before publication.
 
 - Unknown-signing-key refresh is coalesced and throttled; known cached keys remain usable after a refresh failure. Pending deletion is reported as pending and retried until provider deletion completes.
 - Account requests use the edge binding (**120/minute per connecting IP**) plus durable per-account operation limits. Worker observability is enabled with invocation logs/traces disabled and URL queries redacted.
-- Monitoring is **manual** through provider dashboards, logs and the published contact channel. **No push-alert delivery has been configured.** Check deletion retries, provider errors, abuse/rate limits and Brevo's daily allowance during the limited rollout.
+- Public dependency monitoring is scheduled through GitHub Actions; delivery of failed-run notifications follows GitHub preferences. Provider dashboards and deletion retries remain manual checks, without a separate email/pager channel. Check deletion retries, provider errors, abuse/rate limits and Brevo's daily allowance during the limited rollout.
 - Full installed-desktop restart/session persistence, interactive encrypted-identity restore across real devices, and microphone/screen/audio hardware QA have **not** been established by the hosted API or package checks. Do not report them as passed.
 - Operator procedures and provider/legal follow-up remain in [ACCOUNT-OPERATIONS.md](../docs/ACCOUNT-OPERATIONS.md). The notice makes no legal certification or verified Brazilian international-transfer-mechanism claim.
 
@@ -50,3 +50,9 @@ These records predate the 1.21.7 release publication and do not identify its fin
 2. Verify live `/api/v1/account/config` reports the intended registration flag, and verify packaged notice/assets. Supabase signup is already enabled.
 3. Keep social providers disabled, monitor the limited rollout manually, and resolve the remaining unverified fixture cleanup through the provider's supported path.
 4. Perform and record the remaining installed-desktop/device acceptance checks separately; configure push alerts when the delivery channel is ready.
+
+## Publication completed — 2026-11-03
+
+Source `4eb6963` is tagged [client-v1.21.7](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.7). [Release CI41573912179](https://github.com/snoopeh/Vumiro/actions/runs/41573912179) passed Windows and Linux; all seven expected assets are published. [Main CI41573829233](https://github.com/snoopeh/Vumiro/actions/runs/41573829233) also passed. Public Worker code version `99f524a2-db20-41cb-aff2-348189daee21` and internal storage version `f408d741-ed26-4edb-90f6-258c40bc0b3b` deployed with original bindings. A subsequent encrypted-secret update enabled registration; live config confirms both service and registration true, social providers empty.
+
+Public health monitoring is now in `.github/workflows/account-health.yml`, every30minutes, with no user credentials. The manually dispatched [first run41574144529](https://github.com/snoopeh/Vumiro/actions/runs/41574144529) succeeded. Failed runs use GitHub Actions notification preferences; a separate email/pager channel and deletion-queue alerts are not yet configured.

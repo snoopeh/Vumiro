@@ -306,6 +306,69 @@
   window.VumiroAvatarEditor = {edit};
 })();
 
+/* Profile disclosure shares account state without exposing account credentials. */
+(() => {
+  'use strict';
+  const trigger=document.getElementById('selfProfile'),panel=document.getElementById('profileDisclosure');
+  if(!trigger||!panel)return;
+  const $=id=>document.getElementById(id);
+  function position() {
+    const anchor=trigger.getBoundingClientRect(),box=panel.getBoundingClientRect();
+    panel.style.left=Math.max(12,Math.min(anchor.left,innerWidth-box.width-12))+'px';
+    panel.style.top=Math.max(12,Math.min(anchor.top-box.height-8,innerHeight-box.height-12))+'px';
+  }
+  function close(restoreFocus=false) {
+    if(panel.hidden)return;
+    panel.hidden=true;trigger.setAttribute('aria-expanded','false');
+    if(restoreFocus)trigger.focus();
+  }
+  function open() {
+    refresh();panel.hidden=false;trigger.setAttribute('aria-expanded','true');position();
+  }
+  function refresh() {
+    const state=window.VumiroAccount?.getState?.()||{signedIn:false,email:''};
+    $('selfAccountMode').textContent=state.signedIn?'Signed in':'Local profile';
+    $('profileAccountStatus').textContent=state.signedIn?'Signed in · '+state.email:'Local profile · not signed in';
+    $('profileSignOutSection').hidden=!state.signedIn;
+    $('profileMenuName').textContent=window.VumiroLocalProfile?.profile?.()?.name||'Your profile';
+    $('accountNav').disabled=!window.VumiroAccount?.open;
+    $('accountNav').title=window.VumiroAccount?.open?'Account and backup settings':'Finish updating Vumiro to enable account settings';
+  }
+  trigger.onclick=()=>panel.hidden?open():close();
+  trigger.addEventListener('keydown',event=>{
+    if(event.key==='ArrowDown'){
+      event.preventDefault();open();panel.querySelector('button:not([hidden]):not(:disabled)')?.focus();
+    }
+  });
+  document.addEventListener('pointerdown',event=>{
+    if(!panel.hidden&&!panel.contains(event.target)&&!trigger.contains(event.target))close();
+  });
+  document.addEventListener('focusin',event=>{
+    if(!panel.hidden&&!panel.contains(event.target)&&!trigger.contains(event.target))close();
+  });
+  document.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&!panel.hidden){event.preventDefault();event.stopPropagation();close(true);}
+  });
+  panel.addEventListener('click',event=>{if(event.target.closest('button'))close();});
+  addEventListener('resize',()=>{if(!panel.hidden)position();});
+  addEventListener('vumiro-account-state-changed',refresh);
+  addEventListener('vumiro-profile-changed',refresh);
+  $('audioNav').onclick=()=>{
+    close(true);
+    const audio=window.VumiroAudioSettings;
+    if(!audio?.open){$('status').textContent='Voice and audio settings are unavailable. Restart the app and try again.';return;}
+    try{Promise.resolve(audio.open()).catch(error=>{$('status').textContent=error.message;});}
+    catch(error){$('status').textContent=error.message;}
+  };
+  $('profileSignOut').onclick=async()=>{
+    const button=$('profileSignOut');button.disabled=true;close(true);
+    try{await window.VumiroAccount?.signOut?.();$('status').textContent='Signed out of your account. Your local profile, contacts and open room stay on this device.';}
+    catch(error){$('status').textContent=error.message;}
+    finally{button.disabled=false;refresh();}
+  };
+  refresh();
+})();
+
 /* Local contacts and signed requests. Photos never reach the directory. */
 (() => {
 'use strict';
@@ -342,7 +405,7 @@ function publishRoom(){if(ready)send({type:'room-state',room:currentRoom&&curren
 function renderSettings(){for(const [id,key]of [['roomFps','fps'],['roomMbps','mbps'],['roomResolution','resolution'],['roomContentHint','contentHint']])$(id).value=settings[key];$('roomAudio').checked=settings.audio;$('roomAudio').disabled=linuxHost;$('linuxAudioHint').hidden=!linuxHost;$('excludeDiscordLabel').hidden=!streamAudioSupported;$('excludeDiscord').checked=settings.excludeDiscord;$('excludeDiscord').disabled=!streamAudioSupported;$('streamAudioCapability').hidden=streamAudioSupported;$('streamAudioCapability').textContent=linuxHost?'Microphone works on Linux, but system audio capture is not supported in this release.':'This device does not support Discord audio exclusion. Your browser may still offer screen audio, but it cannot filter Discord.';$('excludeDiscordHelp').hidden=!streamAudioSupported;}
 function renderOwnProfile() {
   if (!profile) return;
-  $('selfName').textContent=profile.name; $('selfUsername').textContent=profile.username?'@'+profile.username:'On this device';
+  $('selfName').textContent=profile.name; $('selfUsername').textContent=profile.username?'@'+profile.username:'';$('selfUsername').hidden=!profile.username;
   avatar($('selfAvatar'),profile); avatar($('profileAvatar'),profile); $('ownCode').value=local.ownCode();
 }
 function renderProfile() {
@@ -583,7 +646,7 @@ function openRoom(room,signaling,name='Your room',grant,access) {
   for(const[key,value]of Object.entries(settings))url.searchParams.set(key,String(value));
   if(grant)url.searchParams.set('grant',JSON.stringify(grant));
   url.searchParams.set('autojoin','1');url.searchParams.set('embedded','1');currentRoom=room;joined=sharing=false;
-  const roomFrame=frame=document.createElement('iframe');roomFrame.title='Vumiro room';roomFrame.allow='display-capture; microphone; autoplay; fullscreen';roomFrame.allowFullscreen=true;
+  const roomFrame=frame=document.createElement('iframe');roomFrame.title='Vumiro room';roomFrame.allow='display-capture; microphone; speaker-selection; autoplay; fullscreen';roomFrame.allowFullscreen=true;
   roomFrame.onload=()=>{
     if(frame!==roomFrame)return;
     if(roomFrameLoaded)stopStreamAudioHost();roomFrameLoaded=true;
@@ -691,11 +754,11 @@ $('acceptInvite').onclick=async()=>{const value=pending;if(!value||value.directi
 async function dismissInvite(){const value=pending;if(!value)return;try{if(runtimeNow()<value.expires)await answer(value,false);}catch(error){status(error.message);}if(pending===value)clearPending(value.direction==='incoming'?'Call declined.':'Call cancelled.');}
 $('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;$('leaveRoomFromBrowse').onclick=leaveRoom;$('browseApp').onclick=browseRoom;$('returnToRoom').onclick=returnToRoom;
 $('watchNav').onclick=returnToRoom;
-$('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('selfProfile').onclick=showProfile;$('topSettings').onclick=$('roomSettings').onclick=showSettings;
+$('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('topSettings').onclick=$('roomSettings').onclick=showSettings;
 $('reconnectService').onclick=()=>{clearPending();connect();};$('reconnectRoom').onclick=()=>{frame?.contentWindow.postMessage({type:'vumiro-call-reconnect'},location.origin);if(!ready)connect();status('Reconnecting your room…');};
 function requestUpdate(action){if(action==='install'&&!linuxHost&&(frame||pending)){status('Leave your room or finish the call invitation before installing an update.');return;}if(host)host.postMessage({type:'updates',action:linuxHost&&action==='install'?'download':action});else $('updateStatus').textContent='This browser client updates when reloaded. Get the desktop app from the project releases.';}
 $('updatesNav').onclick=()=>{browseRoom();showProfile();$('updateDetails').open=true;$('updateDetails').scrollIntoView({block:'nearest'});requestUpdate('state');};$('checkUpdate').onclick=()=>requestUpdate('check');$('installUpdate').onclick=()=>requestUpdate('install');
-if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button')&&event.detail<2)host.postMessage({type:'window',action:'drag'});};$('windowTitlebar').ondblclick=event=>{if(!event.target.closest('button')){event.preventDefault();host.postMessage({type:'window',action:'maximize'});}};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
+if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button')&&event.detail<2)host.postMessage({type:'window',action:'drag'});};$('windowTitlebar').ondblclick=event=>{if(!event.target.closest('button')){event.preventDefault();host.postMessage({type:'window',action:'maximize'});}};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
 if(host)host.addEventListener('message',event=>{
   if(event.data?.type!=='window-state')return;
   const caption=document.querySelector('[data-window="maximize"]');

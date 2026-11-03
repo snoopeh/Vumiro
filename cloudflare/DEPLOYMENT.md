@@ -1,20 +1,20 @@
 # Active Vumiro deployment
 
-## Account service and 1.21.7 release staging — 2026-11-03
+## Account service and 1.21.7 publication — 2026-11-03
 
-The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with **service enabled**. The deployed Worker still reports **new registration disabled**. Enabling the Worker registration flag is staged for the immediate release deployment; verify the live flag afterward. Supabase **Allow new users to sign up** is already **enabled**, with confirmed email required. Hosted Google/Microsoft sign-in remains disabled and unverified.
+The canonical [public service](https://vumiro-rooms.vumiro-signaling.workers.dev) returns **200** from `/api/v1/account/config`, with **service enabled**. The deployed Worker reports **new registration enabled**, verified after deployment. Supabase **Allow new users to sign up** is already **enabled**, with confirmed email required. Hosted Google/Microsoft sign-in remains disabled and unverified.
 
 **Brevo Free SMTP is connected using encrypted transport** (**300 emails/day**). Required verification and SMTP credential generation are complete. Confirmation and recovery templates are saved with `{{ .Token }}` codes and no action links/assets. Password-change and email-change security notifications are enabled. Actual signup delivery/OTP verification, recovery/password change/new-password login, Worker enrollment and account deletion passed. This delivered-email evidence is separate from the admin-confirmed hosted fixtures.
 
 Brevo settings show **all senders, one month of transactional logs**, and **Never store previews**. Delivered messages use **Vumiro <snopeeh@12660220.brevosend.com>** after Gmail sender-domain rewriting. The completed [privacy notice](../docs/PRIVACY.md), version **2026-11-01**, names **Emanuel Queiroz (snoopeh)** and **snopeeh@gmail.com** and explains actual regions, readable account fields, encrypted identity backup, deletion and provider-retention limitations.
 
-The **46/46** regression suite and local **1.21.7** package checks passed. The release commit, new deployment version, desktop tag and published release URL are still to be recorded when publication completes. These checks do **not** establish full installed-desktop restart, real-device identity restore or audio/screen hardware QA.
+The **46/46** regression suite and local **1.21.7** package checks passed. The completed publication evidence is recorded below. These checks do **not** establish full installed-desktop restart, real-device identity restore or audio/screen hardware QA.
 
 Production authentication is Supabase project `rrrflwevxojheaejbcnp`, AWS **São Paulo (`sa-east-1`)**, at `https://rrrflwevxojheaejbcnp.supabase.co`, reported Healthy. Seven encrypted Worker secrets are installed. Signing uses **ES256**, verified JWKS key ID `5037f2b1-3679-4872-b5d3-f1220e4de221`; access tokens last **3600 seconds**. Refresh-token reuse detection uses a **10-second** interval. Passwords require **12 characters**; OTPs use **6 digits**, expire after **600 seconds**, and secure password change is enabled. The canonical `/auth.html` Site URL and desktop loopback redirect allowlist are saved.
 
-The hosted smoke script passed password login/refresh, two-device enrollment, credential enforcement, snapshot write/read and revision conflict **409**, export/notice evidence, secondary snapshot restore, revocation **401/403**, provider identity deletion **404**, completed tombstone **410**, and cleanup. Both synthetic admin fixtures were cleaned up. One extra unverified mail-test fixture remains because provider policy rejected cleanup; track that minor cleanup separately from the successful real email flows.
+The hosted smoke script passed password login/refresh, two-device enrollment, credential enforcement, snapshot write/read and revision conflict **409**, export/notice evidence, secondary snapshot restore, revocation **401/403**, provider identity deletion **404**, completed tombstone **410**, and cleanup. Both synthetic admin fixtures were cleaned up. One extra unverified mail-test fixture remains because automatic approval review rejected cleanup; track that minor cleanup separately from the successful real email flows.
 
-Monitoring currently relies on **manual provider dashboard/log checks and the published contact channel**. **No push alerts are configured.** Watch deletion retries, provider failures, rate limits and Brevo's daily allowance during rollout. See [ACCOUNT-LAUNCH.md](../.planning/ACCOUNT-LAUNCH.md) for the detailed evidence and [ACCOUNT-OPERATIONS.md](../docs/ACCOUNT-OPERATIONS.md) for operating procedures.
+Public dependencies are checked every30minutes through GitHub Actions; the first run passed. Failed-run notifications follow GitHub preferences. Provider logs and deletion retries still need manual checks; no separate email/pager destination is configured. Watch deletion retries, provider failures, rate limits and Brevo's daily allowance during rollout. See [ACCOUNT-LAUNCH.md](../.planning/ACCOUNT-LAUNCH.md) for the detailed evidence and [ACCOUNT-OPERATIONS.md](../docs/ACCOUNT-OPERATIONS.md) for operating procedures.
 
 ## Current account architecture
 
@@ -58,3 +58,9 @@ The [pre-cleanup restore point](../docs/RESTORE.md) contains the committed/pushe
 Client 1.21.1 is published as the stable/latest release with all six assets. Release CI `41341372589` succeeded. The app remaps known legacy saved URLs and room invitations while preserving custom connection services. Older clients need the GitHub update because the account rename retires the old service URLs.
 
 The dashboard confirmed the new subdomain and Wrangler deployed the canonical route. API metadata confirmed the public route enabled, internal storage route disabled, and original Durable Object bindings retained. No live room/audio runtime tests were run.
+
+## Publication completed — 2026-11-03
+
+Source `4eb6963` is tagged [client-v1.21.7](https://github.com/snoopeh/Vumiro/releases/tag/client-v1.21.7). [Release CI41573912179](https://github.com/snoopeh/Vumiro/actions/runs/41573912179) passed Windows and Linux; all seven expected assets are published. [Main CI41573829233](https://github.com/snoopeh/Vumiro/actions/runs/41573829233) also passed. Public Worker code version `99f524a2-db20-41cb-aff2-348189daee21` and internal storage version `f408d741-ed26-4edb-90f6-258c40bc0b3b` deployed with original bindings. A subsequent encrypted-secret update enabled registration; live config confirms both service and registration true, social providers empty.
+
+Public health monitoring is now in `.github/workflows/account-health.yml`, every30minutes, with no user credentials. The manually dispatched [first run41574144529](https://github.com/snoopeh/Vumiro/actions/runs/41574144529) succeeded. Failed runs use GitHub Actions notification preferences; a separate email/pager channel and deletion-queue alerts are not yet configured.

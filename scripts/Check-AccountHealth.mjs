@@ -17,6 +17,6 @@ const keysResponse = await request(config.authUrl + '/auth/v1/.well-known/jwks.j
 requireCondition(keysResponse.ok, `Signing-key endpoint returned ${keysResponse.status}`);
 const jwks = await keysResponse.json();
 requireCondition(Array.isArray(jwks.keys) && jwks.keys.some(key => key.kid && ['ES256', 'RS256'].includes(key.alg)), 'No supported signing key published');
-const protectedResponse = await request(base + '/api/v1/account/snapshot');
+const protectedResponse = await request(base + '/api/v1/account/data');
 requireCondition(protectedResponse.status === 401, `Unauthenticated account route returned ${protectedResponse.status}, expected 401`);
 console.log('Account API, authentication provider, signing keys and authentication enforcement are healthy.');

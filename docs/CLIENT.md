@@ -1,4 +1,4 @@
-# Vumiro 1.21.7
+# Vumiro 1.21.8
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
@@ -6,7 +6,7 @@ Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **
 
 Linux x64 packages are available in the same release: AppImage, deb and rpm. Follow the [Linux guide](LINUX.md). The Linux client shares rooms, profiles, friend requests and chat behavior with Windows, but uses a separate local device identity. Its screen picker and window frame follow the Linux desktop, and updates are downloaded for manual installation. Screen video and microphone are supported; system-audio loopback is unavailable in the Linux client.
 
-Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**.
+Older 1.14/1.15 clients need one fresh installation after the repository/executable rename. The same Windows account keeps its local profile and friends. From 1.16 onward, use **Updates → Update now**. In1.21.8, Updates lives in the bottom profile menu.
 
 Version 1.21.1 moves the connection service to **https://vumiro-rooms.vumiro-signaling.workers.dev**. Both peers should update for the new address. Known legacy saved URLs and invitations migrate automatically; custom services and local identity data are preserved. GitHub updates remain available even when an older client cannot reach the retired service hostname.
 
@@ -20,15 +20,17 @@ Version 1.21.5 refreshes the app from the supplied visual concepts: a scenic red
 
 Version 1.21.6 prevents duplicate Windows app instances, including a copy hidden in the tray. Opening Vumiro again restores the existing window. Updates check for other copies from the same installation before downloading and after shutdown, prepare backups before replacing files, skip unchanged files and preserve the failing filename/cause in an update log under `%LOCALAPPDATA%\Vumiro\Updates`. On older versions, choose **Quit Vumiro** from its tray menu before retrying a blocked update; closing its window hides it in the tray.
 
+Version1.21.8 streamlines the sidebar: Friends and Rooms stay prominent, and the bottom profile menu groups profile editing, Account & backup, Voice & audio, Settings and Updates. Signed-in accounts have an explicit **Sign out of account** action. Account mode and service connection status are separate. Ordinary sign-out clears the saved account session and stops sync while keeping your local profile, contacts and active room. All-device sign-out and device revocation remain explicit security actions in Account & backup.
+
 ## Your profile and friends
 
-Create a display name, then open **Your profile** to choose an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames remain online lookup handles for device identities.
+Create a display name, then open the bottom **Profile and account** menu and choose **Edit profile** to set an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames remain online lookup handles for device identities.
 
 ## Vumiro account
 
 Version 1.21.7 connects email/password accounts to the hosted service and publishes the operator and provider details in the privacy notice. Signing-key rotation no longer rejects valid cached sessions, and pending identity deletion is reported accurately.
 
-The dedicated welcome page opens on first launch. It offers **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. You can also choose **Continue with a local profile**. Existing local users can open the page from **Account** in the sidebar. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
+The dedicated welcome page opens on first launch. It offers **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. You can also choose **Continue with a local profile**. Existing local users can open **Account & backup** from the bottom profile menu. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
 
 Email/password sign-in and verified-email registration are enabled. Use at least 12 characters for your password and enter the six-digit confirmation code from your email; codes expire after ten minutes. Google and Microsoft remain disabled until their separate provider registrations are configured. Local profiles and rooms work independently. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device when those providers are enabled.
 
@@ -61,6 +63,14 @@ Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes
 The room uses a large focused stage with participant thumbnails, a **Chat/People** side pane and bottom call controls. Select a participant/stream to focus it. Double-click a stream for fullscreen. **Actual size** helps read small text. Screen, microphone and screen audio remain off until you enable them through the appropriate controls/picker.
 
 Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving the room or quitting Vumiro stops capture. Closing the window keeps the room connected in the system tray.
+
+### Voice & audio
+
+Open **Voice & audio** from the profile menu before joining, or from the call controls. Choose your microphone and speaker/headphones, adjust master playback, and enable supported echo cancellation, noise suppression and automatic microphone level. These hardware preferences stay on this device and do not join account sync. Existing Screen and Voice volume sliders for each participant remain independent and combine with master playback volume.
+
+Opening the panel does not start capture. **Enable mic meter** explicitly starts a local input-level check; **Record & play test** records a short local sample and plays it through the selected speaker. During that recording/replay, outgoing room microphone and incoming room playback pause. Stop or close the panel to release test tracks and restore the previous room state. **Test speaker** plays a short tone without enabling the microphone. If output selection is unavailable, use your operating-system sound settings.
+
+**Deafen** silences received room audio and temporarily suppresses your outgoing microphone. Undeafen restores your previous mute and per-person volume choices. Microphone mute and screen sharing remain separate. Processing availability depends on the browser/audio engine; current track settings are shown when available. This release does not add system-wide push-to-talk or a hardware microphone-gain control.
 
 ### Stream audio on Windows
 

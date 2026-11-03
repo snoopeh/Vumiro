@@ -306,12 +306,14 @@ function configurePermissions() {
     const origin = details.securityOrigin || requestingOrigin;
     if (!isTrustedPermissionFrame(contents, origin)) return false;
     if (permission === 'media') return details.mediaType === 'audio';
+    if (permission === 'speaker-selection') return true; // Only the trusted local frames checked above.
     if (permission === 'display-capture') return isTrustedPage(details.requestingUrl, '/call.html');
     return ['clipboard-sanitized-write', 'fullscreen'].includes(permission);
   });
   ses.setPermissionRequestHandler((contents, permission, callback, details = {}) => {
     const requestingUrl = details.requestingUrl || details.securityOrigin || '';
     if (!isTrustedPermissionFrame(contents, requestingUrl)) return callback(false);
+    if (permission === 'speaker-selection') return callback(true); // Only the trusted local frames checked above.
     if (permission === 'clipboard-sanitized-write') return callback(true);
     if (permission === 'fullscreen') return callback(true);
     if (permission === 'media') {

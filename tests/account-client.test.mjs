@@ -26,26 +26,28 @@ class Element {
 
 function response(status,value){return {ok:status>=200&&status<300,status,async json(){return value;}};}
 
-function harness({stored='',route,authPage=false,oauth,href='https://vumiro.local/friends.html'}={}) {
+function harness({stored='',route,authPage=false,oauth,href='https://vumiro.local/friends.html',localProfile=null,callFrame=null}={}) {
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
   const listeners=new Map();
   const storage=new Map();
   const secure={value:stored,writes:[],async get(){return this.value;},async set(value){this.value=value;this.writes.push(value);},async delete(){this.value='';this.writes.push('');}};
   const calls=[];
+  const events=[],clock={now:Date.now()};
+  class ClockDate extends Date { static now(){return clock.now;} }
   const fetch=async(url,options={})=>{calls.push({url:String(url),options});return route?route(String(url),options,calls):response(200,{});};
   const navigations=[];
   const sandbox={
-    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>null,accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
-    document:{body:{dataset:{page:authPage?'auth':'friends'}},getElementById:element,createElement:()=>new Element()},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,
+    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
+    document:{body:{dataset:{page:authPage?'auth':'friends'}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
     crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
     addEventListener:(type,callback)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(callback);},
-    dispatchEvent(){},Event,StorageEvent:class {},setTimeout,clearTimeout,confirm:()=>true,console
+    dispatchEvent(event){events.push(event);for(const callback of listeners.get(event.type)||[])callback(event);return true;},Event,StorageEvent:class {},setTimeout,clearTimeout,confirm:()=>true,console
   };
   sandbox.window.window=sandbox.window;sandbox.window.chrome=undefined;
   vm.runInNewContext(source,sandbox,{filename:'account-client.js'});
-  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
+  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,clock,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
 }
 
 const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-01'};
@@ -68,6 +70,79 @@ test('ordinary sign out uses local provider scope and retains only device creden
   assert.equal(persisted.refreshToken,undefined);
   assert.equal(persisted.deviceId,'22222222-2222-4222-8222-222222222222');
   assert.equal(persisted.deviceToken,'a'.repeat(64));
+});
+
+test('public account state is immutable and token-free and signals local logout without navigating',async()=>{
+  const localProfile={id:'local-identity',name:'Local'},callFrame={connected:true};
+  const app=harness({stored:saved,route:commonRoute,localProfile,callFrame});
+  const account=app.sandbox.window.VumiroAccount;
+  assert.equal(account.getState().signedIn,false);
+  await app.start();
+  const state=account.getState();
+  assert.deepEqual(Object.keys(state).sort(),['email','signedIn']);
+  assert.equal(state.signedIn,true);assert.equal(state.email,session.user.email);
+  assert.ok(Object.isFrozen(state));
+  assert.equal(JSON.stringify(account.state()),JSON.stringify(state));
+  assert.doesNotMatch(JSON.stringify(state),/header\.payload|refresh-next|22222222|aaaaaaa/);
+  const changes=app.events.filter(event=>event.type==='vumiro-account-state-changed').length;
+  await account.signOut();
+  assert.equal(account.getState().signedIn,false);assert.equal(account.getState().email,'');
+  assert.ok(app.events.filter(event=>event.type==='vumiro-account-state-changed').length>changes);
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+  assert.equal(app.sandbox.document.querySelector('#callFrameSlot iframe'),callFrame);
+  assert.equal(app.navigations.length,0);
+  const requests=app.calls.length;account.scheduleSync();
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(app.calls.length,requests,'signed-out profile changes cannot schedule account uploads');
+});
+
+test('ordinary logout refreshes an expired access token before revoking the local provider session',async()=>{
+  let refreshes=0;
+  const app=harness({stored:saved,route:url=>{
+    if(url.includes('grant_type=refresh_token'))return response(200,{...session,access_token:++refreshes===1?session.access_token:'fresh-logout-access'});
+    return commonRoute(url);
+  }});await app.start();
+  app.clock.now+=3600000;
+  await app.sandbox.window.VumiroAccount.signOut();
+  assert.equal(refreshes,2);
+  const logout=app.calls.find(call=>call.url.endsWith('/logout?scope=local'));
+  assert.equal(logout.options.headers.Authorization,'Bearer fresh-logout-access');
+  assert.equal(JSON.parse(app.secure.value).refreshToken,undefined);
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
+});
+
+test('offline refresh and logout failures still clear saved authentication and preserve the local profile and call',async()=>{
+  let offline=false;
+  const localProfile={id:'local-identity',name:'Local'},callFrame={connected:true};
+  const app=harness({stored:saved,localProfile,callFrame,route:url=>{
+    if(offline&&url.includes('/auth/v1/'))throw new TypeError('Network unavailable');
+    return commonRoute(url);
+  }});await app.start();offline=true;app.clock.now+=3600000;
+  await app.sandbox.window.VumiroAccount.signOut();
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
+  const persisted=JSON.parse(app.secure.value);
+  assert.equal(persisted.refreshToken,undefined);assert.equal(persisted.deviceToken,'a'.repeat(64));
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+  assert.equal(app.sandbox.document.querySelector('#callFrameSlot iframe'),callFrame);
+  assert.equal(app.navigations.length,0);
+  app.sandbox.window.VumiroAccount.open();
+  assert.equal(app.element('accountDialog').open,true,'account sign-in can open over an ongoing room');
+  assert.equal(app.navigations.length,0);
+});
+
+test('public logout waits for an in-flight account operation before clearing its session',async()=>{
+  let releaseExport,exportStarted;
+  const started=new Promise(resolve=>{exportStarted=resolve;}),gate=new Promise(resolve=>{releaseExport=resolve;});
+  const app=harness({stored:saved,route:async url=>{
+    if(url.endsWith('/account/export')){exportStarted();await gate;return response(200,{version:1,account:{},data:null,devices:[],noticeRecords:[]});}
+    return commonRoute(url);
+  }});await app.start();
+  const exporting=app.element('accountExport').onclick();await started;
+  const signingOut=app.sandbox.window.VumiroAccount.signOut();
+  await Promise.resolve();assert.equal(app.calls.some(call=>call.url.includes('/logout?scope=')),false);
+  releaseExport();await Promise.all([exporting,signingOut]);
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
+  assert.ok(app.calls.findIndex(call=>call.url.endsWith('/account/export'))<app.calls.findIndex(call=>call.url.includes('/logout?scope=local')));
 });
 
 test('explicit all-device sign out reauthenticates, revokes Worker devices, and uses global provider scope',async()=>{

@@ -82,6 +82,9 @@
   let selfId = '', socket = null, joined = false, reconnectTimer = 0, retry = 0, generation = 0;
   let profileRequestId='', profileRequestTimer=0, profileAddBusy=false;
   let screen = null, microphone = null, localTile = null, joining = false;
+  const voice = window.VumiroAudioSettings || null;
+  let micMuted = false, micSuppressed = false, micChanging = false, microphoneEpoch = 0;
+  const changingMicrophones = new Set();
   let nativeAudioSupported=false,nativeAudioSession=null,nativeAudioGeneration=0,audioContext=null,audioDestination=null,nativeAudioTrack=null;
   const readSaved = key => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
   const save = (key, value) => { try { localStorage.setItem(key, value); } catch { /* optional */ } };
@@ -201,7 +204,7 @@
     // Grants belong to one approved identity and must never be copied into a public room link.
     return url.href;
   }
-  function syncMuteControl() { const muted=!!microphone&&!microphone.getAudioTracks().some(track=>track.enabled);$('muteLabel').textContent=muted?'Unmute mic':'Mute mic';$('mute').setAttribute('aria-pressed',String(muted));$('mute').setAttribute('aria-label',muted?'Unmute microphone':'Mute microphone');$('mute').classList.toggle('active',!muted&&!!microphone);$('muteIcon').setAttribute('href',muted?'#i-mic-off':'#i-mic'); }
+  function syncMuteControl() { const muted=!!microphone&&micMuted;$('muteLabel').textContent=muted?'Unmute mic':'Mute mic';$('mute').setAttribute('aria-pressed',String(muted));$('mute').setAttribute('aria-label',muted?'Unmute microphone':'Mute microphone');$('mute').classList.toggle('active',!muted&&!!microphone);$('muteIcon').setAttribute('href',muted?'#i-mic-off':'#i-mic'); }
   function renderInvitation() {
     const value=invitation();$('inviteLink').value=value;
     $('inviteHint').textContent=roomMode==='private'?'Share the room password separately.':roomMode==='public'?'Anyone with a Vumiro profile can join with this link.':'Only mutual friends can join. To invite someone new, change Room access to Public or Private.';
@@ -217,7 +220,7 @@
     $('join').disabled = joined || joining || !!localTile; $('leave').disabled = !joined && !joining && !localTile && !disconnected;
     for (const id of ['name', 'room', 'signaling']) $(id).disabled = joined || joining;
     $('share').disabled = !joined || !!screen; $('stopShare').disabled = !screen;
-    $('mic').disabled = !joined || !!microphone; $('mute').disabled = !microphone; syncMuteControl();
+    $('mic').disabled = !joined || !!microphone || micChanging; $('mute').disabled = !microphone; $('deafen').disabled = !joined; syncMuteControl();
     $('copyInvite').disabled = !joined;
     $('reconnect').hidden=!disconnected && ![...peers.values()].some(peer=>['failed','disconnected'].includes(peer.pc.connectionState));$('reconnect').disabled=joining;chatControls();roomState();
     $('mic').hidden=!!microphone;$('mute').hidden=!microphone;$('share').hidden=!!screen;$('stopShare').hidden=!screen;renderRoom();refreshLayout();
@@ -248,16 +251,16 @@
         const row=document.createElement('label'),text=document.createElement('span'),slider=document.createElement('input'),level=document.createElement('output');
         text.textContent=label;slider.type='range';slider.min='0';slider.max='100';slider.step='1';slider.value='100';slider.disabled=true;slider.setAttribute('aria-label',label+' volume for '+name);slider.setAttribute('aria-valuetext','100 percent');level.textContent='100%';
         row.append(text,slider,level);controls.append(row);slots.set(slot,{slider,level,audio:null});
-        slider.oninput=()=>{ const value=Math.min(100,Math.max(0,Number(slider.value)||0));slider.value=String(value);level.textContent=value+'%';slider.setAttribute('aria-valuetext',value===0?'Muted':value+' percent');const audio=slots.get(slot).audio;if(audio){audio.volume=value/100;audio.muted=value===0;} };
+        slider.oninput=()=>{ const value=Math.min(100,Math.max(0,Number(slider.value)||0));slider.value=String(value);level.textContent=value+'%';slider.setAttribute('aria-valuetext',value===0?'Muted':value+' percent');const audio=slots.get(slot).audio;if(voice)voice.refreshPlayback();else if(audio){audio.volume=value/100;audio.muted=value===0;} };
       }
       controls.onclick=event=>event.stopPropagation();controls.ondblclick=event=>event.stopPropagation();stage.append(controls);
       result.attachAudio=(slot,track)=>{
         const control=slots.get(slot);if(!control) return;
         let audio=control.audio;
-        if(!audio) { audio=document.createElement('audio');audio.autoplay=true;control.audio=audio;element.append(audio);result.audios.push(audio); }
-        audio.srcObject=new MediaStream([track]);audio.volume=Number(control.slider.value)/100;audio.muted=audio.volume===0;
+        if(!audio) { audio=document.createElement('audio');audio.autoplay=false;control.audio=audio;element.append(audio);result.audios.push(audio); }
+        audio.srcObject=new MediaStream([track]);const ready=voice?voice.registerPlayback(audio,()=>Number(control.slider.value)/100):null;if(!voice){audio.volume=Number(control.slider.value)/100;audio.muted=audio.volume===0;}
         const available=()=>{ if(audio.srcObject?.getAudioTracks()[0]!==track)return;control.slider.disabled=track.readyState==='ended'||track.muted;control.slider.title=control.slider.disabled?'Waiting for '+(slot===1?'screen audio':'voice'):'Set to 0 to mute'; };
-        track.onunmute=available;track.onmute=available;track.onended=available;available();play(audio);
+        track.onunmute=available;track.onmute=available;track.onended=available;available();if(ready)ready.then(()=>{if(audio.srcObject?.getAudioTracks()[0]===track)play(audio);}).catch(()=>{});else play(audio);
       };
     }
     result.show = sharing => { result.sharing=sharing; placeholder.hidden=sharing; video.style.visibility=sharing?'visible':'hidden';refreshLayout(); };
@@ -376,7 +379,7 @@
       }
     }).catch(error=>peerError(peer,error));
   }
-  function removePeer(id) { const peer=peers.get(id); if(!peer) return; peers.delete(id); peer.pc.close(); peer.tile.element.remove();chatControls();refreshLayout(); }
+  function removePeer(id) { const peer=peers.get(id); if(!peer) return; peers.delete(id);for(const audio of peer.tile.audios)voice?.forgetPlayback(audio); peer.pc.close(); peer.tile.element.remove();chatControls();refreshLayout(); }
   function clearPeers() { for(const id of [...peers.keys()]) removePeer(id); }
   async function replaceTracks() {
     await Promise.all([...peers.values()].map(async peer=>{
@@ -408,19 +411,47 @@
     } catch(error) { status(error.name==='NotAllowedError'?'Screen sharing was cancelled or denied.':error.message); }
     finally { if(!screen&&audioContext?.state==='running')audioContext.suspend().catch(()=>{});updateControls(); }
   }
-  async function enableMic() {
-    $('mic').disabled=true; const thisGeneration=generation;
+  function gateMicrophone(suppressed) {
+    micSuppressed = suppressed;
+    for (const stream of new Set([microphone,...changingMicrophones])) for (const track of stream?.getAudioTracks() || []) track.enabled = !micMuted && !micSuppressed;
+    syncMuteControl(); for (const peer of peers.values()) announce(peer);
+  }
+  async function replaceMicrophone(value) {
+    const epoch = ++microphoneEpoch, thisGeneration = generation, previous = microphone;
+    micChanging = true; updateControls(); let capture;
     try {
-      const capture=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false});
-      if(!joined || generation!==thisGeneration) { capture.getTracks().forEach(t=>t.stop());return; }
-      microphone=capture;
-      for(const track of capture.getAudioTracks()) track.onended=()=>{
-        if(microphone!==capture) return;microphone=null;syncMuteControl();
-        replaceTracks().catch(error=>status(error.message));updateControls();status('Microphone disconnected. You can enable another microphone.');
+      capture = await navigator.mediaDevices.getUserMedia(voice ? voice.constraints(value) : {audio:{echoCancellation:true,noiseSuppression:true},video:false});
+      if (!joined || generation !== thisGeneration || epoch !== microphoneEpoch) throw Error('Microphone change cancelled because the room changed.');
+      for (const track of capture.getAudioTracks()) track.enabled = !micMuted && !micSuppressed;
+      if(previous)changingMicrophones.add(previous);
+      microphone = capture;
+      try { await replaceTracks(); }
+      catch (error) {
+        // Keep the old capture alive until all sender replacements have succeeded.
+        if (microphone === capture) microphone = previous?.getAudioTracks().some(track=>track.readyState==='live')&&joined&&generation===thisGeneration?previous:null;
+        gateMicrophone(micSuppressed);
+        await replaceTracks().catch(() => {}); throw error;
+      }
+      if (!joined || generation !== thisGeneration || epoch !== microphoneEpoch) { if (microphone === capture) microphone = null; throw Error('Microphone change cancelled because the room changed.'); }
+      for (const track of capture.getAudioTracks()) track.onended = () => {
+        if (microphone !== capture) return; microphone = null; ++microphoneEpoch;
+        replaceTracks().catch(error => status(error.message)); updateControls(); status('Microphone disconnected. Choose an available microphone in Voice & audio.');
       };
-      await replaceTracks();status('Microphone enabled.');
-    } catch(error) { status('Microphone: '+error.message); }
-    finally { updateControls(); }
+      previous?.getTracks().forEach(track => track.stop());
+    } catch (error) { capture?.getTracks().forEach(track => track.stop());if(!joined||generation!==thisGeneration){previous?.getTracks().forEach(track=>track.stop());if(microphone===capture)microphone=null;}throw error; }
+    finally { changingMicrophones.delete(previous);if(epoch===microphoneEpoch)micChanging = false; updateControls(); }
+  }
+  async function applyVoiceSettings(next, previous) {
+    const changed = ['inputId','echoCancellation','noiseSuppression','autoGainControl'].some(name => next[name] !== previous[name]);
+    if (!changed) return;
+    if (microphone) await replaceMicrophone(next);
+    else if (micChanging) { ++microphoneEpoch;micChanging=false;updateControls(); } // Cancel a capture requested with stale preferences.
+  }
+  async function enableMic() {
+    if (!joined || microphone || micChanging) return;
+    micMuted = false;
+    try { await replaceMicrophone(voice?.snapshot()); status('Microphone enabled.'); }
+    catch (error) { status('Microphone: ' + error.message); }
   }
   function openSocket() {
     const thisGeneration=generation; roomNonce=''; roomFriendsRevision=0; joining=true;updateControls();
@@ -478,8 +509,8 @@
     const url=new URL(location.href);url.searchParams.set('room',raw);if(roomGrant) url.searchParams.set('grant',JSON.stringify(roomGrant));else url.searchParams.delete('grant');history.replaceState(null,'',url);status('Joining room…');openSocket();
   }
   async function leave() {
-    generation++;disconnected=false;if(policyAck) policyAck.reject(Error('You left the room.'));password='';if(passwordResolve) { passwordResolve('');passwordResolve=null; }clearTimeout(reconnectTimer);const old=socket;socket=null;joined=false;joining=false;if(old) old.close(1000,'Left room');
-    clearPeers();await stopShare();if(microphone) microphone.getTracks().forEach(t=>t.stop());microphone=null;if(audioContext){try{await audioContext.close();}catch{}audioContext=null;audioDestination=null;nativeAudioTrack=null;}
+    generation++;++microphoneEpoch;disconnected=false;if(policyAck) policyAck.reject(Error('You left the room.'));password='';if(passwordResolve) { passwordResolve('');passwordResolve=null; }clearTimeout(reconnectTimer);const old=socket;socket=null;joined=false;joining=false;if(old) old.close(1000,'Left room');
+    gateMicrophone(true);clearPeers();await stopShare();for(const capture of new Set([microphone,...changingMicrophones]))capture?.getTracks().forEach(t=>t.stop());changingMicrophones.clear();microphone=null;micChanging=false;voice?.stopTest();voice?.setDeafened(false);if(audioContext){try{await audioContext.close();}catch{}audioContext=null;audioDestination=null;nativeAudioTrack=null;}
     if(localTile) localTile.element.remove();localTile=null;selfId='';syncMuteControl();updateControls();status('You left the room.');chatLine('You left the room.');
     if(embedded) parent.postMessage({type:'vumiro-call-ended'}, location.origin);
   }
@@ -488,7 +519,11 @@
   $('signaling').value=canonicalSignalInput(querySignal || savedSignal || (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/call-signaling');
   if(!querySignal&&savedSignal&&savedSignal!==$('signaling').value)save('call-signaling',$('signaling').value);
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
-  $('mute').onclick=()=>{ if(microphone) { const enabled=!microphone.getAudioTracks().some(track=>track.enabled);microphone.getAudioTracks().forEach(track=>track.enabled=enabled);syncMuteControl();for(const peer of peers.values()) announce(peer); } };
+  $('mute').onclick=()=>{ if(microphone) { micMuted=!micMuted;gateMicrophone(micSuppressed); } };
+  $('audioOpen').onclick=()=>voice?.open();
+  $('deafen').onclick=()=>voice?.setDeafened(!voice.isDeafened());
+  voice?.registerRoom({apply:applyVoiceSettings,gate:gateMicrophone,microphone:()=>microphone,active:()=>joined||joining,report:status,playbackReady:play});
+  voice?.subscribe(value=>{ $('deafen').setAttribute('aria-pressed',String(value.deafened));$('deafen').setAttribute('aria-label',value.deafened?'Undeafen room audio':'Deafen room audio and microphone');$('deafenLabel').textContent=value.deafened?'Undeafen':'Deafen';$('deafen').classList.toggle('active',value.deafened); });
   $('copyInvite').onclick=()=>{ if(!joined)return;renderInvitation();$('inviteCopyStatus').textContent='';$('inviteDialog').showModal();$('inviteLink').focus();$('inviteLink').select();copyInvitation(); };
   $('inviteCopy').onclick=copyInvitation;
   $('inviteClose').onclick=()=>$('inviteDialog').close();
@@ -496,7 +531,7 @@
   $('inviteDialog').addEventListener('close',()=>$('copyInvite').focus());
   $('inviteLink').onclick=()=>$('inviteLink').select();
   $('enableAudio').onclick=()=>{ $('enableAudio').hidden=true;for(const peer of peers.values()) { play(peer.tile.video);for(const audio of peer.tile.audios) play(audio); } };
-  addEventListener('beforeunload',()=>{ generation++;stopNativeAudioCapture();if(socket) socket.close();for(const stream of [screen,microphone]) stream?.getTracks().forEach(t=>t.stop());clearPeers(); });
+  addEventListener('beforeunload',()=>{ generation++;++microphoneEpoch;joined=false;joining=false;voice?.dispose();stopNativeAudioCapture();if(socket) socket.close();for(const stream of new Set([screen,microphone,...changingMicrophones])) stream?.getTracks().forEach(t=>t.stop());changingMicrophones.clear();clearPeers(); });
   addEventListener('message',event=>{
     if(!embedded || event.origin!==location.origin || event.source!==parent) return;
     if(event.data?.type==='vumiro-friend-status') friendStatus(event.data);
