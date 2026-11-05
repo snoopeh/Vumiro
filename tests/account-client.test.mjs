@@ -234,6 +234,20 @@ test('manual backup and export share one serialized account-operation queue',asy
   assert.equal(app.calls.find(call=>call.url.endsWith('/api/v1/account/export')).options.headers['X-Vumiro-Profile-Cards'],undefined);
 });
 
+test('backup reveals password setup when the account shell has removed its security disclosure',async()=>{
+  const app=harness({stored:saved,route:(url,options)=>{
+    if(url.includes('/auth/v1/token?grant_type=password'))return response(200,session);
+    return commonRoute(url,options);
+  }});await app.start();
+  const getElementById=app.sandbox.document.getElementById;
+  app.sandbox.document.getElementById=id=>id==='accountSecurityDetails'?null:getElementById(id);
+  app.element('accountPrivacyAck').checked=true;
+  await app.element('accountBackup').onclick();
+  await app.element('accountReauthForm').onsubmit({preventDefault(){}});
+  assert.equal(app.element('accountSetPasswordForm').hidden,false);
+  assert.match(app.element('accountFeedback').textContent,/Add a separate Vumiro password/);
+});
+
 test('reauthentication targets the existing reauth form id',()=>{
   assert.doesNotMatch(source,/\$\('accountReauth'\)/);
   assert.match(source,/\$\('accountReauthForm'\)/);

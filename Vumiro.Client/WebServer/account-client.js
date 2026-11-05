@@ -185,6 +185,12 @@
       const button=document.createElement('button');button.type='submit';button.textContent='Set Vumiro password';
       form.append(heading,help,label,password,confirmLabel,confirmation,button);actions.insertBefore(form,$('accountSyncStatus'));
     }
+    if(actions&&!$('accountSecurityDetails')){
+      const details=document.createElement('details');details.id='accountSecurityDetails';
+      const summary=document.createElement('summary');summary.textContent='Password and identity recovery';details.append(summary);
+      for(const id of ['accountChangePasswordForm','accountSetPasswordForm','accountRecoveryPanel']){const control=$(id);if(control)details.append(control);}
+      actions.insertBefore(details,$('accountSyncStatus'));
+    }
   }
 
   function base64url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
@@ -478,7 +484,7 @@
   function showRecoveryCode() {
     const panel=$('accountRecoveryPanel'),field=$('accountRecoveryCode');
     if(!panel||!field||!identityRecoveryCode)return;
-    field.value=identityRecoveryCode;panel.hidden=false;
+    field.value=identityRecoveryCode;panel.hidden=false;const securityDetails=$('accountSecurityDetails');if(securityDetails)securityDetails.open=true;
   }
   function requestReauth(action) { reauthAction=action;$('accountConfirmPassword').value='';$('accountReauthForm').hidden=false;for(const provider of ['google','azure'])if($(`accountReauth${provider}`))$(`accountReauth${provider}`).hidden=!session?.user?.app_metadata?.providers?.includes(provider)||!authConfig?.oauthProviders?.includes(provider);$('accountConfirmPassword').focus(); }
   function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||''}); }
@@ -608,7 +614,7 @@
     catch(error){status(error.message,true);}
   };
   $('accountRestore').onclick=async()=>{ $('accountRestore').disabled=true;try{if(!confirm('Replace this device’s profile, contacts, blocks, stream settings, and compatible signed identity with the copy saved in your account?'))return;requestReauth((_token,password)=>{identityUnlock={password,recoveryCode:identityRecoveryCode};return enqueue(restoreRemote).catch(error=>status(error.message,true)).finally(()=>{identityUnlock=null;});});}catch(error){status(error.message,true);}finally{$('accountRestore').disabled=false;} };
-  $('accountBackup').onclick=async()=>{ $('accountBackup').disabled=true;try{await config();requireBundledNotice();if(!readNoticeAck()&&!$('accountPrivacyAck').checked)throw Error('Review and acknowledge the privacy notice for this account before syncing data.');if(!confirm('Copy this device’s profile, friends, settings, and encrypted recovery identity into the signed-in account? This may replace data already saved there.'))return;if(!readNoticeAck())writeNoticeAck(new Date().toISOString());if(identityRecovery)await enqueue(()=>upload(true));else requestReauth((_token,password)=>{if(!password){status('Add a separate Vumiro password below, then choose Back up again to encrypt your identity.',true);$('accountSetPasswordForm').hidden=false;$('accountSetPasswordValue').focus();return;}return enqueue(()=>enableIdentityRecovery(password)).catch(error=>status(error.message,true));}); }catch(error){status(error.message,true);}finally{$('accountBackup').disabled=false;} };
+  $('accountBackup').onclick=async()=>{ $('accountBackup').disabled=true;try{await config();requireBundledNotice();if(!readNoticeAck()&&!$('accountPrivacyAck').checked)throw Error('Review and acknowledge the privacy notice for this account before syncing data.');if(!confirm('Copy this device’s profile, friends, settings, and encrypted recovery identity into the signed-in account? This may replace data already saved there.'))return;if(!readNoticeAck())writeNoticeAck(new Date().toISOString());if(identityRecovery)await enqueue(()=>upload(true));else requestReauth((_token,password)=>{if(!password){status('Add a separate Vumiro password below, then choose Back up again to encrypt your identity.',true);const securityDetails=$('accountSecurityDetails');if(securityDetails)securityDetails.open=true;$('accountSetPasswordForm').hidden=false;$('accountSetPasswordValue').focus();return;}return enqueue(()=>enableIdentityRecovery(password)).catch(error=>status(error.message,true));}); }catch(error){status(error.message,true);}finally{$('accountBackup').disabled=false;} };
   if($('accountUnlockForm'))$('accountUnlockForm').onsubmit=async event=>{event.preventDefault();const password=$('accountUnlockPassword').value,recoveryCode=$('accountUnlockCode').value.trim();if(!password&&!recoveryCode){status('Enter your Vumiro password or identity recovery code.',true);return;}try{identityUnlock={password,recoveryCode};await enqueue(restoreRemote);$('accountUnlockPassword').value='';$('accountUnlockCode').value='';navigate('friends.html');}catch(error){status(error.message,true);}finally{identityUnlock=null;}};
   if($('accountSetPasswordForm'))$('accountSetPasswordForm').onsubmit=event=>{event.preventDefault();const password=$('accountSetPasswordValue').value;if(password.length<12||password!==$('accountSetPasswordConfirm').value){status('Use at least 12 characters and enter the same Vumiro password twice.',true);return;}if(identityRecovery){status('Use Change password with your recovery code to update an existing encrypted identity.',true);return;}requestReauth(async token=>{try{await auth('/user',{password},token,'PUT');$('accountSetPasswordValue').value='';$('accountSetPasswordConfirm').value='';status('Your Vumiro password is set. Use it to sign in by email and enable encrypted identity backup.');}catch(error){status(error.message,true);}});};
   $('accountExport').onclick=()=>enqueue(exportData).catch(error=>status(error.message,true));
