@@ -24,9 +24,7 @@ namespace Vumiro.Client
         internal static DesktopInstance Acquire()
         {
             var isolatedProfile = Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER");
-            var profile = String.IsNullOrWhiteSpace(isolatedProfile)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScreenTask", "ClientBrowser")
-                : isolatedProfile;
+            var profile = ClientRuntime.Current.BrowserProfileDirectory;
             var identity = WindowsIdentity.GetCurrent().User.Value + "|" + Path.GetFullPath(profile).TrimEnd('\\', '/').ToUpperInvariant();
             string suffix;
             using (var hash = SHA256.Create()) suffix = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "");
@@ -40,7 +38,7 @@ namespace Vumiro.Client
                 signal.Set(); signal.Dispose(); mutex.Dispose();
                 return null;
             }
-            if (String.IsNullOrWhiteSpace(isolatedProfile) && ActivateLegacyCopy())
+            if (!ClientRuntime.Current.IsLocalQa && String.IsNullOrWhiteSpace(isolatedProfile) && ActivateLegacyCopy())
             {
                 signal.Dispose(); mutex.ReleaseMutex(); mutex.Dispose();
                 return null;

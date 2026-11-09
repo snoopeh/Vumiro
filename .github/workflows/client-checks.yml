@@ -1,0 +1,49 @@
+name: Fast client checks
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ''
+        required: false
+permissions:
+  contents: read
+jobs:
+  fast:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - name: Reject version and syntax errors before installing dependencies
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            node scripts/Check-ReleaseVersion.mjs --tag "$RELEASE_TAG"
+          else
+            node scripts/Check-ReleaseVersion.mjs
+          fi
+          node scripts/Check-Syntax.mjs
+      - run: npm ci --prefix cloudflare
+      - name: Run client and backend checks with compact reports
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            node scripts/Check-Client.mjs --tag "$RELEASE_TAG"
+          else
+            node scripts/Check-Client.mjs
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fast-check-report
+          overwrite: true
+          path: dist/checks/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -30,6 +30,16 @@ test('idle stage and participant header use the same centered avatar image after
   assert.ok(layouts>=3);
 });
 
+test('room chat formats a small safe Markdown subset using text nodes and HTTPS links',()=>{
+  class Element { constructor(tag,text=''){this.tagName=tag;this.textContent=text;this.children=[];this.attributes={};} append(...children){this.children.push(...children);} }
+  const target=new Element('div'),sandbox={URL,localStorage:{getItem:()=>null},addEventListener(){},document:{createElement:tag=>new Element(tag),createTextNode:text=>new Element('#text',text)}};vm.createContext(sandbox);
+  vm.runInContext(functionAt('renderChatText','  function playCallCue('),sandbox);
+  sandbox.renderChatText(target,'**bold** *italic* `code`\nhttps://example.com <img src=x>');
+  assert.deepEqual(target.children.map(node=>node.tagName),['strong','#text','em','#text','code','br','a','#text']);
+  assert.equal(target.children[0].textContent,'bold');assert.equal(target.children[2].textContent,'italic');assert.equal(target.children[4].textContent,'code');
+  assert.equal(target.children[6].href,'https://example.com/');assert.equal(target.children[6].rel,'noopener noreferrer');assert.equal(target.children.at(-1).textContent,' <img src=x>');
+});
+
 function profileHarness({legacy=false}={}) {
   const sandbox={URL,TextEncoder,encoder:new TextEncoder()};vm.createContext(sandbox);
   const validators=localSource.slice(localSource.indexOf('  function cleanBio('),localSource.indexOf('  const cardFields ='));

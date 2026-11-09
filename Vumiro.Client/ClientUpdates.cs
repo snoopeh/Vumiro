@@ -76,6 +76,11 @@ namespace Vumiro.Client
 
         internal async Task HandleAsync(string action)
         {
+            if (!ClientRuntime.Current.UpdatesEnabled)
+            {
+                message = "LOCAL QA uses your checkout. Use Reload UI for web edits or rerun Local QA.cmd for native changes.";
+                State(); return;
+            }
             if (action == "state") { State(); return; }
             if (busy || (action != "check" && action != "install")) return;
             busy = true; progress = 0;

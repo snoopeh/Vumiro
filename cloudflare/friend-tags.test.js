@@ -164,6 +164,15 @@ test('tag lookup accepts familiar formatting and keeps offline and blocked ident
   assert.equal(app.sqlite.prepare('SELECT tag FROM friend_tags WHERE identity_id=?').get(b.id).tag,tag.replace(/[#-]/g,''));
 });
 
+test('online username and display-name prefix discovery is bounded and deduplicated',async t=>{
+  const app=fixture(t),requester=await authenticate(app,await identity());await announce(app,requester,'Requester');
+  const people=[];
+  for(let n=0;n<23;n++){const ws=await authenticate(app,await identity());await announce(app,ws,n<2?'Mira '+n:'Search Person '+n,{username:'search'+String(n).padStart(2,'0')});people.push(ws);}
+  const byName=await lookup(app,requester,'mIrA');assert.deepEqual(byName.profiles.map(item=>item.name),['Mira 0','Mira 1']);assert.equal(byName.truncated,false);
+  const byUsername=await lookup(app,requester,'@search');assert.equal(byUsername.profiles.length,20);assert.equal(byUsername.truncated,true);assert.equal(new Set(byUsername.profiles.map(item=>item.id)).size,20);
+  assert.ok(byUsername.profiles.every(item=>Object.keys(item).sort().join(',')==='friendTag,id,key,name,socialVersion,username'));
+});
+
 test('friend number lookups retain the existing authenticated control-message budget',async t=>{
   const app=fixture(t),ws=await authenticate(app,await identity());
   for(let n=0;n<24;n++)assert.equal((await lookup(app,ws,'#12345-67890')).type,'lookup-result');

@@ -108,6 +108,13 @@ try {
     if (!$completeHtml.Contains('<script src="/account-client.js"></script>') -or
         !$completeHtml.Contains('<script src="/identity-recovery.js"></script>') -or
         !$completeHtml.Contains('<details id="accountDetails">')) { throw 'Complete package does not enable account controls.' }
+    foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $root 'Vumiro.Client/WebServer') -File | Where-Object { $_.Extension -in '.html', '.js' })) {
+        $packaged = Join-Path $complete ('WebServer/' + $file.Name)
+        if (!(Test-Path -LiteralPath $packaged -PathType Leaf) -or
+            [IO.File]::ReadAllText($packaged).Replace("`r`n", "`n") -cne [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")) {
+            throw "Packaged UI does not match source: $($file.Name)"
+        }
+    }
 } finally {
     if (Test-Path -LiteralPath $temporaryRoot) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }
 }

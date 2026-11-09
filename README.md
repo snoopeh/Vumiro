@@ -18,6 +18,8 @@ Windows 11 stream audio uses native application capture, with Discord excluded b
 
 ## Build
 
+For local human QA, double-click **Local QA.cmd** or run `./scripts/Run-Local.ps1`. The native app uses an isolated profile and live source assets; **Reload UI** picks up web edits without publishing a release. See [local development](docs/LOCAL-DEVELOPMENT.md).
+
 Install the .NET 9 SDK and .NET Framework 4.8 targeting pack on Windows:
 
 ```powershell
@@ -35,17 +37,19 @@ npm ci
 node ../scripts/Build-Linux.mjs
 ```
 
-Linux packages and `SHA256SUMS-linux.txt` are written to `dist/linux-release/`. GitHub Actions builds them on Ubuntu; no Linux desktop or runtime test is launched by the build.
+Linux packages and `SHA256SUMS-linux.txt` are written to `dist/linux-release/`. GitHub Actions builds them on Ubuntu and runs an offline startup/UI smoke test against the packaged app under Xvfb. Ordinary source pushes use an unpacked build instead of producing distribution archives.
 
 For signaling development, run `npm ci` and `npm run dev` in `cloudflare/`. See [service deployment](cloudflare/README.md).
 
 ## Releases and updates
 
-Commit and push a matching `client-v1.21.8` tag to publish the Windows and Linux packages after both builds pass. Both Windows project versions and the Linux package version must match the tag. The Windows app validates package SHA-256, size, permitted files and executable versions before installation. Windows runs one instance per local profile, restores its existing window on another launch, and checks for older copies before updating. The updater prepares all changed files and recovery copies before committing atomic replacements; a failed commit rolls back completed replacements and reports its filename and cause. Diagnostic logs are written under `%LOCALAPPDATA%\Vumiro\Updates`. Linux checks for releases and opens the download page for manual package installation.
+Use LOCAL QA during development. After human QA is accepted, commit/push the source and preview `./scripts/Ship.ps1 -Bump patch`. When asked to release, append `-Publish -QaAccepted`; the command aligns versions, creates the release commit/tag and pushes atomically. CI builds both platforms, verifies a private draft, publishes it, then checks downloads and updater discovery. See [release commands, checks and reports](docs/RELEASING.md).
+
+The Windows app validates package SHA-256, size, permitted files and executable versions before installation. Windows runs one instance per local profile, restores its existing window on another launch, and checks for older copies before updating. The updater prepares all changed files and recovery copies before committing atomic replacements; a failed commit rolls back completed replacements and reports its filename and cause. Diagnostic logs are written under `%LOCALAPPDATA%\Vumiro\Updates`. Linux checks for releases and opens the download page for manual package installation.
 
 **Older 1.14/1.15 clients need one fresh Vumiro installation after the GitHub repository rename.** Their updater pins the old repository API URL and executable layout. From 1.16 onward, updates use the Vumiro repository and filenames. Existing local profiles and contacts are preserved.
 
-Runtime/streaming tests for this iteration are left to the user as requested. Builds and JavaScript syntax checks do not establish end-to-end behavior or a security audit.
+Real account, peer networking and screen/audio acceptance remain part of human QA. Automated startup and UI smoke checks cover selected regressions; they do not establish every end-to-end flow or constitute a security audit.
 
 ## License
 

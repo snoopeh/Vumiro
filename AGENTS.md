@@ -1,0 +1,12 @@
+# Vumiro working and release flow
+
+- Use the real local Windows app for human QA: `./scripts/Run-Local.ps1`, or double-click `Local QA.cmd`. Use its LOCAL QA badge to distinguish it from the installed release.
+- When the user asks to see, open, or review the implemented changes, launch the LOCAL QA app for them; do not stop at giving launch instructions. Run `./scripts/Run-Local.ps1`, resolve any stale checks that conflict with the requested behavior, then verify `dist/local-qa/launch.json` and the running window title identify this checkout and show `LOCAL QA`. Tell the user which window is open. Add a desktop shortcut only when it will make repeated review easier.
+- For HTML/JavaScript/CSS edits, change the shared source and use Reload UI. Rerun the launcher after native C# changes. Do not rebuild packages for ordinary UI review.
+- Run checks proportional to the change. Prefer focused checks while iterating; the launcher runs the fast client/native suite once before the human QA handoff. `-SkipTests` is available for repeated presentation-only iterations after relevant checks pass.
+- Use launcher logs in `dist/local-qa/logs` and its startup result to investigate failures. Do not repeatedly rerun passing broad checks, create browser previews, or poll remote builds without a concrete unresolved concern.
+- Report readiness precisely: source implemented, checks passed, ready for human QA, human QA accepted, or released. Automated checks are not human acceptance.
+- During implementation and human QA, do not bump release versions, push `client-v*` tags, publish GitHub releases or deploy production services. Release only after the user accepts QA and asks to ship/release. A request to commit or push source is not a release request.
+- Use `scripts/Ship.ps1 -Bump patch` to preview. Add `-Publish -QaAccepted` only for an accepted, explicitly requested release; the command requires clean, already-pushed source. See `docs/RELEASING.md` for recovery and CI reports.
+- CI runs fast checks before native/package builds and produces the final `release-pipeline-report`. Read that result instead of repeatedly polling builds or downloading every platform package manually. Investigate a named failure with focused logs.
+- Keep the QA profile separate from installed data. Do not copy production credentials or signing identities into it. The default signaling/account backend is still the existing service; a separate local profile does not create a separate backend.

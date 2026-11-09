@@ -21,6 +21,8 @@ namespace Vumiro.Client
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            if (ClientRuntime.Current.IsLocalQa)
+                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", ClientRuntime.Current.BrowserProfileDirectory);
             using (var instance = DesktopInstance.Acquire())
             {
                 if (instance == null) return;
@@ -55,12 +57,13 @@ namespace Vumiro.Client
             updates = new ClientUpdates(this, state => {
                 if (!IsDisposed && browser.CoreWebView2 != null) browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(state));
             });
-            Text = "Vumiro";
+            Text = ClientRuntime.Current.IsLocalQa ? "Vumiro · " + ClientRuntime.Current.Label : "Vumiro";
             BackColor = Color.FromArgb(11, 11, 12);
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1160, 800);
             MinimumSize = new Size(940, 640);
+            if (ClientRuntime.Current.IsLocalQa) WindowState = FormWindowState.Maximized;
             InitializeWindowChrome();
             InitializeTrayIcon();
             Controls.Add(browser); Controls.Add(loading);
@@ -86,13 +89,14 @@ namespace Vumiro.Client
             trayMenu.Items.Add(open);
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add(quit);
-            trayIcon = new NotifyIcon { Icon = Icon ?? SystemIcons.Application, Text = "Vumiro", ContextMenuStrip = trayMenu, Visible = false };
+            trayIcon = new NotifyIcon { Icon = Icon ?? SystemIcons.Application, Text = ClientRuntime.Current.IsLocalQa ? "Vumiro · LOCAL QA" : "Vumiro", ContextMenuStrip = trayMenu, Visible = false };
             trayIcon.DoubleClick += (s, e) => RestoreFromTray();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);
+            if (ClientRuntime.Current.IsLocalQa) return;
             if (e.Cancel || e.CloseReason != CloseReason.UserClosing || exitRequested) return;
 
             // Keep the existing WebView alive so room media, capture and
@@ -126,11 +130,12 @@ namespace Vumiro.Client
         {
             try
             {
-                var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScreenTask", "ClientBrowser");
+                var profile = ClientRuntime.Current.BrowserProfileDirectory;
                 var environment = await CoreWebView2Environment.CreateAsync(null, profile);
                 if (IsDisposed) return;
                 await browser.EnsureCoreWebView2Async(environment);
-                browser.CoreWebView2.SetVirtualHostNameToFolderMapping(new Uri(Origin).Host, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebServer"), CoreWebView2HostResourceAccessKind.DenyCors);
+                browser.CoreWebView2.SetVirtualHostNameToFolderMapping(new Uri(Origin).Host, ClientRuntime.Current.WebRoot, CoreWebView2HostResourceAccessKind.DenyCors);
+                await EnableLocalQaToolsAsync();
                 browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 browser.CoreWebView2.ContainsFullScreenElementChanged += (s, e) => {
@@ -152,6 +157,7 @@ namespace Vumiro.Client
                         if (HandleSecureStoreMessage(message)) return;
                         if (await HandleOAuthMessageAsync(message, source)) return;
                         if (HandleWindowMessage(message)) return;
+                        if (HandleLocalQaMessage(message)) return;
                         if (source.AbsolutePath != "/friends.html") return;
                         if (HandleStreamAudioMessage(message)) return;
                         object type, action;
@@ -165,12 +171,14 @@ namespace Vumiro.Client
                     if (IsDisposed) return;
                     if (!e.IsSuccess)
                     {
+                        WriteLocalQaStatus("error", "Local interface navigation failed: " + e.WebErrorStatus);
                         if (startupOverlayActive) loading.ShowError("Vumiro could not load its local interface: " + e.WebErrorStatus);
                     }
                     else
                     {
                         DismissStartupOverlay();
                         PublishWindowState();
+                        WriteLocalQaStatus("ready");
                         await updates.HandleAsync("check");
                     }
                 };
@@ -178,7 +186,7 @@ namespace Vumiro.Client
                 var fps = 60; var bitrate = 20;
                 try
                 {
-                    var preferences = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScreenTask", "appsettings.xml");
+                    var preferences = Path.Combine(ClientRuntime.Current.DataDirectory, "appsettings.xml");
                     if (File.Exists(preferences))
                     {
                         var xml = XDocument.Load(preferences).Root;
@@ -195,6 +203,7 @@ namespace Vumiro.Client
             }
             catch (Exception error)
             {
+                WriteLocalQaStatus("error", error.Message);
                 if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }
         }
@@ -234,7 +243,7 @@ namespace Vumiro.Client
             string value = null, error = null;
             try
             {
-                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ScreenTask");
+                var directory = ClientRuntime.Current.DataDirectory;
                 var file = Path.Combine(directory, "account-session.bin");
                 if (action == "get")
                 {

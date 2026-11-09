@@ -2,47 +2,57 @@ name: Build Vumiro
 on:
   push:
     branches: [main]
+    paths:
+      - 'Vumiro.Client/**'
+      - 'Vumiro.Client.Updater/**'
+      - 'Vumiro.Linux/**'
+      - 'cloudflare/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'Vumiro.sln'
   pull_request:
+    paths:
+      - 'Vumiro.Client/**'
+      - 'Vumiro.Client.Updater/**'
+      - 'Vumiro.Linux/**'
+      - 'cloudflare/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - 'Vumiro.sln'
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: client-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
+  checks:
+    uses: ./.github/workflows/client-checks.yml
   windows:
+    needs: checks
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-      - uses: actions/setup-node@v4
+      - uses: actions/cache@v4
         with:
-          node-version: 22
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
       - run: dotnet build Vumiro.sln -c Release --nologo
-      - name: Check JavaScript syntax
+      - run: dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
+      - name: Native check summary
         shell: pwsh
-        run: |
-          Get-ChildItem Vumiro.Client/WebServer,cloudflare,Vumiro.Linux -File | Where-Object { $_.Extension -in '.js','.mjs','.cjs' } | ForEach-Object {
-            node --check $_.FullName
-            if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.Name)" }
-          }
-      - name: Run account and identity tests
-        shell: pwsh
-        run: |
-          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs tests/invite-volume.test.mjs tests/oauth-desktop.test.mjs tests/audio-settings.test.mjs tests/sidebar.test.mjs tests/call-layout.test.mjs tests/profile-card-data.test.mjs tests/friend-tag-client.test.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Client regression tests failed.' }
-          dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
-          if ($LASTEXITCODE -ne 0) { throw 'Native OAuth callback checks failed.' }
-          Push-Location cloudflare
-          npm ci
-          npm test
-          if ($LASTEXITCODE -ne 0) { throw 'Account API tests failed.' }
-          Pop-Location
-      - name: Build and validate Windows update transition
-        shell: pwsh
-        run: |
-          ./scripts/Build-Client.ps1 -OutputDirectory "$env:RUNNER_TEMP/client-packages"
-          ./scripts/Test-ClientPackages.ps1 -OutputDirectory "$env:RUNNER_TEMP/client-packages"
-  linux-packaging:
+        run: Add-Content $env:GITHUB_STEP_SUMMARY 'Windows Release build and native invariants passed. Distribution archives are built only when releasing.'
+  linux-smoke:
+    needs: checks
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,12 +60,27 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: Vumiro.Linux/package-lock.json
-      - name: Install Linux package builders
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('Vumiro.Linux/package-lock.json') }}
+      - name: Install headless Electron dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm libarchive-tools
-      - name: Build Linux packages
-        working-directory: Vumiro.Linux
-        run: |
-          npm ci
-          node ../scripts/Build-Linux.mjs
+          sudo apt-get install --yes xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libatk-bridge2.0-0 libcups2
+      - run: npm ci --prefix Vumiro.Linux
+      - name: Build unpacked app without distribution archives
+        run: node scripts/Build-Linux.mjs --unpacked
+      - name: Run offline packaged startup and UI regressions
+        shell: bash
+        run: xvfb-run -a node scripts/Test-LinuxSmoke.mjs 2>&1 | tee dist/linux-release/linux-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-smoke-report
+          overwrite: true
+          path: dist/linux-release/linux-smoke.log
+          if-no-files-found: ignore
+          retention-days: 14

@@ -3,52 +3,51 @@ on:
   push:
     tags: ['client-v*']
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: client-release
+  cancel-in-progress: false
 jobs:
+  checks:
+    uses: ./.github/workflows/client-checks.yml
+    with:
+      tag: ${{ github.ref_name }}
   windows-client:
+    needs: checks
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-      - uses: actions/setup-node@v4
+      - uses: actions/cache@v4
         with:
-          node-version: 22
-      - name: Verify client tag matches the application
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+      - run: dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
+      - name: Build and verify versions, manifests, checksums and packaged source
         shell: pwsh
         run: |
-          [xml]$project = Get-Content Vumiro.Client/Vumiro.Client.csproj
-          $version = [string]$project.Project.PropertyGroup.Version
-          if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:GITHUB_REF_NAME -ne "client-v$version") { throw 'Client tag and version differ.' }
-          [xml]$helper = Get-Content Vumiro.Client.Updater/Vumiro.Client.Updater.csproj
-          if ([string]$helper.Project.PropertyGroup.Version -ne $version) { throw 'Client updater and app versions differ.' }
-          $linuxPackage = Get-Content Vumiro.Linux/package.json -Raw | ConvertFrom-Json
-          if ($linuxPackage.version -ne $version) { throw 'Linux client and Windows client versions differ.' }
-      - name: Build portable client and update helper
-        shell: pwsh
-        run: |
-          node --test tests/account-client.test.mjs tests/identity-recovery.test.mjs tests/invite-volume.test.mjs tests/oauth-desktop.test.mjs tests/audio-settings.test.mjs tests/sidebar.test.mjs tests/call-layout.test.mjs tests/profile-card-data.test.mjs tests/friend-tag-client.test.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'Client regression tests failed.' }
-          dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
-          if ($LASTEXITCODE -ne 0) { throw 'Native OAuth callback checks failed.' }
-          Push-Location cloudflare
-          npm ci
-          npm test
-          if ($LASTEXITCODE -ne 0) { throw 'Account API tests failed.' }
-          Pop-Location
           ./scripts/Build-Client.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/dist/client-release"
           ./scripts/Test-ClientPackages.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/dist/client-release"
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native checks, legacy bridge and complete update package validation passed, including packaged UI/source comparison.'
       - uses: actions/upload-artifact@v4
         with:
           name: windows-client-release
+          overwrite: true
+          compression-level: 0
           path: |
             dist/client-release/Vumiro-win-x64.zip
             dist/client-release/Vumiro-win-x64-v2.zip
             dist/client-release/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 14
   linux-client:
+    needs: checks
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,32 +55,56 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: Vumiro.Linux/package-lock.json
-      - name: Install Linux package builders
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('Vumiro.Linux/package-lock.json') }}
+      - name: Install package builders and headless Electron dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes rpm libarchive-tools
-      - name: Verify Linux package version matches tag
-        working-directory: Vumiro.Linux
-        run: |
-          node -e "const p=require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'client-v' + p.version) throw new Error('Client tag and Linux package version differ.')"
-      - name: Build Linux packages
-        working-directory: Vumiro.Linux
-        run: |
-          npm ci
-          node ../scripts/Build-Linux.mjs
+          sudo apt-get install --yes rpm libarchive-tools xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libatk-bridge2.0-0 libcups2
+      - run: npm ci --prefix Vumiro.Linux
+      - name: Build AppImage, DEB and RPM
+        run: node scripts/Build-Linux.mjs
+      - name: Run offline packaged startup and UI regressions
+        shell: bash
+        run: xvfb-run -a node scripts/Test-LinuxSmoke.mjs 2>&1 | tee dist/linux-release/linux-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-release-smoke-report
+          overwrite: true
+          path: dist/linux-release/linux-smoke.log
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: linux-client-release
+          overwrite: true
+          compression-level: 0
           path: |
             dist/linux-release/Vumiro-linux-x64.AppImage
             dist/linux-release/Vumiro-linux-x64.deb
             dist/linux-release/Vumiro-linux-x64.rpm
             dist/linux-release/SHA256SUMS-linux.txt
           if-no-files-found: error
+          retention-days: 14
   publish-release:
-    needs: [windows-client, linux-client]
+    needs: [checks, windows-client, linux-client]
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           name: windows-client-release
@@ -90,16 +113,72 @@ jobs:
         with:
           name: linux-client-release
           path: dist/release-assets/linux
-      - name: Publish client downloads and checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify all built assets before uploading
+        run: node scripts/Check-ReleaseAssets.mjs --directory dist/release-assets --output dist/release-report/prepublication.json
+      - name: Create or resume a draft without replacing published files
+        id: stage
+        shell: bash
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/release-assets/windows/Vumiro-win-x64.zip \
-            dist/release-assets/windows/Vumiro-win-x64-v2.zip \
-            dist/release-assets/windows/SHA256SUMS.txt \
-            dist/release-assets/linux/Vumiro-linux-x64.AppImage \
-            dist/release-assets/linux/Vumiro-linux-x64.deb \
-            dist/release-assets/linux/Vumiro-linux-x64.rpm \
-            dist/release-assets/linux/SHA256SUMS-linux.txt \
-            --repo "$GITHUB_REPOSITORY" --title "Vumiro $GITHUB_REF_NAME" --generate-notes
+          existing=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [ "$existing" = false ]; then
+            echo 'already_published=true' >> "$GITHUB_OUTPUT"
+            echo 'This release is already public; verifying it without replacing its files.'
+            exit 0
+          fi
+          echo 'already_published=false' >> "$GITHUB_OUTPUT"
+          files=(dist/release-assets/windows/Vumiro-win-x64.zip dist/release-assets/windows/Vumiro-win-x64-v2.zip dist/release-assets/windows/SHA256SUMS.txt dist/release-assets/linux/Vumiro-linux-x64.AppImage dist/release-assets/linux/Vumiro-linux-x64.deb dist/release-assets/linux/Vumiro-linux-x64.rpm dist/release-assets/linux/SHA256SUMS-linux.txt)
+          if [ "$existing" = true ]; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Vumiro $GITHUB_REF_NAME" --generate-notes
+          fi
+      - name: Verify uploaded draft assets before making them public
+        if: steps.stage.outputs.already_published != 'true'
+        run: node scripts/Verify-Release.mjs --tag "$GITHUB_REF_NAME" --sha "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" --assets-dir dist/release-assets --output dist/release-report/draft --draft-check
+      - name: Publish verified draft
+        if: steps.stage.outputs.already_published != 'true'
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+      - name: Verify public downloads and Windows/Linux updater discovery
+        env:
+          ALREADY_PUBLISHED: ${{ steps.stage.outputs.already_published }}
+        shell: bash
+        run: |
+          args=()
+          if [ "$ALREADY_PUBLISHED" != true ]; then args=(--assets-dir dist/release-assets); fi
+          node scripts/Verify-Release.mjs --tag "$GITHUB_REF_NAME" --sha "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" --output dist/release-report "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-verification
+          overwrite: true
+          path: dist/release-report/
+          if-no-files-found: ignore
+          retention-days: 30
+  report:
+    if: always()
+    needs: [checks, windows-client, linux-client, publish-release]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        if: needs.publish-release.result != 'skipped'
+        continue-on-error: true
+        with:
+          name: release-verification
+          path: dist/verification
+      - name: Write the single final result
+        env:
+          RELEASE_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node scripts/Write-ReleaseSummary.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-pipeline-report
+          overwrite: true
+          path: dist/pipeline-report/
+          if-no-files-found: error
+          retention-days: 30

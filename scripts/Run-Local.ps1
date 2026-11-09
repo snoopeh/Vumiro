@@ -1,0 +1,97 @@
+param([switch]$SkipTests)
+$ErrorActionPreference = 'Stop'
+$root = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
+$output = Join-Path $root 'dist/local-qa'
+$logs = Join-Path $output 'logs'
+$web = Join-Path $root 'Vumiro.Client/WebServer'
+$executable = Join-Path $output 'Vumiro.exe'
+
+function Invoke-LocalCheck([string]$name, [string]$command, [string[]]$arguments, [string]$logName) {
+    $log = Join-Path $logs $logName
+    Write-Host "$name..."
+    & $command @arguments *> $log
+    if ($LASTEXITCODE -ne 0) {
+        Get-Content -LiteralPath $log -Tail 40 | Write-Host
+        throw "$name failed. Full output: $log"
+    }
+}
+
+try {
+    foreach ($command in @('dotnet', 'node')) {
+        if (!(Get-Command $command -ErrorAction SilentlyContinue)) { throw "$command is required. See docs/LOCAL-DEVELOPMENT.md." }
+    }
+    New-Item -ItemType Directory -Path $logs -Force | Out-Null
+    Push-Location $root
+    try {
+        foreach ($file in (Get-ChildItem -LiteralPath $web -Filter '*.js' -File)) {
+            Invoke-LocalCheck "Syntax: $($file.Name)" 'node' @('--check', $file.FullName) 'syntax.log'
+        }
+        if (!$SkipTests) {
+            Invoke-LocalCheck 'Client regressions' 'node' @('--test', 'tests/*.test.mjs') 'client-tests.log'
+            Invoke-LocalCheck 'Native invariants' 'dotnet' @('run', '--project', 'tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj', '-c', 'Release', '--nologo') 'native-tests.log'
+        }
+        # Stop only this checkout's QA executable. Installed copies use other paths.
+        foreach ($process in (Get-Process -Name Vumiro -ErrorAction SilentlyContinue)) {
+            try {
+                if (![String]::Equals($process.Path, $executable, [StringComparison]::OrdinalIgnoreCase)) { continue }
+                Write-Host 'Closing this checkout''s previous LOCAL QA window...'
+                if (!$process.CloseMainWindow() -or !$process.WaitForExit(10000)) {
+                    throw 'Close this LOCAL QA window and rerun the launcher. It may still be starting.'
+                }
+            } finally { $process.Dispose() }
+        }
+        Invoke-LocalCheck 'Incremental native build' 'dotnet' @('build', 'Vumiro.Client/Vumiro.Client.csproj', '-c', 'Debug', '-o', $output, '--nologo') 'build.log'
+        if (!(Test-Path -LiteralPath $executable -PathType Leaf)) { throw 'Build did not produce Vumiro.exe.' }
+
+        $workspaceHash = [Security.Cryptography.SHA256]::Create()
+        try { $workspace = ([BitConverter]::ToString($workspaceHash.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToUpperInvariant())))).Replace('-', '').Substring(0, 12) }
+        finally { $workspaceHash.Dispose() }
+        $data = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('Vumiro/LocalQA/' + $workspace)
+        New-Item -ItemType Directory -Path $data -Force | Out-Null
+        $statusFile = Join-Path $data 'local-qa-status.json'
+        if (Test-Path -LiteralPath $statusFile -PathType Leaf) { Remove-Item -LiteralPath $statusFile }
+        $label = 'working tree'
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            $commit = & git rev-parse --short HEAD
+            if ($LASTEXITCODE -eq 0) {
+                $label = $commit
+                if (& git status --porcelain) { $label += ' + working tree' }
+            }
+        }
+        $start = New-Object Diagnostics.ProcessStartInfo
+        $start.FileName = $executable
+        $start.WorkingDirectory = $output
+        $start.UseShellExecute = $false
+        $start.EnvironmentVariables['VUMIRO_DEV_WEB_ROOT'] = $web
+        $start.EnvironmentVariables['VUMIRO_DEV_DATA_ROOT'] = $data
+        $start.EnvironmentVariables['VUMIRO_DEV_LABEL'] = $label
+        $start.EnvironmentVariables['WEBVIEW2_USER_DATA_FOLDER'] = Join-Path $data 'ClientBrowser'
+        $app = [Diagnostics.Process]::Start($start)
+        $receipt = Join-Path $output 'launch.json'
+        @{ processId = $app.Id; source = $root; label = $label; webRoot = $web; dataRoot = $data; executable = $executable } |
+            ConvertTo-Json | Set-Content -LiteralPath $receipt -Encoding UTF8
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $ready = $false
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ($app.HasExited) { throw 'LOCAL QA exited before loading its interface.' }
+            $state = $null
+            if (Test-Path -LiteralPath $statusFile -PathType Leaf) {
+                try { $state = Get-Content -LiteralPath $statusFile -Raw | ConvertFrom-Json } catch { }
+            }
+            if ($state -and $state.processId -eq $app.Id) {
+                if ($state.state -eq 'error') { throw ('LOCAL QA startup failed: ' + $state.message) }
+                if ($state.state -eq 'ready') { $ready = $true; break }
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        if (!$ready) { throw "LOCAL QA did not report a loaded interface within 30 seconds. Startup status: $statusFile" }
+        Write-Host "LOCAL QA ready: $label (PID $($app.Id))"
+        Write-Host 'Web edits: click Reload UI in the app. Native edits: rerun Local QA.cmd.'
+        Write-Host "Isolated profile: $data"
+        Write-Host "Logs: $logs"
+        Write-Host 'No version bump, Git push, release tag or publication was performed.'
+    } finally { Pop-Location }
+} catch {
+    Write-Host ('LOCAL QA failed: ' + $_.Exception.Message) -ForegroundColor Red
+    exit 1
+}

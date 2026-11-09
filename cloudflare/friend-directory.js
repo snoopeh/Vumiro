@@ -507,10 +507,23 @@ export class FriendDirectory extends DurableObject {
       } catch { /* no result for malformed code */ }
     } else if (FRIEND_ID_PATTERN.test(query)) id = query;
     else query = query.replace(/^@/, '').toLowerCase();
-    const target = this.authenticated().find(other => {
+    const online = this.authenticated();
+    const target = online.find(other => {
       const value = read(other);
       return value.name && !blocked(session, value) && (id ? value.id === id : !friendTag && USERNAME_PATTERN.test(query) && value.username === query);
     });
+    // Exact tags/codes/usernames retain their single-profile response. Other
+    // text is a bounded online prefix search over username and display name.
+    if (!id && !friendTag && query.length >= 1) {
+      const prefix=query.replace(/^@/,'').normalize('NFKC').toLocaleLowerCase();
+      const matches=[],seen=new Set();
+      for(const other of online){
+        const value=read(other),username=String(value.username||'').normalize('NFKC').toLocaleLowerCase(),name=String(value.name||'').normalize('NFKC').toLocaleLowerCase();
+        if(!value.name||blocked(session,value)||seen.has(value.id)||!(username.startsWith(prefix)||name.startsWith(prefix)))continue;
+        seen.add(value.id);matches.push(publicProfile(value));if(matches.length===21)break;
+      }
+      this.send(ws,{type:'lookup-result',nonce:message.nonce,profile:matches.length===1?matches[0]:null,profiles:matches.slice(0,20),truncated:matches.length>20});return;
+    }
     this.send(ws, {type: 'lookup-result', nonce: message.nonce, profile: target ? publicProfile(read(target)) : null});
   }
   async social(ws, session, message) {

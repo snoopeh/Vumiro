@@ -93,55 +93,71 @@ test('tag lookup timeout clears its pending task and an offline result stays emp
 function actionSection(start,end){const first=source.indexOf(start),last=source.indexOf(end,first);assert.ok(first>=0&&last>first);return source.slice(first,last);}
 
 function friendActionsHarness(){
-  const elements=new Map(),copied=[],renamed=[],messages=[];
+  const elements=new Map(),copied=[],renamed=[],messages=[],timers=[];
   let document;
   class Element {
     constructor(){this.children=[];this.value='';this.hidden=false;this.open=false;this.attributes={};}
-    append(...children){this.children.push(...children);}
-    replaceChildren(...children){this.children=children;}
+    append(...children){for(const child of children){child.parentElement=this;this.children.push(child);}}
+    replaceChildren(...children){for(const child of this.children)child.parentElement=null;this.children=[];this.append(...children);}
     setAttribute(name,value){this.attributes[name]=value;}
     addEventListener(){}
     focus(){document.activeElement=this;}
     showModal(){this.open=true;}
     close(){this.open=false;}
+    click(){let stopped=false;const event={target:this,stopPropagation(){stopped=true;}};for(let node=this;node&&!stopped;node=node.parentElement)node.onclick?.(event);}
   }
   const element=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
   document={activeElement:null,createElement:()=>new Element(),createTextNode:text=>({textContent:text})};
   const friend={id:'friend-id',name:'Friend',nickname:'My friend',nicknameOverride:true};
   const context={
-    document,$:element,friends:[friend],selected:friend.id,profile:{id:'own-id'},directoryTags:{[friend.id]:'#12345-67890'},
+    document,$:element,friends:[friend],selected:friend.id,userCardId:friend.id,profile:{id:'own-id'},directoryTags:{[friend.id]:'#12345-67890'},
     online:new Set(),filter:'all',pending:null,frame:null,updateAvailable:false,linuxHost:false,
-    friendById:id=>id===friend.id?friend:null,avatar(){},canCall:()=>false,renderProfileDetails(){},renderRooms(){},
+    friendById:id=>id===friend.id?friend:null,avatar(){},setBanner(){},renderLinks(){},canCall:()=>false,renderProfileDetails(){},renderRooms(){},
+    setTimeout(callback){timers.push(callback);return timers.length;},
     status:message=>messages.push(message),navigator:{clipboard:{async writeText(value){copied.push(value);}}},
     local:{async renameFriend(id,nickname){renamed.push({id,nickname});friend.nickname=nickname;}},
     async reloadFriends(){context.renderFriends();}
   };
   vm.runInNewContext(
-    actionSection('async function copyFriendTag(','async function resizeBanner(')+
+    actionSection('function renderUserCard(){','async function resizeBanner(')+
     actionSection('function renderDetails(){','async function reloadFriends(')+
     actionSection("$('nicknameForm').onsubmit=","$('removeFriend').onclick="),context);
   context.renderFriends();
   const buttons=element('friendsList').children[0].children[1].children[0].children;
-  return {element,context,copied,renamed,messages,nickname:buttons[0],pencil:buttons[1]};
+  return {element,context,copied,renamed,messages,timers,nickname:buttons[0],nameChildren:buttons};
 }
 
-for(const entry of ['list','details'])test(`${entry} pencil opens a modal nickname editor outside the responsive side pane`,()=>{
-  const app=friendActionsHarness();let stopped=false;
-  const pencil=entry==='list'?app.pencil:app.element('editNickname');
-  pencil.onclick({stopPropagation(){stopped=true;}});
+test('inspection card pencil opens the nickname editor and friend rows have no pencil',()=>{
+  const app=friendActionsHarness();
+  assert.equal(app.nameChildren.length,1);
+  app.nickname.click();
+  assert.equal(app.element('userCardDialog').open,true);
+  app.element('userCardEditNickname').click();
   assert.equal(app.element('nicknameDialog').open,true);
   assert.equal(app.element('nickname').value,'My friend');
   assert.equal(app.context.document.activeElement,app.element('nickname'));
-  if(entry==='list')assert.equal(stopped,true);
 });
 
-test('nickname click copies the friend tag without opening the editor or profile card',async()=>{
-  const app=friendActionsHarness();let stopped=false;
-  app.nickname.onclick({stopPropagation(){stopped=true;}});await Promise.resolve();
-  assert.deepEqual(app.copied,['#12345-67890']);
-  assert.equal(stopped,true);
+test('clicking a friend name opens their inspection card without copying',()=>{
+  const app=friendActionsHarness();
+  app.nickname.click();
+  assert.deepEqual(app.copied,[]);
   assert.equal(app.element('nicknameDialog').open,false);
-  assert.equal(app.element('userCardDialog').open,false);
+  assert.equal(app.element('userCardDialog').open,true);
+  assert.equal(app.element('userCardName').textContent,'My friend');
+});
+
+test('inspection card tag has a copy hint and shows temporary copied feedback',async()=>{
+  const app=friendActionsHarness();app.nickname.click();
+  const tag=app.element('userCardTag');
+  assert.equal(tag.title,'Click to copy friend tag');
+  tag.click();await new Promise(setImmediate);
+  assert.deepEqual(app.copied,['#12345-67890']);
+  assert.equal(tag.textContent,'Copied #12345-67890');
+  assert.equal(tag.title,'Copied to clipboard');
+  app.timers[0]();
+  assert.equal(tag.textContent,'#12345-67890');
+  assert.equal(tag.title,'Click to copy friend tag');
 });
 
 test('saving a nickname updates the selected friend and closes the editor',async()=>{

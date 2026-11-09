@@ -1,0 +1,48 @@
+# Vumiro 1B — Improve Existing Flows
+
+Date: 2026-11-05
+
+## Context and working rules
+
+Implement the approved acceptance criteria in `.planning/specs/1b-improve-existing-flows-acceptance-criteria.md`. The repository is on `main` with extensive existing, uncommitted work, including changes from the preceding UI task. Preserve all of it; do not reset, stash, or commit. Work inline because the required baseline includes the dirty checkout. Do not touch release metadata, publish, deploy, or alter production services. Keep desktop and Linux behavior consistent. Use the existing app-owned sound model; Discord is only a behavioral reference. Validation is allowed under the user's request to review the acceptance criteria before calling the work ready.
+
+## Tasks and acceptance checkpoints
+
+1. **Profile/settings drafts and save feedback** — `friends-client.js`, `friends.html`, profile/settings tests. Stage avatar/banner selection and removal without persistence; commit the pending image and text/link values together on explicit profile Save; discard on cancel/close/reopen. Add concise success feedback for profile image rejection/change and settings saves, and actual loading state during image processing/save. Keep existing settings section boundaries unless a screen already has a single save action. Verify cancellation, success, invalid image, failed save, and no partial image write.
+2. **Directory discovery** — `cloudflare/friend-directory.js`, `friends-client.js`, `friends.html`, Cloudflare/client tests. Preserve exact #tag/contact-code/identity resolution; add case-insensitive prefix discovery for online username and display name, deduplicated and capped at 20; explicit cap notice. Render selectable results; require selection before sending a friend request; guard stale responses, blocked users, duplicates, existing friends/requests, offline state, and disconnect cleanup.
+3. **Remote mute state** — `call-client.js`, call tests. Extend peer announcements compatibly with an explicit `micMuted` boolean; show accessible muted status for remote participants. Update it on mute/unmute/reconnect/leave; unknown legacy peers remain neutral.
+4. **Participant hover controls** — `call-client.js`, `call.html`, call tests. Hide nonfocused participant playback controls until hover/focus; provide a keyboard/touch toggle. Keep focused participant controls visible, functional sliders reachable, and reduced-motion behavior.
+5. **Room chat formatting/emoji** — `call-client.js`, `call.html`, call tests. Add accessible formatting and emoji controls; render bold, italic, inline code, safe HTTPS links, and line breaks via DOM APIs only. Never interpret HTML. Preserve plain text composition and the 2,000-character cap.
+6. **App-owned event sounds** — `friends-client.js`, `call-client.js`, settings UI/state, audio/event tests, bundled source assets as needed. Add toggleable original/licensed Vumiro cues for incoming calls (ring until terminal state), participant join/leave, incoming chat (not while active), incoming friend/room notices. Deduplicate event/reconnect paths, suppress own messages and repeated state snapshots. Do not fetch sound assets at runtime.
+7. **Real loading states** — add status/progress to directory lookup/request, profile-image process/save, settings save, room join/reconnect, and screen-share start/stop. Tie UI to actual promises/events, clean up on success/error/cancel, preserve reduced-motion and <=200ms transitions.
+
+## Integration sequence
+
+- Add focused failing tests at the behavior boundary before each implementation slice.
+- Implement in dependency order: profile drafts/feedback; directory results; call protocol/layout; chat; sound settings/event lifecycle; real loading state; integration review.
+- Run focused tests for each slice, then the existing client and Cloudflare suites once at the end. Run the local QA launcher after source and native status are ready, verify it points to this checkout, and report “ready for human QA” only if launcher validation is clean.
+- Self-review every item against the acceptance criteria document, inspect the final diff for accidental changes to pre-existing work, and report known limitations explicitly.
+
+## Self-review of this plan
+
+- Criteria map one-to-one to the seven approved 1B items.
+- Exact identity lookups and current local-friends search stay intact.
+- Compatibility and privacy are explicit for list lookup and remote mute protocol.
+- Sound cues are Vumiro-owned, semantic, deduplicated, and offline-bundled.
+- Image edits cannot persist before explicit Save; cancellation and failure are addressed.
+- Required loading states are tied to true asynchronous boundaries.
+- Existing dirty work is preserved, QA remains local, and release operations are excluded.
+
+## Implementation review
+
+| 1B item | Review result | Evidence / remaining QA |
+|---|---|---|
+| Profile/settings drafts and feedback | Implemented | Image edits stage until one profile Save; dismissal invalidates pending image work. Room, connection, and sound settings save explicitly. Errors and saved state use a transient accessible toast. Profile draft regression tests pass. |
+| Multi-match discovery | Implemented | Authenticated online prefix search returns up to 20 distinct users; tags/codes remain exact; selection, blocked/offline guards, latest-query handling, and reconnect cleanup are in place. Worker tests cover display-name matching and cap. |
+| Remote mute | Implemented | Data-channel announcement includes an explicit compatible mute flag; tile and People list show text state. Old peers remain unknown. |
+| Contextual audio controls | Implemented | Secondary tile controls reveal on hover/focus and have a touch toggle; focused controls remain visible. Existing volume tests pass. |
+| Chat formatting and emoji | Implemented | Safe text-node renderer supports bold, italic, inline code, line breaks, and HTTPS links; toolbar inserts formatting and Unicode emoji. Rendering regression tests pass. |
+| Event sounds | Implemented | Original synthesized Vumiro cues cover incoming calls, participant changes, inactive-chat messages, and incoming friend/room notices. Preview and saved master toggle share the same preference. |
+| Loading and motion | Implemented | Search, request, image processing/save, explicit settings save, room join/reconnect, and share start/stop report real operation state. Transitions are under 200 ms and honor reduced motion. |
+
+Automated validation: 141 client tests pass; 30 Cloudflare tests pass; 35 desktop/native invariants pass; syntax checks and `git diff --check` pass. The LOCAL QA app is running from this checkout with its separate QA profile. This is ready for human QA; no human acceptance or release is recorded.

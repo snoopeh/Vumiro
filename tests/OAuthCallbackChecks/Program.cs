@@ -2,6 +2,8 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.IO;
 using Vumiro.Client;
 
 internal static class Program
@@ -54,6 +56,64 @@ internal static class Program
         caption.Reset();
         if (caption.IsDoubleClick(uint.MaxValue - 20, 1, 1, 500, 4, 4) || !caption.IsDoubleClick(20, 1, 1, 500, 4, 4)) throw new Exception("Tick wraparound must preserve double-click timing.");
         count += 5;
-        Console.WriteLine("Passed " + count + " desktop OAuth and caption checks.");
+        CheckLocalQaConfiguration();
+        Console.WriteLine("Passed " + count + " desktop OAuth, caption and local QA checks.");
+    }
+
+    private static void CheckLocalQaConfiguration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vumiro-runtime-check-" + Guid.NewGuid().ToString("N"));
+        var web = Path.Combine(root, "checkout", "WebServer");
+        Directory.CreateDirectory(web);
+        foreach (var file in new[] { "friends.html", "auth.html", "call.html" }) File.WriteAllText(Path.Combine(web, file), "test");
+        var local = Path.Combine(root, "AppData");
+        var install = Path.Combine(root, "installed");
+        var production = Path.Combine(local, "ScreenTask");
+        var data = Path.Combine(local, "Vumiro", "LocalQA", "workspace");
+        var values = new Dictionary<string, string> {
+            { "VUMIRO_DEV_WEB_ROOT", web }, { "VUMIRO_DEV_DATA_ROOT", data },
+            { "VUMIRO_DEV_LABEL", "abc123 + working tree" },
+            { "WEBVIEW2_USER_DATA_FOLDER", Path.Combine(production, "ClientBrowser") }
+        };
+        Func<string, string> env = key => values.ContainsKey(key) ? values[key] : null;
+        try
+        {
+            var release = ClientRuntime.Create(false, env, local, install);
+            if (release.IsLocalQa || !release.UpdatesEnabled || release.DataDirectory != production || release.WebRoot != Path.Combine(install, "WebServer"))
+                throw new Exception("Release mode accepted local QA overrides.");
+            var qa = ClientRuntime.Create(true, env, local, install);
+            if (!qa.IsLocalQa || qa.UpdatesEnabled || qa.DataDirectory != data || qa.WebRoot != web ||
+                qa.BrowserProfileDirectory != Path.Combine(data, "ClientBrowser") || !qa.Label.Contains("abc123"))
+                throw new Exception("Local QA did not isolate native/browser data or use the checkout.");
+            count += 2;
+            values.Remove("VUMIRO_DEV_DATA_ROOT");
+            RejectLocalQa(env, local, install);
+            values["VUMIRO_DEV_DATA_ROOT"] = production;
+            RejectLocalQa(env, local, install);
+            values["VUMIRO_DEV_DATA_ROOT"] = Path.Combine(production, "nested");
+            RejectLocalQa(env, local, install);
+            values["VUMIRO_DEV_DATA_ROOT"] = local;
+            RejectLocalQa(env, local, install);
+            values["VUMIRO_DEV_DATA_ROOT"] = "relative-profile";
+            RejectLocalQa(env, local, install);
+            values["VUMIRO_DEV_DATA_ROOT"] = data;
+            values["VUMIRO_DEV_WEB_ROOT"] = Path.Combine(root, "missing-assets");
+            RejectLocalQa(env, local, install);
+            values.Remove("VUMIRO_DEV_WEB_ROOT");
+            values["WEBVIEW2_USER_DATA_FOLDER"] = Path.Combine(root, "custom-browser");
+            var normal = ClientRuntime.Create(true, env, local, install);
+            if (normal.IsLocalQa || normal.DataDirectory != production || normal.BrowserProfileDirectory != values["WEBVIEW2_USER_DATA_FOLDER"])
+                throw new Exception("Normal launch or its existing explicit browser override changed.");
+            count++;
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    private static void RejectLocalQa(Func<string, string> env, string local, string install)
+    {
+        try { ClientRuntime.Create(true, env, local, install); }
+        catch (ArgumentException) { count++; return; }
+        catch (IOException) { count++; return; }
+        throw new Exception("Unsafe or incomplete local QA configuration was accepted.");
     }
 }

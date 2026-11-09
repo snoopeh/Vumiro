@@ -45,7 +45,10 @@ protocol.registerSchemesAsPrivileged([{
 }]);
 
 app.setName('Vumiro Linux');
-app.setPath('userData', path.join(app.getPath('appData'), 'Vumiro-Linux'));
+// Explicit packaged smoke runs use the runner's disposable data and offline driver.
+const smoke = process.argv.includes('--vumiro-smoke')
+  ? require(process.env.VUMIRO_SMOKE_DRIVER).install({ app, session }) : null;
+if (!smoke) app.setPath('userData', path.join(app.getPath('appData'), 'Vumiro-Linux'));
 
 let mainWindow = null;
 let splashWindow = null;
@@ -107,6 +110,7 @@ async function serveAppAsset(request) {
   const filename = path.join(WEB_ROOT, path.basename(url.pathname));
   try {
     const content = await fs.promises.readFile(filename);
+    if (smoke) smoke.assetLoaded(url.pathname);
     return response(request.method === 'HEAD' ? null : content, 200, MIME.get(path.extname(filename)) || contentType);
   } catch {
     return response('Vumiro interface files are missing. Reinstall the application and try again.', 500);
@@ -416,6 +420,7 @@ function configureDisplayCapture() {
 
 function registerIpc() {
   ipcMain.handle('vumiro:oauth', async (event, request) => {
+    if (smoke) throw new Error('Account sign-in is disabled during offline smoke checks.');
     if (!validAccountFrame(event.sender, event.senderFrame)) throw new Error('Account sign-in is available only to Vumiro.');
     return startOAuth(request);
   });
@@ -494,7 +499,7 @@ async function createWindows() {
   mainWindow = new BrowserWindow({
     width: 1160,
     height: 800,
-    minWidth: 940,
+    minWidth: smoke ? 480 : 940,
     minHeight: 640,
     title: 'Vumiro',
     icon: makeTrayIcon(),
@@ -511,7 +516,8 @@ async function createWindows() {
     }
   });
   const window = mainWindow;
-  const canHide = createTray();
+  if (smoke) await smoke.observe(window);
+  const canHide = smoke ? false : createTray();
   window.on('close', event => {
     if (!quitting && canHide) {
       event.preventDefault();
@@ -532,12 +538,13 @@ async function createWindows() {
     if (window !== mainWindow || window.isDestroyed() || !validAccountFrame(window.webContents, window.webContents.mainFrame)) return;
     if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
     splashWindow = null;
-    window.show();
+    if (!smoke) window.show();
     sendWindowState();
-    void handleUpdateAction('check');
+    if (!smoke) void handleUpdateAction('check');
   });
   window.webContents.on('did-fail-load', (_event, code, description, validatedURL, isMainFrame) => {
     if (isMainFrame && code !== -3 && window === mainWindow && !window.isDestroyed()) {
+      if (smoke) { smoke.fail(new Error(`Local interface load failed: ${description}`)); return; }
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
       splashWindow = null;
       window.show();
@@ -549,7 +556,8 @@ async function createWindows() {
   window.on('maximize', sendWindowState);
   window.on('unmaximize', sendWindowState);
 
-  splashWindow = new BrowserWindow({
+  if (!smoke) {
+    splashWindow = new BrowserWindow({
     width: 360,
     height: 190,
     resizable: false,
@@ -566,7 +574,9 @@ async function createWindows() {
   splashWindow.once('ready-to-show', () => splashWindow && !splashWindow.isDestroyed() && splashWindow.show());
   splashWindow.center();
   await splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`);
+  }
   const initialUrl = new URL(`${APP_URL}/friends.html`);
+  if (smoke) initialUrl.searchParams.set('view', 'local');
   initialUrl.searchParams.set('signaling', DEFAULT_SIGNALING);
   initialUrl.searchParams.set('fps', '60');
   initialUrl.searchParams.set('mbps', '20');
@@ -608,9 +618,12 @@ if (!hasLock) {
     registerIpc();
     configurePermissions();
     configureDisplayCapture();
+    if (smoke) smoke.configure();
     setApplicationMenu();
     await createWindows();
+    if (smoke) await smoke.run(mainWindow);
   }).catch(error => {
+    if (smoke) { smoke.fail(error); return; }
     dialog.showErrorBox('Vumiro could not start', error.message || String(error));
     quitApplication();
   });
