@@ -157,8 +157,16 @@ test('signed peer exchange carries card metadata under 64 KiB and rejects tamper
   const sandbox={window:{},RTCPeerConnection:PeerConnection,TextEncoder,Date,crypto:{randomUUID},setTimeout,clearTimeout,queueMicrotask};
   vm.runInNewContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/peer-profile.js',import.meta.url),'utf8'),sandbox);
   const profiles=sandbox.window.VumiroPeerProfiles.create({local:owner,send(){},getFriend:id=>id===friend.profile().id?friend.profile():null,onProfile:(id,value)=>received.push({id,value})});
-  const tick=()=>new Promise(resolve=>setImmediate(resolve));
-  const settle=async check=>{for(let i=0;i<100;i++){await tick();if(check())return;}assert.fail('Peer operation did not settle');};
+  // WebCrypto completes on worker threads: event-loop turn counts are not a
+  // time budget under parallel test load. Keep the same outcome assertions and
+  // fail within a bounded deadline if the operation genuinely never completes.
+  const settle=async check=>{
+    const deadline=performance.now()+2000;
+    while(!check()) {
+      assert.ok(performance.now()<deadline,'Peer operation did not settle within 2 seconds');
+      await new Promise(resolve=>setTimeout(resolve,5));
+    }
+  };
   try {
     profiles.presence(friend.profile().id,true); await settle(()=>connection?.channel?.onopen);
     connection.channel.onopen(); await settle(()=>sent.length);
