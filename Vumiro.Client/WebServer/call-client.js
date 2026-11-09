@@ -250,7 +250,7 @@
     $('share').disabled = !joined || !!screen; $('stopShare').disabled = !screen;
     $('mic').disabled = !joined || !!microphone || micChanging; $('mute').disabled = !microphone; $('deafen').disabled = !joined; syncMuteControl();
     $('copyInvite').disabled = !joined;
-    $('reconnect').hidden=!disconnected && ![...peers.values()].some(peer=>['failed','disconnected'].includes(peer.pc.connectionState));$('reconnect').disabled=joining;chatControls();roomState();
+    $('reconnect').hidden=!disconnected && ![...peers.values()].some(peer=>(['failed','disconnected'].includes(peer.pc.connectionState)||peer.recovery?.needsManualReconnect()));$('reconnect').disabled=joining;chatControls();roomState();
     $('mic').hidden=!!microphone;$('mute').hidden=!microphone;$('share').hidden=!!screen;$('stopShare').hidden=!screen;renderRoom();refreshLayout();
     if(joined && $('inviteDialog').open) renderInvitation();
     if(!joined && $('inviteDialog').open) $('inviteDialog').close();
@@ -340,6 +340,46 @@
       } catch { /* Ignore malformed direct metadata. */ }
     };
   }
+  // One bounded recovery cycle per outage. ICE restart reuses authorized tracks
+  // and the existing perfect-negotiation path; it never requests new capture.
+  function createPeerRecovery(pc, isCurrent, report) {
+    let timer = null, attempts = 0, disposed = false, exhausted = false;
+    const cancel = () => { if(timer !== null) clearTimeout(timer); timer = null; };
+    const current = () => !disposed && isCurrent() && pc.signalingState !== 'closed' && pc.connectionState !== 'closed';
+    const failed = () => pc.connectionState === 'failed' || pc.iceConnectionState === 'failed';
+    const connected = () => pc.connectionState === 'connected' && !['failed','disconnected','checking'].includes(pc.iceConnectionState);
+    function finish() {
+      cancel(); exhausted = true;
+      report('Direct connection could not recover. Use Reconnect to try again. Some networks need a relay, which Vumiro does not use.');
+    }
+    function attempt() {
+      timer = null;
+      if(!current()) return;
+      if(connected()) { attempts = 0; exhausted = false; return; }
+      if(attempts >= 3 || typeof pc.restartIce !== 'function') { finish(); return; }
+      ++attempts;
+      report('Reconnecting direct connection (' + attempts + '/3). Your capture and mute settings are unchanged.');
+      // Arm the watchdog before restartIce: browser state callbacks may run
+      // immediately. Checking/connecting cannot leave an unbounded spinner.
+      timer = setTimeout(attempt, 10000);
+      try { pc.restartIce(); } catch { finish(); }
+    }
+    return {
+      update() {
+        if(!current()) { cancel(); return; }
+        if(connected()) { cancel(); attempts = 0; exhausted = false; return; }
+        if(exhausted) { finish(); return; }
+        if(timer !== null) return;
+        if(failed()) timer = setTimeout(attempt, 0);
+        else if(pc.connectionState === 'disconnected' || pc.iceConnectionState === 'disconnected') {
+          report('Connection interrupted. Waiting briefly for the network to recover.');
+          timer = setTimeout(attempt, 4000);
+        }
+      },
+      needsManualReconnect() { return exhausted; },
+      dispose() { disposed = true; cancel(); }
+    };
+  }
   function peerError(peer, error) { if(peers.get(peer.id)===peer) { peer.tile.stats.textContent='Connection issue: '+error.message; } }
   function createPeer(id, name) {
     if(typeof id!=='string' || !/^[A-Za-z0-9_-]{43}$/.test(id) || id===selfId) return null;
@@ -348,6 +388,10 @@
     if(peers.size>=7) return null;
     const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'}],bundlePolicy:'max-bundle'});
     const peer={id,name:name || 'Guest',pc,tile:tile(name || 'Guest',false),polite:selfId.localeCompare(id)>0,initiator:selfId.localeCompare(id)<0,makingOffer:false,ignoreOffer:false,settingAnswer:false,pending:[],queue:Promise.resolve(),lastStats:null,channel:null};
+    const peerGeneration=generation;
+    peer.isCurrent=()=>peers.get(id)===peer && generation===peerGeneration && joined && socket?.readyState===WebSocket.OPEN;
+    peer.recovery=createPeerRecovery(pc,peer.isCurrent,message=>{peer.tile.stats.textContent=message;updateControls();});
+    pc.oniceconnectionstatechange=()=>{if(!peer.isCurrent())return;peer.recovery.update();updateControls();};
     peers.set(id,peer);const cached=profileCache.get(id);if(cached) showProfile(peer.tile,cached);else local.listFriends().then(friends=>{ const friend=friends.find(item=>item.id===id);if(friend && !profileCache.has(id)) { const profile=cleanProfile(friend);if(profile) { cacheProfile(id,profile);if(peers.get(id)===peer) showProfile(peer.tile,profile); } } }).catch(()=>{});refreshLayout();
     // Only the initial offerer creates transceivers. Pre-creating them on the answerer
     // can duplicate media sections during rollback, leaving stale ICE generations.
@@ -365,26 +409,27 @@
       else peer.tile.attachAudio(index,track);
       if(track.kind==='video') track.onended=()=>peer.tile.show(false);
     };
-    pc.onicecandidate=event=>{ if(!relay(event.candidate)) send({type:'signal',to:id,candidate:event.candidate?.toJSON() ?? null}); };
+    pc.onicecandidate=event=>{ if(peer.isCurrent() && !relay(event.candidate)) send({type:'signal',to:id,candidate:event.candidate?.toJSON() ?? null}); };
     pc.onnegotiationneeded=()=>{
       peer.queue=peer.queue.then(async()=>{
-        if(pc.signalingState!=='stable' || (!pc.remoteDescription && !peer.initiator)) return;
-        try { peer.makingOffer=true; await pc.setLocalDescription(); send({type:'signal',to:id,description:pc.localDescription}); }
+        if(!peer.isCurrent() || pc.signalingState!=='stable' || (!pc.remoteDescription && !peer.initiator)) return;
+        try { peer.makingOffer=true; await pc.setLocalDescription(); if(peer.isCurrent()) send({type:'signal',to:id,description:pc.localDescription}); }
         finally { peer.makingOffer=false; }
       }).catch(error=>peerError(peer,error));
     };
     pc.onconnectionstatechange=()=>{
+      if(peer.isCurrent && !peer.isCurrent()) return;
       updateControls();
       if(pc.connectionState==='connected') { peer.tile.stats.textContent='Direct connected · measuring video…'; for(const transceiver of peer.slots) tune(transceiver.sender); announce(peer); }
-      if(pc.connectionState==='failed') peer.tile.stats.textContent='Direct connection failed. Your networks may require a media relay.';
-      if(pc.connectionState==='disconnected') peer.tile.stats.textContent='Connection interrupted · waiting to recover…';
+      peer.recovery?.update();
+      updateControls();
     };
     return peer;
   }
   function receiveSignal(message) {
     const peer=peers.get(message.from); if(!peer) return;
     peer.queue=peer.queue.then(async()=>{
-      const pc=peer.pc; if(pc.signalingState==='closed') return;
+      const pc=peer.pc; if(!peer.isCurrent() || pc.signalingState==='closed') return;
       if(message.description) {
         const description=message.description; if(!validDescription(description)) throw Error('Invalid direct connection offer.');
         const ready=!peer.makingOffer && (pc.signalingState==='stable' || peer.settingAnswer);
@@ -392,6 +437,7 @@
         peer.ignoreOffer=!peer.polite && collision; if(peer.ignoreOffer) return;
         peer.settingAnswer=description.type==='answer';
         try { await pc.setRemoteDescription(description); } finally { peer.settingAnswer=false; }
+        if(!peer.isCurrent()) return;
         if(!peer.slots.length) {
           peer.slots=pc.getTransceivers().slice(0,3);
           for(let slot=0;slot<peer.slots.length;slot++) {
@@ -399,15 +445,15 @@
             await peer.slots[slot].sender.replaceTrack(currentTrack(slot) || null);
           }
         }
-        for(const candidate of peer.pending.splice(0)) await pc.addIceCandidate(candidate);
-        if(description.type==='offer') { await pc.setLocalDescription();send({type:'signal',to:peer.id,description:pc.localDescription}); }
+        for(const candidate of peer.pending.splice(0)) { if(!peer.isCurrent()) return; await pc.addIceCandidate(candidate); }
+        if(description.type==='offer' && peer.isCurrent()) { await pc.setLocalDescription();if(peer.isCurrent()) send({type:'signal',to:peer.id,description:pc.localDescription}); }
       } else if('candidate' in message) {
         if(peer.ignoreOffer || relay(message.candidate)) return;
         if(pc.remoteDescription) await pc.addIceCandidate(message.candidate); else if(peer.pending.length<256) peer.pending.push(message.candidate);
       }
     }).catch(error=>peerError(peer,error));
   }
-  function removePeer(id) { const peer=peers.get(id); if(!peer) return; peers.delete(id);for(const audio of peer.tile.audios)voice?.forgetPlayback(audio); peer.pc.close(); peer.tile.element.remove();chatControls();refreshLayout(); }
+  function removePeer(id) { const peer=peers.get(id); if(!peer) return; peers.delete(id);peer.recovery?.dispose();for(const audio of peer.tile.audios)voice?.forgetPlayback(audio); peer.pc.close(); peer.tile.element.remove();chatControls();refreshLayout(); }
   function clearPeers() { for(const id of [...peers.keys()]) removePeer(id); }
   async function replaceTracks() {
     await Promise.all([...peers.values()].map(async peer=>{
