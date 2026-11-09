@@ -22,7 +22,7 @@ A small scoped recovery controller owns one timer, retry count, terminal state a
 
 The existing server already forwards ICE-restart SDP/candidates, including usernameFragment. Existing authentication, block rules, access rejection codes and direct-only relay checks remain intact. No private SDP, candidates, addresses, passwords or grants are added to diagnostics.
 
-Graceful-departure follow-up stops local tracks before fallible remote cleanup, detaches obsolete callbacks, cancels timers and releases media references independently. A pending identity lookup must not reopen a socket after Leave.
+Graceful departure stops local tracks before fallible remote cleanup, detaches obsolete callbacks, cancels timers and releases media references independently. A pending identity lookup cannot reopen a socket after Leave. Stop sharing and unload use the same exception-isolated capture cleanup. Late channel callbacks and tuning completions cannot mutate the replacement room.
 
 ## References and rationale
 
@@ -37,6 +37,7 @@ The four-second grace, three-attempt cap and ten-second watchdog are conservativ
 
 - New deterministic tests: transient recovery, failed ICE, repeated callbacks, bounded checking, reset after success, unsupported/throwing restartIce, synchronous callbacks, disposal and saved canceled callbacks, late SDP/ICE, negotiation collision roles, and exhausted manual recovery.
 - Focused validation after recovery implementation: 68 call/audio/feedback/recovery tests passed. JavaScript syntax passed.
+- Graceful-departure fault injection and race tests bring the new recovery suite to 24 passing tests, also verified against the isolated commit content. Coverage includes throwing track/peer/channel/bridge cleanup, repeated departure, late identity, removed-peer sender replacement/tuning, and host notification after UI failure.
 - Existing uncommitted work was present before this task. Only this increment's source hunks, tests and design record are committed; prior changes stay unstaged. Validation of the working checkout necessarily includes that earlier work.
 - Human QA and real two-device WebRTC behavior are not established by the VM tests.
 
