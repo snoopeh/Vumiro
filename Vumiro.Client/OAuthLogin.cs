@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -42,6 +43,55 @@ namespace Vumiro.Client
             }
         }
 
+        // Activate only the registered HTTPS browser. A shell URL launch can
+        // reuse a background browser process and return no Process object.
+        internal static bool IsBrowserExecutable(string registered, string candidate)
+        {
+            if (String.IsNullOrWhiteSpace(registered) || String.IsNullOrWhiteSpace(candidate) ||
+                !Path.IsPathRooted(registered) || !Path.IsPathRooted(candidate)) return false;
+            try { return String.Equals(Path.GetFullPath(registered), Path.GetFullPath(candidate), StringComparison.OrdinalIgnoreCase); }
+            catch (Exception error) when (error is ArgumentException || error is NotSupportedException || error is IOException) { return false; }
+        }
+
+        private static async Task OpenBrowserAsync(string authorize)
+        {
+            var registered = new StringBuilder(2048); uint length = (uint)registered.Capacity;
+            var resolved = AssocQueryString(0x1000, 2, "https", "open", registered, ref length) == 0;
+            using (var launched = Process.Start(new ProcessStartInfo(authorize) { UseShellExecute = true, Verb = "open", WindowStyle = ProcessWindowStyle.Normal })) { }
+            if (!resolved) return;
+            var executable = registered.ToString();
+            for (var attempt = 0; attempt < 15; attempt++)
+            {
+                var candidates = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable));
+                try
+                {
+                    foreach (var process in candidates)
+                    {
+                        try
+                        {
+                            var window = process.MainWindowHandle;
+                            if (window == IntPtr.Zero || !IsWindowVisible(window) || !IsBrowserExecutable(executable, process.MainModule.FileName)) continue;
+                            AllowSetForegroundWindow((uint)process.Id);
+                            if (IsIconic(window)) ShowWindow(window, 9);
+                            SetForegroundWindow(window);
+                            return;
+                        }
+                        catch (Exception error) when (error is InvalidOperationException || error is System.ComponentModel.Win32Exception || error is NotSupportedException) { }
+                    }
+                }
+                finally { foreach (var process in candidates) process.Dispose(); }
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+        }
+
+        internal static void FocusApp(IntPtr window) { if (window != IntPtr.Zero) SetForegroundWindow(window); }
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)] private static extern uint AssocQueryString(uint flags, uint value, string association, string extra, StringBuilder output, ref uint length);
+        [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(uint processId);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+
         internal async Task<string> SignInAsync(string authUrl, string provider, string codeChallenge)
         {
             Uri origin;
@@ -73,7 +123,7 @@ namespace Vumiro.Client
                     "&code_challenge=" + codeChallenge + "&code_challenge_method=s256&scopes=" + Uri.EscapeDataString(scopes);
                 using (pending.Token.Register(() => active.Stop()))
                 {
-                    Process.Start(new ProcessStartInfo(authorize) { UseShellExecute = true });
+                    await OpenBrowserAsync(authorize).ConfigureAwait(false);
                     while (true)
                     {
                         pending.Token.ThrowIfCancellationRequested();

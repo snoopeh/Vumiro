@@ -36,9 +36,9 @@ function harness({stored='',route,authPage=false,oauth,href='https://vumiro.loca
   const events=[],clock={now:Date.now()};
   class ClockDate extends Date { static now(){return clock.now;} }
   const fetch=async(url,options={})=>{calls.push({url:String(url),options});return route?route(String(url),options,calls):response(200,{});};
-  const navigations=[];
+  const navigations=[],createdProfiles=[];
   const sandbox={
-    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
+    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,createProfile:async name=>{createdProfiles.push(name);localProfile={id:'new-local-identity',name};return localProfile;},accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
     document:{body:{dataset:{page:authPage?'auth':'friends'}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
     crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
@@ -47,7 +47,7 @@ function harness({stored='',route,authPage=false,oauth,href='https://vumiro.loca
   };
   sandbox.window.window=sandbox.window;sandbox.window.chrome=undefined;
   vm.runInNewContext(source,sandbox,{filename:'account-client.js'});
-  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,clock,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
+  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,clock,createdProfiles,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
 }
 
 const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-03'};
@@ -177,6 +177,7 @@ for(const [name,statusCode,result] of [
   app.element('accountConfirmPassword').value='current password';
   await app.element('accountReauthForm').onsubmit({preventDefault(){}});
   assert.equal(app.secure.value,'');
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?authView=signin');
   assert.match(app.element('accountFeedback').textContent,/local device profile remains/);
   if(statusCode===202){
     assert.match(app.element('accountFeedback').textContent,/identity deletion is pending.*retry automatically/);
@@ -253,7 +254,7 @@ test('reauthentication targets the existing reauth form id',()=>{
   assert.match(source,/\$\('accountReauthForm'\)/);
 });
 
-test('dedicated account page shows signup and keeps local profile access available',async()=>{
+test('dedicated account page shows signup without an account-free escape',async()=>{
   const app=harness({route:commonRoute,authPage:true,href:'https://vumiro.local/auth.html?room=invite#shared'});await app.start();
   app.sandbox.window.VumiroAccount.open('signup');
   assert.equal(app.element('accountHeading').textContent,'Join Vumiro.');
@@ -262,8 +263,8 @@ test('dedicated account page shows signup and keeps local profile access availab
   assert.equal(app.element('accountSignIn').hidden,true);
   assert.equal(app.element('accountResetRequestForm').hidden,true);
   assert.equal(app.element('accountPassword').minLength,12);
-  app.element('continueLocal').onclick();
-  assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html?room=invite&view=local#shared');
+  assert.equal(app.element('continueLocal').onclick,undefined);
+  assert.equal(app.navigations.length,0);
 });
 
 test('signup validates matching passwords then automatically verifies and carries its notice acknowledgement',async()=>{
@@ -321,7 +322,7 @@ test('registration availability stays quiet when healthy and shows paused or una
   for(const [state,message,retryVisible]of [
     [{registrationEnabled:true,serviceEnabled:true},'',false],
     [{registrationEnabled:false,serviceEnabled:true},'New account registration is paused. Existing accounts can sign in.',false],
-    [{registrationEnabled:false,serviceEnabled:false},'Accounts are temporarily unavailable. You can continue with your local profile.',true]
+    [{registrationEnabled:false,serviceEnabled:false},'Accounts are temporarily unavailable. Please try again later.',true]
   ]){
     const app=harness({authPage:true,route:url=>url.endsWith('/api/v1/account/config')?response(200,{...config,...state}):commonRoute(url)});await app.start();
     assert.equal(app.element('accountDescription').textContent,'Pick up where you left off.');
@@ -497,4 +498,98 @@ test('restored social session stays on encrypted identity unlock before entering
   assert.equal(app.element('accountActions').hidden,true);
   assert.equal(app.element('accountHeading').textContent,'Bring your friends with you.');
   assert.equal(app.navigations.length,0);
+});
+
+
+test('signed-out startup gates existing local profiles and ignores the old local view parameter',async()=>{
+  const profile={id:'preserved',name:'Existing'};
+  const app=harness({localProfile:profile,href:'https://vumiro.local/friends.html?view=local&room=invitation',route:commonRoute});await app.start();
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?room=invitation');
+  assert.equal(await app.sandbox.window.VumiroAccount.ready(),false);
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),profile);
+});
+
+test('Google first sign-in creates only the local display profile and enters the lobby without email setup',async()=>{
+  const app=harness({authPage:true,href:'https://vumiro.local/auth.html?invite=welcome',oauth:{signIn:async()=>({code:'returned-code'})},route:(url,options)=>{
+    if(url.endsWith('/account/config'))return response(200,{...config,oauthProviders:['google']});
+    if(url.includes('grant_type=pkce'))return response(200,{...session,user:{...session.user,user_metadata:{full_name:'Aki Example'},app_metadata:{providers:['google']}}});
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    return commonRoute(url,options);
+  }});await app.start();await app.element('accountGoogle').onclick();
+  assert.deepEqual(app.createdProfiles,['Aki Example']);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html?invite=welcome');
+  assert.equal(app.element('accountSetPasswordForm').hidden,true);
+  assert.equal(app.element('accountForm').hidden,true);
+  assert.equal(app.element('accountUnlockForm').hidden,true);
+});
+
+test('direct lobby startup with a different encrypted identity returns to genuine recovery without creating a key',async()=>{
+  const localProfile={id:'another-device-identity',name:'Local'};
+  const app=harness({stored:saved,localProfile,route:url=>{
+    if(url.endsWith('/account/data'))return response(200,{account:{email:session.user.email},revision:1,devices:[],data:{identityRecovery:{identityId:'remote-identity'}}});
+    return commonRoute(url);
+  }});await app.start();
+  assert.equal(await app.sandbox.window.VumiroAccount.ready(),false);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html');
+  assert.deepEqual(app.createdProfiles,[]);
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+});
+
+test('refreshing a signed-in account with no saved remote profile is ready before lobby bootstrap',async()=>{
+  const app=harness({stored:saved,route:commonRoute});await app.start();
+  assert.equal(await app.sandbox.window.VumiroAccount.ready(),true);
+  assert.equal(app.createdProfiles.length,1);
+  assert.equal(app.navigations.length,0);
+});
+
+
+test('email sign-in cannot enter lobby with the wrong encrypted identity password',async()=>{
+  const app=harness({authPage:true,localProfile:{id:'local-key',name:'Preserved'},route:(url,options)=>{
+    if(url.includes('grant_type=password'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data'))return response(200,{revision:1,devices:[],data:{version:1,profile:{name:'Remote'},friends:[],blocked:[],settings:{},identityRecovery:{identityId:'saved-identity'}}});
+    return commonRoute(url,options);
+  }});await app.start();let attempts=0;
+  app.sandbox.window.VumiroIdentityRecovery={validateEnvelope:async()=>{},recoverWithPassword:async()=>{attempts++;throw Error('The identity password is incorrect.');}};
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='wrong password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(attempts,1);
+  assert.equal(app.navigations.length,0);
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile().id,'local-key');
+  assert.match(app.element('accountFeedback').textContent,/identity password is incorrect/);
+});
+
+test('successful identity unlock installs the recovered key before entering the lobby',async()=>{
+  const app=harness({authPage:true,localProfile:{id:'local-key',name:'Preserved'},route:(url,options)=>{
+    if(url.includes('grant_type=password'))return response(200,session);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data'))return response(200,{revision:1,devices:[],data:{version:1,profile:{name:'Remote'},friends:[],blocked:[],settings:{},identityRecovery:{identityId:'saved-identity'}}});
+    return commonRoute(url,options);
+  }});await app.start();const recovered={identityId:'saved-identity',privateKey:'opaque-key'},installed=[];
+  app.sandbox.window.VumiroIdentityRecovery={validateEnvelope:async()=>{},recoverWithPassword:async()=>recovered};
+  app.sandbox.window.VumiroLocalProfile.installRecoveredIdentity=async(value,profile)=>{installed.push({value,profile});};
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='valid password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(installed.length,1);assert.equal(installed[0].value,recovered);
+  assert.match(app.navigations.at(-1),/friends\.html/);
+});
+
+
+test('authenticated account entry delegates to the common settings shell without opening a second dialog',async()=>{
+  const app=harness({stored:saved,route:commonRoute});await app.start();let opened=0;
+  app.sandbox.window.VumiroAccount.setSettingsNavigation(()=>{opened++;});
+  app.sandbox.window.VumiroAccount.open();
+  assert.equal(opened,1);assert.equal(app.element('accountDialog').open,undefined);
+  assert.equal(app.sandbox.window.VumiroAccount.prepare(),app.element('accountDialog'));
+  assert.equal(opened,1);
+});
+
+
+test('revoked account credentials leave the lobby while preserving invitation routing and local data',async()=>{
+  const localProfile={id:'retained-key',name:'Retained'};
+  const app=harness({stored:saved,localProfile,href:'https://vumiro.local/friends.html?invite=keep#room',route:(url,options)=>url.endsWith('/account/export')?response(403,{message:'Device revoked'}):commonRoute(url,options)});
+  await app.start();await app.element('accountExport').onclick();
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?invite=keep&authView=signin#room');
+  assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
 });

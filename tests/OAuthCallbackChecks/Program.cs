@@ -22,6 +22,12 @@ internal static class Program
 
     private static void Main()
     {
+        if (!OAuthLogin.IsBrowserExecutable(@"C:\Browser\browser.exe", @"c:\browser\BROWSER.EXE") ||
+            OAuthLogin.IsBrowserExecutable(@"C:\Browser\browser.exe", @"C:\Browser\browser.exe.attacker.exe") ||
+            OAuthLogin.IsBrowserExecutable(@"C:\Browser\browser.exe", @"C:\Other\browser.exe") ||
+            OAuthLogin.IsBrowserExecutable("", @"C:\Browser\browser.exe"))
+            throw new Exception("Browser focus must match the registered executable, not just its name.");
+        count++;
         Check("valid callback", Callback + "?code=one-use-code", true);
         Check("provider denial", Callback + "?error=access_denied&error_description=Do+not+log+this", true);
         Check("wrong transaction", "/vumiro-auth/other/?code=abc", false);

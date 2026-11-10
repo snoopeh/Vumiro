@@ -3,12 +3,14 @@
   const $ = id => document.getElementById(id);
   const authPage = document.body?.dataset?.page === 'auth';
   const pageUrl = new URL(location.href || 'https://vumiro.local/friends.html');
-  function navigate(page,local=false,screen='') {
+  function navigate(page,_local=false,screen='') {
     const next=new URL(page,pageUrl);next.search=pageUrl.search;next.hash=pageUrl.hash;
-    if(local)next.searchParams.set('view','local');else next.searchParams.delete('view');
+    next.searchParams.delete('view');
     next.searchParams.delete('authView');if(page==='auth.html'&&['signin','signup'].includes(screen))next.searchParams.set('authView',screen);
     location.assign(next.href);
   }
+  let resolveStartup,settingsNavigation=null;
+  const startupReady=new Promise(resolve=>{resolveStartup=resolve;});
   const pendingStore = new Map();
   const pendingOAuth = new Map();
   const desktop = window.vumiroDesktop || window.chrome?.webview;
@@ -57,9 +59,7 @@
     if($('accountNav'))$('accountNav').onclick=()=>openAccount();
     const setup=$('setupForm');
     if(setup){const row=document.createElement('div');row.className='accountSetupActions';for(const [screen,text]of[['signin','Sign in'],['signup','Create account']]){const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>openAccount(screen);row.append(button);}setup.before(row);}
-    if($('accountClose'))$('accountClose').onclick=()=>authPage?navigate('friends.html',true):dialog.close();
-    if(!authPage)dialog.addEventListener('close',()=>{if(!window.VumiroLocalProfile?.profile()&&!$('setupDialog')?.open)$('setupDialog')?.showModal();});
-    if($('continueLocal'))$('continueLocal').onclick=()=>navigate('friends.html',true);
+    if($('accountClose'))$('accountClose').onclick=()=>authPage?setAccountScreen('signin'):dialog.close();
     $('accountSignInTab').onclick=()=>setAccountScreen('signin');$('accountSignUpTab').onclick=()=>setAccountScreen('signup');
     for(const [id,screen]of [['accountSignInTab','signin'],['accountSignUpTab','signup']])$(id).addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?'signin':event.key==='End'?'signup':screen==='signin'?'signup':'signin';setAccountScreen(next);$(next==='signin'?'accountSignInTab':'accountSignUpTab').focus();}});
     $('accountForgotPassword').onclick=()=>{$('accountResetEmail').value=$('accountEmail').value;setAccountScreen('recover');};
@@ -68,7 +68,8 @@
     $('accountRetry').onclick=async()=>{authConfig=null;$('accountRetry').disabled=true;$('accountError').textContent='';try{await loadAccountAvailability();status('Account service connected.');}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}finally{$('accountRetry').disabled=false;}};
   }
   function openAccount(screen) {
-    if(!authPage&&!session&&!document.querySelector?.('#callFrameSlot iframe')){navigate('auth.html',false,screen);return;}
+    if(!authPage&&session&&settingsNavigation){settingsNavigation();return;}
+    if(!authPage&&!session){navigate('auth.html',false,screen);return;}
     for(const id of ['setupDialog','profileDialog'])if($(id)?.open)$(id).close();
     setAccountScreen(session?'manage':screen||(pendingSignup?'verify':'signin'));
     if(!authPage&&!$('accountDialog').open)$('accountDialog').showModal();
@@ -108,7 +109,7 @@
       throw error;
     }
     $('accountSignIn').disabled=!cfg.serviceEnabled;$('accountSignUp').disabled=!cfg.serviceEnabled||!cfg.registrationEnabled;
-    $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Accounts are temporarily unavailable. You can continue with your local profile.':cfg.registrationEnabled?'':'New account registration is paused. Existing accounts can sign in.';
+    $('accountRegistrationStatus').textContent=!cfg.serviceEnabled?'Accounts are temporarily unavailable. Please try again later.':cfg.registrationEnabled?'':'New account registration is paused. Existing accounts can sign in.';
     $('accountRegistrationStatus').hidden=!['signin','signup'].includes(accountScreen)||!$('accountRegistrationStatus').textContent;
     $('accountRetry').hidden=!!cfg.serviceEnabled;
     for(const [id,provider]of [['accountGoogle','google'],['accountMicrosoft','azure']])if($(id))$(id).disabled=!cfg.serviceEnabled||!cfg.oauthProviders?.includes(provider);
@@ -196,7 +197,7 @@
   function base64url(bytes) { return btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
   async function providerSession(provider) {
       const cfg=await config();
-      if(!cfg.serviceEnabled||!cfg.oauthProviders?.includes(provider))throw Error('This sign-in option is not available yet. You can continue locally.');
+      if(!cfg.serviceEnabled||!cfg.oauthProviders?.includes(provider))throw Error('This sign-in option is not available yet. Please try another sign-in method.');
       const verifier=base64url(crypto.getRandomValues(new Uint8Array(32)));
       const codeChallenge=base64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier))));
       status(`Finish signing in with ${provider==='google'?'Google':'Microsoft'} in your browser. Keep this window open.`);
@@ -264,7 +265,7 @@
     accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
     const response=await fetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store',headers:{'X-Vumiro-Profile-Cards':'1'}});
     let data={};try{data=await response.json();}catch{}
-    if(!response.ok)throw Error(response.status===404?'Accounts are not available yet. You can continue with your local profile and try again later.':authError(data));
+    if(!response.ok)throw Error(response.status===404?'Accounts are not available yet. Please try again later.':authError(data));
     if(typeof data.authUrl!=='string'||typeof data.publishableKey!=='string')throw Error('The account service is not configured.');
     let authUrl;
     try { authUrl=new URL(data.authUrl); } catch { throw Error('The account service returned an invalid authentication address.'); }
@@ -279,7 +280,7 @@
   }
   async function auth(path,body,token,method='POST') {
     const cfg=await config();
-    if(!cfg.serviceEnabled)throw Error('Vumiro account service is temporarily unavailable. Your local profile remains available.');
+    if(!cfg.serviceEnabled)throw Error('Vumiro account service is temporarily unavailable. Please try again later.');
     return callJson(`${cfg.authUrl}/auth/v1${path}`,{method,headers:{apikey:cfg.publishableKey,...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify(body)});
   }
   async function persistCredentials() {
@@ -327,7 +328,7 @@
     const token=tokenOverride||await accessToken();
     if(!deviceToken)await enrollDevice(token);
     try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1',...(authConfig?.profileMediaEnabled===true?{'X-Vumiro-Profile-Media':'1'}:{})}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
-    catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
+    catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(!authPage)navigate('auth.html',false,'signin');if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
   }
   async function coverRequest(method, manifest, blob) {
     if(authConfig?.profileMediaEnabled!==true)throw Error('Private high-resolution cover backup is not enabled on this service yet.');
@@ -489,6 +490,13 @@
       status('Identity recovery is enabled. Save the recovery code before closing this panel. Your contact code changed; older friends may need to accept a new request.');
     } catch(error) { identityRecovery=previous;throw error; }
   }
+  async function ensureInitialProfile(preferredName='') {
+    if(window.VumiroLocalProfile?.profile())return;
+    const metadata=session?.user?.user_metadata||{};
+    const candidate=[preferredName,metadata.full_name,metadata.name,session?.user?.email?.split('@')[0],'Vumiro user'].find(value=>typeof value==='string'&&value.trim());
+    const name=candidate.normalize('NFC').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,48)||'Vumiro user';
+    await window.VumiroLocalProfile.createProfile(name);
+  }
   async function syncInitial() {
     const remote=await accountRequest('GET');
     // Reuse this account's recorded acknowledgement on a new device. Signing
@@ -501,15 +509,15 @@
     identityRecovery=remote.data?.identityRecovery||null;
     await renderDevices(remote.devices||[]);
     if(!remote.data) {
-      if(!window.VumiroLocalProfile?.profile()) { active=false;status('Account ready. Your local profile will be backed up after you create it.');return; }
+      await ensureInitialProfile();
       active=false;
       status('This account has no saved profile. Choose “Back up this device” to copy this device’s profile and friends to this account.');return;
     }
     const localProfile=window.VumiroLocalProfile?.profile();
-    if(authPage&&remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&!identityUnlock){active=false;setAccountScreen('unlock');status('Google and Microsoft cannot unlock your encrypted contact identity. Enter your Vumiro password or recovery code below.');return;}
+    if(remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&!identityUnlock){active=false;setAccountScreen('unlock');status('Google and Microsoft cannot unlock your encrypted contact identity. Enter your Vumiro password or recovery code below.');return;}
+    if(remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&identityUnlock){await restoreRemote();return;}
     if(!localProfile){
-      if(remote.data.identityRecovery&&identityUnlock){await restoreRemote();identityUnlock=null;return;}
-      active=false;status(remote.data.identityRecovery?'Account data is ready. Sign in with your password, or use your saved identity recovery code after password reset, to restore this contact identity.':'Account data is ready. Create a local profile first, then choose whether to restore it.');return;
+      await ensureInitialProfile(remote.data.profile?.name);await restoreRemote();return;
     }
     const local=await snapshot();
     if(!await differsFromAcknowledged(local)) { await restoreRemote();return; }
@@ -559,7 +567,7 @@
     if(!signed){$('accountReauthForm').hidden=true;reauthAction=null;}
     $('accountStatus').textContent=signed?`Signed in as ${session.user?.email||$('accountEmail').value}. Your session is saved securely on this device.`:'Not signed in. Your existing local data stays on this device.';
     $('accountPrivacyAck').checked=!!(signed&&readNoticeAck());
-    if($('accountSetPasswordForm'))$('accountSetPasswordForm').hidden=!signed||!session.user?.app_metadata?.providers?.some(provider=>provider==='google'||provider==='azure');
+    if($('accountSetPasswordForm'))$('accountSetPasswordForm').hidden=authPage||!signed||!session.user?.app_metadata?.providers?.some(provider=>provider==='google'||provider==='azure');
     if(!signed&&pendingSignup){$('accountEmail').value=pendingSignup.email;status(`Enter the verification code sent to ${pendingSignup.email}.`);}
     setAccountScreen(signed?(accountScreen==='unlock'?'unlock':'manage'):pendingSignup?'verify':['manage','unlock'].includes(accountScreen)?'signin':accountScreen);
     dispatchEvent(new Event('vumiro-account-state-changed'));
@@ -590,7 +598,7 @@
   }
   async function deleteAccount() {
     if(!confirmLocalized('Delete your Vumiro account and synced data? This cannot be undone.'))return;
-    requestReauth(async token=>{const result=await accountRequest('DELETE',undefined,token);session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status(result.ok===true?'Account and synced account data were deleted. Your local device profile remains on this device.':'Synced account data was deleted. Account identity deletion is pending and Vumiro will retry automatically. Your local device profile remains on this device.');});
+    requestReauth(async token=>{const result=await accountRequest('DELETE',undefined,token);session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status(result.ok===true?'Account and synced account data were deleted. Your local device profile remains on this device.':'Synced account data was deleted. Account identity deletion is pending and Vumiro will retry automatically. Your local device profile remains on this device.');navigate('auth.html',false,'signin');});
   }
   $('accountReauthForm').onsubmit=async event=>{
     event.preventDefault();if(!reauthAction)return;
@@ -699,33 +707,37 @@
   $('accountHideRecovery').onclick=()=>{$('accountRecoveryPanel').hidden=true;$('accountRecoveryCode').value='';};
   addEventListener('vumiro-profile-changed',scheduleSync);addEventListener('vumiro-friends-changed',scheduleSync);addEventListener('vumiro-account-data-changed',scheduleSync);
   addEventListener('DOMContentLoaded',async()=>{
+    let startupSucceeded=false;
     try {
-      await window.VumiroLocalProfile?.initialize?.();
-      accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
-      if(secureStore?.get) {
-        const stored=await secureStore.get();
-        if(stored){
-          let saved;try{saved=JSON.parse(stored);}catch{saved={refreshToken:stored};}
-          if(saved.pendingSignup&&typeof saved.pendingSignup.email==='string'&&typeof saved.pendingSignup.acceptedAt==='string'){
-            pendingSignup={email:saved.pendingSignup.email,acceptedAt:saved.pendingSignup.acceptedAt,noticeVersion:saved.pendingSignup.noticeVersion||NOTICE_VERSION};pendingEmail=pendingSignup.email;
-          }
-          if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode)&&(saved.identityRecoveryAccountId||saved.deviceAccountId)){identityRecoveryCode=saved.identityRecoveryCode;identityRecoveryAccountId=saved.identityRecoveryAccountId||saved.deviceAccountId;}
-          const hasDevice=typeof saved.deviceId==='string'&&/^[0-9a-f-]{36}$/i.test(saved.deviceId)&&typeof saved.deviceToken==='string'&&saved.deviceToken.length>=32;
-          if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
-          if(typeof saved.refreshToken==='string'&&saved.refreshToken){
-            if(!hasDevice){await secureStore.delete();pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
-            const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
+      try {
+        await window.VumiroLocalProfile?.initialize?.();
+        accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
+        if(secureStore?.get) {
+          const stored=await secureStore.get();
+          if(stored){
+            let saved;try{saved=JSON.parse(stored);}catch{saved={refreshToken:stored};}
+            if(saved.pendingSignup&&typeof saved.pendingSignup.email==='string'&&typeof saved.pendingSignup.acceptedAt==='string'){
+              pendingSignup={email:saved.pendingSignup.email,acceptedAt:saved.pendingSignup.acceptedAt,noticeVersion:saved.pendingSignup.noticeVersion||NOTICE_VERSION};pendingEmail=pendingSignup.email;
+            }
+            if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode)&&(saved.identityRecoveryAccountId||saved.deviceAccountId)){identityRecoveryCode=saved.identityRecoveryCode;identityRecoveryAccountId=saved.identityRecoveryAccountId||saved.deviceAccountId;}
+            const hasDevice=typeof saved.deviceId==='string'&&/^[0-9a-f-]{36}$/i.test(saved.deviceId)&&typeof saved.deviceToken==='string'&&saved.deviceToken.length>=32;
+            if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
+            if(typeof saved.refreshToken==='string'&&saved.refreshToken){
+              if(!hasDevice){await secureStore.delete();pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
+              const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
+            }
           }
         }
+        if(!authPage&&(!session||accountScreen==='unlock')){navigate('auth.html');return;}
+        await loadAccountAvailability();startupSucceeded=true;
+      } catch(error) {
+        if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});session=null;deviceId='';deviceToken='';deviceAccountId='';}
+        else {status((globalThis.VumiroI18n?.error(error)||error.message),true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;}
       }
-      if(!authPage&&!session&&(pendingSignup||(!window.VumiroLocalProfile?.profile()&&pageUrl.searchParams.get('view')!=='local'))){navigate('auth.html');return;}
-      await loadAccountAvailability();
-    } catch(error) {
-      if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});session=null;deviceId='';deviceToken='';deviceAccountId='';}
-      else {status((globalThis.VumiroI18n?.error(error)||error.message),true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;}
-    }
-    render();
-    if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&accountScreen!=='unlock')navigate('friends.html');}
+      render();
+      if(!authPage&&(!session||!startupSucceeded||accountScreen==='unlock')){navigate('auth.html');return;}
+      if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&startupSucceeded&&accountScreen!=='unlock')navigate('friends.html');}
+    } finally {resolveStartup(!authPage&&startupSucceeded&&!!session&&accountScreen!=='unlock'&&!!window.VumiroLocalProfile?.profile());}
   });
-  window.VumiroAccount=Object.freeze({open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
+  window.VumiroAccount=Object.freeze({ready:()=>startupReady,setSettingsNavigation:callback=>{settingsNavigation=typeof callback==='function'?callback:null;},prepare:()=>{render();return $('accountDialog');},open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
 })();

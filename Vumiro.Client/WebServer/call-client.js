@@ -91,6 +91,14 @@
 /* Vumiro room: signaling-only server, direct WebRTC media. No TURN configuration. */
 (() => {
   'use strict';
+  function roomAccountAllowed() {
+    let lobby=null;
+    try{if(parent!==window&&parent.location.origin===location.origin&&parent.location.pathname==='/friends.html')lobby=parent;}catch{}
+    if(lobby?.VumiroAccount?.getState?.().signedIn===true&&new URL(location.href).searchParams.get('embedded')==='1')return true;
+    const home=new URL(location.href);home.pathname='/friends.html';for(const key of ['autojoin','embedded','launchId'])home.searchParams.delete(key);
+    (lobby||window).location.replace(home.href);return false;
+  }
+  if(!roomAccountAllowed())return;
   const $ = id => document.getElementById(id), query = new URLSearchParams(location.search), linuxPlatform=query.get('platform')==='linux'||window.vumiroDesktop?.platform==='linux';
   const clock=window.VumiroServerClock,serverNow=()=>clock?.now()??Date.now();
   const embedded = query.get('embedded') === '1' && parent !== window;

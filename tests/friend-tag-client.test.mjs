@@ -277,7 +277,7 @@ test('saving a nickname updates the selected friend and closes the editor',async
 });
 
 async function startupServiceHarness(qa,override){
-  const saved=[],app={window:{__VUMIRO_LOCAL_QA__:qa,__VUMIRO_LOCAL_QA_SIGNALING__:override},serviceUrl:'',
+  const saved=[],app={window:{__VUMIRO_LOCAL_QA__:qa,__VUMIRO_LOCAL_QA_SIGNALING__:override,VumiroAccount:{ready:async()=>true}},serviceUrl:'',
     read:()=> 'wss://saved.example/call-signaling',save:(...args)=>saved.push(args),normalizeService:value=>value,
     query:{get:()=> 'wss://query.example/call-signaling'},location:{origin:'https://app.example'},
     local:{initialize:async()=>null,listBlocked:async()=>[]},serviceState(){},status(){},dialog(){},$:()=>({})};
