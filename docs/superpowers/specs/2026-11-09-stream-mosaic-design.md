@@ -37,7 +37,7 @@ The room always expands one focused participant and puts every other participant
 
 - Feature commits: design `37a970f`, plan `f645c9b`, implementation `d7f9229`, update-package compatibility `4e204d6`.
 - The isolated `4e204d6` implementation passed release-version checks, JavaScript syntax and 284/284 client tests. Both Windows package variants built with zero warnings/errors, and `Test-ClientPackages.ps1` validated the legacy-to-complete transition. The clean worktree then passed the LOCAL QA launcher's 284 client tests, OAuth/native invariants, local-service isolation, updater checks, native-audio recovery, diagnostics, and a Windows Debug build with zero warnings and errors.
-- The running review window is `Vumiro · LOCAL QA · 4e204d6` from `Vumiro-Mosaic-QA`, with its separate QA profile. The main checkout contains simultaneous, uncommitted cover-media work and was not used for this review window. Its aggregate client run had three failures in that unfinished cover work at the time of verification; this record does not claim the aggregate checkout is ready.
+- The review window is `Vumiro · LOCAL QA · 4e204d6` from `Vumiro-Mosaic-QA`, with its separate QA profile. The main checkout had simultaneous cover-media work and was not used for this review window. Its aggregate client run had three failures in that unfinished cover work at the time of verification; this record does not claim the aggregate checkout is ready.
 - One-to-four and narrow geometry are automated. Live multi-client video, audio-control focus after reparenting, more than four streams, and Linux/device visuals still require human QA. No human acceptance has been recorded.
 
 ## References
@@ -50,4 +50,4 @@ The room always expands one focused participant and puts every other participant
 
 ## Release boundary
 
-This design addresses the mosaic item only. Existing uncommitted native audio code currently mixes eligible processes without binding audio to the chosen video application. It must be corrected or disabled before aggregated changes can be signed off for release. No service deployment or release is part of this task.
+This design addresses the mosaic item only. Existing native audio code currently mixes eligible processes without binding audio to the chosen video application. It must be corrected or disabled before aggregated changes can be signed off for release. No service deployment or release is part of this task.
