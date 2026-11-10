@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const scriptUrl = new URL('../Vumiro.Client/WebServer/stream-mosaic.js', import.meta.url);
 const htmlUrl = new URL('../Vumiro.Client/WebServer/call.html', import.meta.url);
 const roomSource = fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js', import.meta.url), 'utf8');
+const layoutStart = roomSource.indexOf('/* Local room layout only.');
+const layoutEnd = roomSource.indexOf('/* Vumiro room:', layoutStart);
+const layoutSource = layoutStart >= 0 && layoutEnd > layoutStart ? roomSource.slice(layoutStart, layoutEnd) : '';
 
 function mosaic(fakeWindow = {innerHeight: 900, addEventListener(){}, removeEventListener(){}}) {
   const sandbox = {window: fakeWindow};
-  vm.runInNewContext(fs.existsSync(scriptUrl) ? fs.readFileSync(scriptUrl, 'utf8') : '', sandbox);
+  vm.runInNewContext(layoutSource, sandbox);
   return fakeWindow.VumiroStreamMosaic || {};
 }
 
@@ -90,15 +92,21 @@ test('room markup exposes separate video and voice-only containers', () => {
   const html = fs.readFileSync(htmlUrl, 'utf8');
   assert.match(html, /id="streamTiles"/);
   assert.match(html, /id="idleTiles"/);
-  assert.match(html, /src="\/stream-mosaic\.js"/);
+  assert.doesNotMatch(html, /src="\/stream-mosaic\.js"/);
   assert.match(html, /\.stream-grid \.stage video\{[^}]*object-fit:contain/);
 });
 
-test('Linux and Cloudflare package the room layout helper', () => {
+test('the room layout fits the existing Windows update file sets', () => {
+  const html = fs.readFileSync(htmlUrl, 'utf8');
+  const legacy = fs.readFileSync(new URL('../scripts/windows-package-v1.txt', import.meta.url), 'utf8');
+  const complete = fs.readFileSync(new URL('../scripts/windows-package-v2.txt', import.meta.url), 'utf8');
   const linux = fs.readFileSync(new URL('../Vumiro.Linux/build/prepare-assets.mjs', import.meta.url), 'utf8');
   const cloudflare = fs.readFileSync(new URL('../cloudflare/prepare-assets.mjs', import.meta.url), 'utf8');
-  assert.match(linux, /'stream-mosaic\.js'/);
-  assert.match(cloudflare, /'stream-mosaic\.js'/);
+  assert.match(legacy, /^WebServer\/call-client\.js$/m);
+  assert.match(complete, /^WebServer\/call-client\.js$/m);
+  assert.doesNotMatch(html, /src="\/stream-mosaic\.js"/);
+  assert.doesNotMatch(linux, /'stream-mosaic\.js'/);
+  assert.doesNotMatch(cloudflare, /'stream-mosaic\.js'/);
 });
 
 test('each tile exposes a keyboard select control with pressed state', () => {
