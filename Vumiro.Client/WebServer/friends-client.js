@@ -420,6 +420,7 @@ function saveNotificationPreferences(){
 function notificationAvailable(item){
   if(!item.action||item.expires<=runtimeNow())return false;
   const action=item.action;
+  if(action.type==='qa-preview')return window.__VUMIRO_LOCAL_QA__===true&&Object.keys(action).sort().join(',')==='target,type'&&['friends','rooms','inbox'].includes(action.target);
   if(action.type==='chat')return !!frame&&currentRoom===action.room;
   if(action.type==='call')return !!pending&&pending.direction==='incoming'&&pending.nonce===action.id&&pending.expires>runtimeNow()&&!blocked.includes(pending.friend)&&!blocking.has(pending.friend);
   if(action.type==='request')return requests.some(request=>request.id===action.id&&request.direction==='incoming'&&request.expires>(requestNow(request)??Infinity)&&!blocked.includes(request.contact.id)&&!blocking.has(request.contact.id));
@@ -443,6 +444,12 @@ async function notificationAction(item){
     if(protectedDialog()||openDialogs().some(isSettings))return false;
     for(const node of openDialogs())if(safeDialogs.has(node.id))node.close();
     $('notificationDialog').close();
+    if(item.action.type==='qa-preview'){
+      if(item.action.target==='friends')$('friendsNav').click();
+      else if(item.action.target==='rooms'){renderRooms();dialog('roomDialog');}
+      else openNotifications();
+      return true;
+    }
     if(item.action.type==='chat'){
       returnToRoom();frame.contentWindow.postMessage({type:'vumiro-open-chat'},location.origin);return true;
     }
@@ -1131,7 +1138,7 @@ function showQaNotification(kind){
   if(window.__VUMIRO_LOCAL_QA__!==true)return;
   if(kind==='desktop'){
     status('A sample notification will appear in 3 seconds. Minimize Vumiro to test the desktop popup.');
-    setTimeout(()=>notifySocial('message','qa-'+crypto.randomUUID(),'This is your desktop notification preview.',null,runtimeNow()+60000,friends[0]||{name:'Sample friend'}),3000);return;
+    setTimeout(()=>notifySocial('message','qa-'+crypto.randomUUID(),'This is your desktop notification preview.',{type:'qa-preview',target:'inbox'},runtimeNow()+60000,friends[0]||{name:'Sample friend'}),3000);return;
   }
   if(kind==='stop'){if(pending?.qa)clearPending('QA call notification test stopped.');return;}
   if(kind==='call'){
@@ -1142,7 +1149,7 @@ function showQaNotification(kind){
   }
   const previews={friend:{category:'friend',text:'Sample friend sent you a friend request · QA preview.'},room:{category:'roomActivity',text:'A friend opened a room · QA preview.'}};
   const preview=previews[kind];if(!preview)return;
-  status(preview.text);toast(preview.text);notifySocial(preview.category,'qa-'+crypto.randomUUID(),preview.text,null,runtimeNow()+60000);
+  status(preview.text);toast(preview.text);notifySocial(preview.category,'qa-'+crypto.randomUUID(),preview.text,{type:'qa-preview',target:kind==='friend'?'friends':'rooms'},runtimeNow()+60000,friends[0]||{name:'Sample friend'});
 }
 if(window.__VUMIRO_LOCAL_QA__===true){
   $('qaNotificationTools').hidden=false;
@@ -1243,7 +1250,7 @@ $('previewAppSound').onclick=()=>playUiCue('request',true,appSoundVolumeDraft);
 $('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.preventDefault();});$('profileDialog').addEventListener('close',()=>{if(document.querySelector('dialog.settingsScreen[open]'))return;++avatarSelection;++bannerSelection;window.VumiroCoverEditor?.cancel();coverDraft=undefined;window.VumiroCoverMedia?.release($('profileBannerPreview'));avatarWork=Promise.resolve();bannerWork=Promise.resolve();avatarDraft=profile.avatar||'';bannerDraft=profile.banner||'';appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();resetNotificationDraft();});
 const notificationPanel=$('notificationDialog');
 roomLaunch=window.VumiroMotion?.roomLaunch({slot:$('callFrameSlot'),getFrame:()=>frame,origin:location.origin,onRetry:retryRoomLaunch,onCancel:()=>{frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);finishRoom();}});
-notificationCenter=window.VumiroNotificationCenter?.create({bell:$('notificationOpen'),panel:notificationPanel,list:$('notificationList'),empty:$('notificationEmpty'),onOpen:id=>{const item=notificationItems.find(item=>item.id===id);if(item)notificationAction(item);},onDismiss:id=>{const index=notificationItems.findIndex(item=>item.id===id);if(index>=0)notificationItems.splice(index,1);renderNotifications();}});
+notificationCenter=window.VumiroNotificationCenter?.create({bell:$('notificationOpen'),panel:notificationPanel,list:$('notificationList'),empty:$('notificationEmpty'),onOpen:id=>{const item=notificationItems.find(item=>item.id===id);return item?notificationAction(item):false;},onDismiss:id=>{const index=notificationItems.findIndex(item=>item.id===id);if(index>=0)notificationItems.splice(index,1);renderNotifications();}});
 if(notificationCenter)notificationPanel.close=()=>notificationCenter.close();
 else $('notificationOpen').onclick=openNotifications;
 friendNudges=window.VumiroFriendNudges?.create({getFriend:id=>id===profile?.id||blocked.includes(id)||blocking.has(id)?null:friendById(id),isOnline:id=>online.has(id),isReady:()=>ready,transport:id=>peerProfiles.nudge(id),preferences:window.VumiroNudge.preferences(localStorage),status,toast,panel:$('notificationSettings'),anchors:[{anchor:$('contactCall'),id:()=>selected},{anchor:$('userCardCall'),id:()=>userCardId}]});

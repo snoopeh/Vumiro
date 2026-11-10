@@ -216,3 +216,27 @@ test('request and room activity popups focus their originating row without accep
     assert.ok(app.opened.includes(type==='request'?'friendsNav':'roomDialog'));
   }
 });
+
+
+function qaHarness(){
+  const app=harness(),timers=[];app.context.__VUMIRO_LOCAL_QA__=true;app.context.crypto={randomUUID:()=> 'preview-'+app.api.notificationItems.length};app.context.setTimeout=fn=>timers.push(fn);app.context.toast=()=>{};
+  const start=source.indexOf('function showQaNotification(kind){'),end=source.indexOf("\nif(window.__VUMIRO_LOCAL_QA__===true)",start);
+  vm.runInContext(source.slice(start,end),app.context);app.runTimers=()=>timers.splice(0).forEach(fn=>fn());return app;
+}
+
+test('QA friend, room and desktop previews have navigable local origins without fake contacts or rooms',async()=>{
+  for(const kind of ['friend','room','desktop']){
+    const app=qaHarness();app.context.renderRooms=()=>{};app.context.showQaNotification(kind);app.runTimers();
+    const item=app.api.notificationItems[0];assert.ok(item,'a sample notification was created');
+    assert.equal(app.api.notificationAvailable(item),true,kind+' preview must be clickable');
+    assert.equal(await app.api.notificationAction(item),true);
+    assert.ok(app.opened.includes(kind==='friend'?'friendsNav':kind==='room'?'roomDialog':'notificationDialog'));
+    assert.equal(app.context.friends.length,0);assert.equal(app.context.rooms.length,0);assert.equal(app.context.requests.length,0);
+  }
+});
+
+test('QA preview routes are unavailable outside QA or for unsupported targets',()=>{
+  const app=harness();const item={expires:5000,action:{type:'qa-preview',target:'inbox'}};
+  assert.equal(app.api.notificationAvailable(item),false);app.context.__VUMIRO_LOCAL_QA__=true;assert.equal(app.api.notificationAvailable(item),true);
+  item.action.target='https://untrusted.test';assert.equal(app.api.notificationAvailable(item),false);
+});

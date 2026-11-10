@@ -22,6 +22,7 @@
 .notificationPopups::backdrop{background:transparent;pointer-events:none}
 .notificationCard{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ffffff16;border-radius:13px;background:#202028;color:#f8f8fa;min-width:0}
 .notificationPopups .notificationCard{pointer-events:auto;box-shadow:0 14px 45px #0007;animation:notificationArrive .28s cubic-bezier(.2,.8,.2,1)}
+.notificationPopups .notificationCard:has(.notificationBody:not(:disabled)){cursor:pointer}
 .notificationAvatar{flex:none;width:42px;height:42px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:#4b273a;color:#fff;font-weight:700;font-size:18px}
 button.notificationBody{display:grid;gap:4px;flex:1;min-width:0;border:0;padding:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
 .notificationBody strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.notificationBody span{font-size:12px;color:#b8b8c6;line-height:1.45;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
@@ -84,10 +85,36 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
       const name = document.createElement('strong'), text = document.createElement('span'); name.textContent = item.senderName; text.textContent = item.text; body.append(name, text);
       name.setAttribute('translate', 'no');
       if(item.category === 'message')text.setAttribute('translate', 'no');
-      body.disabled = !item.available; body.addEventListener('click', () => { if (item.available) { removePopup(item.id); close(); onOpen(item.id); } });
+      let activating = false;
+      function activate() {
+        if (!item.available || activating) return;
+        activating = true; body.disabled = true;
+        const entry = visible.get(item.id);
+        if (entry) { entry.activating = true; clearTimeout(entry.timer); }
+        close();
+        function finish(result) {
+          activating = false;
+          body.disabled = !item.available;
+          if (entry) entry.activating = false;
+          if (result !== false) {
+            if (!popup || visible.get(item.id) === entry) removePopup(item.id);
+          } else {
+            if (entry && visible.get(item.id) === entry) entry.expire();
+          }
+        }
+        try {
+          const result = onOpen(item.id);
+          if (result && typeof result.then === 'function') Promise.resolve(result).then(finish, () => finish(false));
+          else finish(result);
+        } catch { finish(false); }
+      }
+      body.disabled = !item.available; body.addEventListener('click', activate);
       const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.className = 'notificationDismiss'; dismiss.textContent = '×';
       dismiss.setAttribute('aria-label', labels.dismiss || 'Dismiss notification');
       dismiss.addEventListener('click', event => { event.stopPropagation(); removePopup(item.id); onDismiss(item.id); });
+      if (popup) node.addEventListener('click', event => {
+        if (!body.contains(event.target) && !dismiss.contains(event.target)) activate();
+      });
       node.append(avatar, body, dismiss); return node;
     }
     function sync(values) {
@@ -99,7 +126,7 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
         const item = items.find(value => value.id === id);
         // sync also removes stale action affordances without keeping event closures alive.
         if (!item) removePopup(id);
-        else { entry.item.available = item.available; entry.node.children[1].disabled = !item.available; }
+        else { entry.item.available = item.available; entry.node.children[1].disabled = !item.available || entry.activating === true; }
       }
     }
     function popup(value) {
@@ -107,9 +134,12 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
       seen.add(item.id); if (seen.size > 256) seen.delete(seen.values().next().value);
       while (visible.size >= 3) removePopup(visible.keys().next().value);
       const node = row(item, true), entry = {node, item, timer: null};
-      function expire() { clearTimeout(entry.timer); entry.timer = setTimeout(() => removePopup(item.id), item.category === 'call' ? 12000 : 7000); }
-      node.addEventListener('pointerenter', () => clearTimeout(entry.timer)); node.addEventListener('pointerleave', expire);
-      node.addEventListener('focusin', () => clearTimeout(entry.timer)); node.addEventListener('focusout', expire);
+      function expire() { clearTimeout(entry.timer); if (!entry.activating && !entry.hovered && !entry.focused) entry.timer = setTimeout(() => removePopup(item.id), item.category === 'call' ? 12000 : 7000); }
+      entry.expire = expire;
+      node.addEventListener('pointerenter', () => { entry.hovered = true; clearTimeout(entry.timer); });
+      node.addEventListener('pointerleave', () => { entry.hovered = false; expire(); });
+      node.addEventListener('focusin', () => { entry.focused = true; clearTimeout(entry.timer); });
+      node.addEventListener('focusout', event => { entry.focused = node.contains(event.relatedTarget); expire(); });
       visible.set(item.id, entry); stack.append(node); placePopups(); expire(); return true;
     }
     function clear() { for (const id of [...visible.keys()]) removePopup(id); seen.clear(); sync([]); close(); }

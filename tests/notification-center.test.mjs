@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-function harness() {
+function harness({onOpen}={}) {
   class Element {
     constructor(tag='div'){this.tagName=tag;this.children=[];this.attributes={};this.handlers={};this.dataset={};this.hidden=false;this.textContent='';this.className='';this.classList={toggle:()=>{}};this.style={};this.rect={bottom:92};}
     append(...nodes){nodes.forEach(n=>{n.remove();this.children.push(n);n.parentNode=this;});}
@@ -29,7 +29,7 @@ function harness() {
   const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/notification-center.js',import.meta.url),'utf8');
   vm.runInContext(source,context);
   const bell=new Element('button'),panel=new Element('aside'),list=new Element('ol'),empty=new Element('p'),count=new Element('span'),opened=[],dismissed=[];
-  const center=context.window.VumiroNotificationCenter.create({bell,panel,list,empty,count,onOpen:id=>opened.push(id),onDismiss:id=>dismissed.push(id)});
+  const center=context.window.VumiroNotificationCenter.create({bell,panel,list,empty,count,onOpen:id=>{opened.push(id);return onOpen?.(id);},onDismiss:id=>dismissed.push(id)});
   return {center,bell,panel,list,empty,count,opened,dismissed,document,timers,window,observers,dialogs,Element,mutate:()=>observers.filter(o=>!o.disconnected).forEach(o=>o.callback()),api:context.window.VumiroNotificationCenter};
 }
 const item=n=>({id:'event-'+n,category:'call',senderName:'<Alice>',text:'<img onerror=bad()>',avatar:'https://bad.example/avatar.png',available:true});
@@ -83,4 +83,23 @@ test('popups remain interactive above the active modal and follow modal transiti
   settings.open=false;h.mutate();assert.equal(stack.parentNode,h.document.body);
   stack.children[0].children[1].dispatch('click');assert.deepEqual(h.opened,['event-1']);assert.equal(stack.popoverOpen,false);
   h.center.destroy();assert.ok(h.observers.every(o=>o.disconnected));assert.equal(h.timers.size,0);
+});
+
+
+test('an async navigation keeps its popup until successful and stays retryable after Keep editing',async()=>{
+  let finish;const h=harness({onOpen:()=>new Promise(resolve=>{finish=resolve;})});h.center.popup(item(1));
+  const stack=h.document.body.children[0],body=stack.children[0].children[1];body.dispatch('click');
+  assert.equal(stack.children.length,1,'pending settings decision must not discard its notification');assert.equal(body.disabled,true);
+  finish(false);await new Promise(resolve=>setImmediate(resolve));assert.equal(stack.children.length,1);assert.equal(body.disabled,false);
+  body.dispatch('click');assert.equal(h.opened.length,2);finish(true);await new Promise(resolve=>setImmediate(resolve));assert.equal(stack.children.length,0);
+});
+
+test('clicking a popup avatar activates its notification as well as clicking its text',()=>{
+  const h=harness();h.center.popup(item(1));const row=h.document.body.children[0].children[0];row.dispatch('click',{target:row.children[0]});assert.deepEqual(h.opened,['event-1']);
+});
+
+test('a successful async inbox activation can be opened again from the bell',async()=>{
+  const h=harness({onOpen:async()=>true});h.center.sync([item(1)]);const body=h.list.children[0].children[1];
+  body.dispatch('click');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(body.disabled,false);h.bell.dispatch('click');body.dispatch('click');await new Promise(resolve=>setImmediate(resolve));assert.equal(h.opened.length,2);
 });
