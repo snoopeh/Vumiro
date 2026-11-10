@@ -16,3 +16,13 @@
 Changes remain local on the current development branch. Human acceptance precedes push and release. Do not use real account credentials in automated tests or bypass encrypted identity recovery.
 
 Human QA still needs actual Google sign-in/focus, native drag feel, two-client delivery, and final acceptance. Automated and native probe results are recorded in `docs/QA-FEEDBACK-CHECKLIST.md`.
+
+## Third QA pass
+
+- [x] Keep authenticated auth-page rendering in sign-in progress, complete the no-remote-profile route explicitly, support retry, and preserve encrypted identity recovery (`77b3be0`).
+- [x] Add the bounded chat splitter, persisted ratio, six-language labels and animated native thumb; include its module in Windows staging, Linux and web assets (`9fc8dbb`).
+- [x] Lift popups above active modals, position the inbox below its bell, show fresh verified peer messages on every screen, and route actions through settings exit with stale-action checks (`232d79b`).
+- [x] Independently review the changed boundaries; check actual Windows popup layering, Keep editing/Discard routing, separator dragging and intermediate scrollbar opacity.
+- [x] Run the full official launcher and record final QA readiness: 462/462 client tests, all native gates and build passed. Human acceptance and release remain separate.
+
+The full gate caught an old event-feedback expectation that suppressed visible-chat alerts. `acb6d57` aligns both signed and legacy chat sound behavior with the new request; focused checks and the rerun passed.

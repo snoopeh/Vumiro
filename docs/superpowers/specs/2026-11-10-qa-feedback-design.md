@@ -4,11 +4,11 @@ The user requested these behaviors directly after reviewing the first 2A build. 
 
 ## Notification presentation
 
-Keep only a bell in the lobby. Hover/focus opens a sliding preview; click pins the drawer, Escape/outside click closes it. Each event shows the validated sender's avatar, name and activity. New events produce a bounded, dismissible popup. A compatible native Windows popup covers minimized/background operation without moving focus or auto-accepting calls. Linux uses its native adapter. Clicking restores the app and revalidates the local action ID. No arbitrary URLs or HTML cross the host bridge.
+Keep only a bell in the lobby. Explicit activation toggles a sliding list below the bell; hover/focus leaves it closed. Escape/outside click closes it. Each event shows the validated sender's avatar, name and activity. New incoming events produce a bounded, dismissible popup on every app screen, including above modal settings. Background operation also uses a native popup without moving focus or auto-accepting calls. Clicking opens the event's origin after any required settings Save/Discard/Keep editing decision and revalidates the local action ID. Protected confirmations and editors must be finished or canceled first. No arbitrary URLs or HTML cross the host bridge.
 
 ## Motion and room entry
 
-Use the approved reveal and sakura masters from the sibling vumiro-motion folder. Play the reveal once per app launch with Skip and reduced-motion handling, then fade black into sign-in. Petals stay behind the form, pause when hidden, and have a visible motion toggle. Room entry displays an actual connecting state and error/retry/cancel controls. Chat retains normal scrolling with a transparent track and a red thumb revealed on hover/focus/scroll.
+Use the approved reveal and sakura masters from the sibling vumiro-motion folder. Play the reveal once per app launch with Skip and reduced-motion handling, then fade black into sign-in. Petals stay behind the form, pause when hidden, and have a visible motion toggle. Room entry displays an actual connecting state and error/retry/cancel controls. Chat retains normal scrolling with a transparent track and a red thumb that fades over 220ms on hover/focus/scroll. On desktop, default chat width is 24% of the room viewport; a pointer and keyboard separator adjusts it up to 30%, preserving the completed ratio. Compact windows retain the stacked layout.
 
 ## Identity and languages
 
@@ -20,7 +20,11 @@ Track drafts against saved baselines across settings destinations. Escape, the c
 
 ## Friend nudge
 
-Send a signed, short-lived nudge through the existing authenticated peer profile channel. Only current online unblocked friends may send or receive it. Apply a per-friend 30-second send/receive limit, a global burst limit, replay dedupe, and a bounded pending queue. Recheck identity/friendship after asynchronous signing/verification. The receiver controls Allow nudges and Silent mode. Normal mode briefly shakes app content; silent mode or reduced motion shows a feathered yellow frame for the same duration without shaking or sound. No focus stealing, no repeated timer extension, no native window repositioning. Send acknowledgment before reporting delivery; old peers safely ignore the extension.
+Send a signed, short-lived nudge through the existing authenticated peer profile channel. Only current online unblocked friends may send or receive it. Apply a per-friend 30-second send/receive limit, a global burst limit, replay dedupe, and a bounded pending queue. Recheck identity/friendship after asynchronous signing/verification. The receiver controls Allow nudges and Silent mode. Normal mode moves a restored native window briefly and restores its exact bounds; silent mode or reduced motion shows a feathered yellow monitor frame for the same duration without shaking or sound. Maximized, fullscreen and minimized windows retain their state and use the glow. No focus stealing or repeated timer extension. Send acknowledgment before reporting delivery; old peers safely ignore the extension. Browser/Wayland restrictions use a viewport glow.
+
+## Authenticated entry
+
+After successful provider authentication and required identity checks, enter the lobby. The auth route shows sign-in progress while account data loads, never account management. Account management belongs to the persistent lobby settings shell. An existing encrypted identity on a different device still requires a valid password or recovery code. A temporary account-data failure offers Retry; it must not expose management or skip recovery.
 
 ## Verification and references
 
@@ -31,3 +35,5 @@ Exercise draft save failures, discard and clean exits; sender attribution, popup
 - W3C pause/stop/hide: https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html
 - W3C language selection: https://www.w3.org/International/questions/qa-site-conneg.en.html
 - Chromium scrollbar styling: https://developer.chrome.com/docs/css-ui/scrollbar-styling
+- HTML popovers and the top layer: https://html.spec.whatwg.org/dev/popover.html
+- WAI-ARIA window splitter: https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/
