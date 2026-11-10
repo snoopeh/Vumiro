@@ -469,8 +469,60 @@ function editFriendNickname(id){const friend=friendById(id);if(!friend)return;se
 $('editNickname').onclick=()=>editFriendNickname(selected);
 $('copyFriendTag').onclick=()=>copyFriendTag(profile?.id);$('userCardTag').onclick=()=>{if(userCardId)copyFriendTag(userCardId);};
 $('userCardDialog').addEventListener('click',event=>{if(event.target===$('userCardDialog'))$('userCardDialog').close();});
-async function resizeBanner(file){if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>10*1024*1024)throw Error('Choose a PNG, JPEG or WebP background under 10 MiB.');const bitmap=await createImageBitmap(file);try{if(bitmap.width*bitmap.height>25000000)throw Error('Choose a background smaller than 25 megapixels.');for(const width of [480,360,240]){const canvas=document.createElement('canvas');canvas.width=width;canvas.height=Math.round(width/3);const context=canvas.getContext('2d');const scale=Math.max(width/bitmap.width,canvas.height/bitmap.height),sw=width/scale,sh=canvas.height/scale;context.drawImage(bitmap,(bitmap.width-sw)/2,(bitmap.height-sh)/2,sw,sh,0,0,width,canvas.height);for(const quality of [.8,.65,.5,.35,.2]){const value=canvas.toDataURL('image/jpeg',quality);if(value.length<=16384)return local.validateBanner(value);}}throw Error('This background is too detailed. Choose a simpler image.');}finally{bitmap.close();}}
-$('bannerFile').onchange=()=>{const file=$('bannerFile').files[0],version=++bannerSelection;$('bannerFile').value='';if(!file)return;$('profileError').textContent='Preparing cover…';bannerWork=(async()=>{try{const value=await resizeBanner(file);if(version!==bannerSelection)return;bannerDraft=value;setBanner($('profileBannerPreview'),bannerDraft);$('profileError').textContent='Cover ready. Save your profile to keep this change.';}catch(error){if(version===bannerSelection){$('profileError').textContent=error.message;toast(error.message,'error');}}})();};
+async function resizeBanner(file, isCurrent = () => true) {
+  if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 10*1024*1024)
+    throw Error('Choose a PNG, JPEG or WebP background under 10 MiB.');
+  const checkCurrent = () => { if (!isCurrent()) throw Error('Cover selection changed.'); };
+  checkCurrent();
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  try {
+    checkCurrent();
+    if (!bitmap.width || !bitmap.height || bitmap.width*bitmap.height > 25000000)
+      throw Error('Choose a background smaller than 25 megapixels.');
+    const context = canvas.getContext('2d');
+    if (!context) throw Error('This device could not prepare the cover. Try again.');
+    // Keep the existing 16 KiB data-URL contract used by peers and account sync.
+    // Preserve pixels before reducing quality; PNG avoids JPEG damage to artwork.
+    const maximum = Math.floor(Math.min(1920, bitmap.width, bitmap.height*3));
+    const widths = [maximum, ...[1600,1280,960,720,480,360,240].filter(width => width < maximum)];
+    const unsupported = new Set();
+    async function encode(type, quality) {
+      checkCurrent();
+      if (unsupported.has(type)) return null;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, type, quality));
+      checkCurrent();
+      // Unsupported encoders fall back to PNG. Do not mistake that for WebP/JPEG.
+      if (!blob) return null;
+      if (blob.type !== type) { unsupported.add(type); return null; }
+      const prefix = `data:${type};base64,`;
+      if (prefix.length + 4*Math.ceil(blob.size/3) > 16384) return null;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      checkCurrent();
+      return local.validateBanner(prefix + btoa(String.fromCharCode(...bytes)));
+    }
+    for (const width of widths) {
+      checkCurrent();
+      canvas.width = width; canvas.height = Math.max(1, Math.floor(width/3));
+      context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
+      const scale = Math.max(width/bitmap.width, canvas.height/bitmap.height);
+      const sw = width/scale, sh = canvas.height/scale;
+      context.drawImage(bitmap, (bitmap.width-sw)/2, (bitmap.height-sh)/2, sw, sh, 0, 0, width, canvas.height);
+      const lossless = await encode('image/png');
+      if (lossless) return lossless;
+      for (const quality of [.9,.8,.7,.6]) {
+        for (const type of ['image/webp','image/jpeg']) {
+          const value = await encode(type, quality);
+          if (value) return value;
+        }
+      }
+    }
+    throw Error('This background is too detailed. Choose a simpler image.');
+  } finally {
+    bitmap.close(); canvas.width = canvas.height = 0;
+  }
+}
+$('bannerFile').onchange=()=>{const file=$('bannerFile').files[0],version=++bannerSelection;$('bannerFile').value='';if(!file)return;$('profileError').textContent='Preparing cover…';bannerWork=(async()=>{try{const value=await resizeBanner(file,()=>version===bannerSelection);if(version!==bannerSelection)return;bannerDraft=value;setBanner($('profileBannerPreview'),bannerDraft);$('profileError').textContent='Cover ready. Save your profile to keep this change.';}catch(error){if(version===bannerSelection){$('profileError').textContent=error.message;toast(error.message,'error');}}})();};
 $('removeBanner').onclick=()=>{++bannerSelection;bannerWork=Promise.resolve();bannerDraft='';setBanner($('profileBannerPreview'),'');$('profileError').textContent='Cover removal staged. Save your profile to keep this change.';};
 
 function renderDetails(){const friend=friendById(selected);$('contactEmpty').hidden=!!friend;$('contactDetails').hidden=!friend;if(!friend)return;avatar($('contactAvatar'),friend);$('contactName').textContent=friend.nickname;$('contactName').title=directoryTags[friend.id]?'Copy friend tag '+directoryTags[friend.id]:'Friend tag unavailable';$('editNickname').setAttribute('aria-label','Edit nickname for '+friend.nickname);$('contactStatus').textContent=(friend.username?'@'+friend.username+'\n':'')+(online.has(friend.id)?'Online · ready to connect':'Offline')+(friend.nicknameOverride?'\n'+friend.name:'');if(document.activeElement!==$('nickname'))$('nickname').value=friend.nicknameOverride?friend.nickname:'';$('contactCall').disabled=!canCall(friend);renderProfileDetails(friend);if($('userCardDialog').open)renderUserCard();}
