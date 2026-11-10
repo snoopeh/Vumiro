@@ -2,12 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import os from 'node:os';
+import path from 'node:path';
+import {bundleClientWeb} from '../scripts/bundle-client-web.mjs';
 
 const htmlUrl = new URL('../Vumiro.Client/WebServer/call.html', import.meta.url);
 const roomSource = fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js', import.meta.url), 'utf8');
-const layoutStart = roomSource.indexOf('/* Local room layout only.');
-const layoutEnd = roomSource.indexOf('/* Vumiro room:', layoutStart);
-const layoutSource = layoutStart >= 0 && layoutEnd > layoutStart ? roomSource.slice(layoutStart, layoutEnd) : '';
+const layoutUrl = new URL('../Vumiro.Client/WebServer/stream-mosaic.js', import.meta.url);
+const layoutSource = fs.existsSync(layoutUrl) ? fs.readFileSync(layoutUrl, 'utf8') : '';
+
+test('stream mosaic is an independent module consumed by the room', () => {
+  assert.ok(layoutSource, 'standalone stream-mosaic.js exists');
+  assert.doesNotMatch(roomSource, /window\.VumiroStreamMosaic\s*=/);
+  assert.match(roomSource, /VumiroStreamMosaic\?\.create/);
+});
 
 function mosaic(fakeWindow = {innerHeight: 900, addEventListener(){}, removeEventListener(){}}) {
   const sandbox = {window: fakeWindow};
@@ -114,21 +122,24 @@ test('room markup exposes separate video and voice-only containers', () => {
   const html = fs.readFileSync(htmlUrl, 'utf8');
   assert.match(html, /id="streamTiles"/);
   assert.match(html, /id="idleTiles"/);
-  assert.doesNotMatch(html, /src="\/stream-mosaic\.js"/);
+  assert.match(html, /<script src="\/stream-mosaic\.js"><\/script>.*<script src="\/call-client\.js"><\/script>/);
   assert.match(html, /\.stream-grid \.stage video\{[^}]*object-fit:contain/);
 });
 
-test('the room layout fits the existing Windows update file sets', () => {
-  const html = fs.readFileSync(htmlUrl, 'utf8');
+test('release bundling includes mosaic before room startup within existing Windows update file sets', async t => {
   const legacy = fs.readFileSync(new URL('../scripts/windows-package-v1.txt', import.meta.url), 'utf8');
   const complete = fs.readFileSync(new URL('../scripts/windows-package-v2.txt', import.meta.url), 'utf8');
-  const linux = fs.readFileSync(new URL('../Vumiro.Linux/build/prepare-assets.mjs', import.meta.url), 'utf8');
-  const cloudflare = fs.readFileSync(new URL('../cloudflare/prepare-assets.mjs', import.meta.url), 'utf8');
   assert.match(legacy, /^WebServer\/call-client\.js$/m);
   assert.match(complete, /^WebServer\/call-client\.js$/m);
-  assert.doesNotMatch(html, /src="\/stream-mosaic\.js"/);
-  assert.doesNotMatch(linux, /'stream-mosaic\.js'/);
-  assert.doesNotMatch(cloudflare, /'stream-mosaic\.js'/);
+  assert.doesNotMatch(legacy + complete, /^WebServer\/stream-mosaic\.js$/m);
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'vumiro-mosaic-bundle-'));
+  t.after(() => fs.rmSync(staging, {recursive: true, force: true}));
+  fs.cpSync(new URL('../Vumiro.Client/WebServer/', import.meta.url), staging, {recursive: true});
+  await bundleClientWeb(staging);
+  const packaged = fs.readFileSync(path.join(staging, 'call-client.js'), 'utf8');
+  assert.ok(packaged.includes(layoutSource));
+  assert.ok(packaged.indexOf('window.VumiroStreamMosaic =') < packaged.indexOf('/* Vumiro room:'));
+  assert.doesNotMatch(fs.readFileSync(path.join(staging, 'call.html'), 'utf8'), /src="\/stream-mosaic\.js"/);
 });
 
 test('each tile exposes a keyboard select control with pressed state', () => {

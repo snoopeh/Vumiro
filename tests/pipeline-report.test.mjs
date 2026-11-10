@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,9 @@ test('fast checker stops at the first failure and preserves its compact report a
   f.put('scripts/Check-ReleaseVersion.mjs', "throw Error('unaligned release fixture');\n");
   f.put('scripts/Check-Syntax.mjs', "throw Error('this stage must not start');\n");
   copyFileSync(path.join(root, 'scripts/Check-Client.mjs'), path.join(f.directory, 'scripts/Check-Client.mjs'));
+  cpSync(path.join(root, 'scripts/lib'), path.join(f.directory, 'scripts/lib'), { recursive: true });
+  copyFileSync(path.join(root, 'scripts/feature-checks.json'), path.join(f.directory, 'scripts/feature-checks.json'));
+  mkdirSync(path.join(f.directory, 'tests'));
   const result = f.run('scripts/Check-Client.mjs', ['--skip-backend']);
   assert.equal(result.status, 1, result.stderr);
   const report = JSON.parse(readFileSync(path.join(f.directory, 'dist/checks/checks-report.json')));

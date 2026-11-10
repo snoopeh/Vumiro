@@ -18,6 +18,13 @@ test('Linux trusted asset routes cover every bundled HTML script and prepared as
   for(const page of pages)for(const match of html(page).matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g))assert.ok(routes.includes(match[1]),page+' references unserved '+match[1]);
 });
 
+test('all unbundled hosts prepare the standalone stream mosaic asset',()=>{
+  const linux=fs.readFileSync(new URL('Vumiro.Linux/build/prepare-assets.mjs',root),'utf8');
+  const cloudflare=fs.readFileSync(new URL('cloudflare/prepare-assets.mjs',root),'utf8');
+  assert.match(linux, /'stream-mosaic\.js'/);
+  assert.match(cloudflare, /'stream-mosaic\.js'/);
+});
+
 function collector(){assert.equal(typeof driver.createSmokeResources,'function','smoke needs an observable packaged-resource collector');return driver.createSmokeResources();}
 function request(c,id,path,type='Script'){c.record('Network.requestWillBeSent',{requestId:id,type,request:{url:'vumiro://app'+path}});}
 function complete(c,id,path,status=200){c.record('Network.responseReceived',{requestId:id,type:'Script',response:{url:'vumiro://app'+path,status,fromDiskCache:true}});c.record('Network.loadingFinished',{requestId:id});}
@@ -26,7 +33,7 @@ test('smoke derives required resources from all three actual packaged HTML docum
   assert.equal(typeof driver.requiredSmokeResources,'function','derive asset expectations from packaged HTML');
   const expected=driver.requiredSmokeResources(html);
   for(const page of pages)assert.ok(expected.includes(page));
-  for(const path of ['/notification-center.js','/settings-drafts.js','/chat-pane.js','/chat-scrollbar.js','/i18n.js'])assert.ok(expected.includes(path));
+  for(const path of ['/notification-center.js','/settings-drafts.js','/chat-pane.js','/chat-scrollbar.js','/i18n.js','/stream-mosaic.js'])assert.ok(expected.includes(path));
   const added=driver.requiredSmokeResources(page=>html(page)+(page==='/call.html'?'<script src="/future-helper.js"></script>':''));
   assert.ok(added.includes('/future-helper.js'),'new packaged script references cannot silently escape smoke coverage');
   assert.throws(()=>driver.requiredSmokeResources(()=>'<script src="https://example.test/remote.js"></script>'),/local|trusted/);

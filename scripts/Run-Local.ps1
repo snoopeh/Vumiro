@@ -1,4 +1,10 @@
-param([switch]$SkipTests, [switch]$LocalService)
+param(
+    [switch]$SkipTests,
+    [switch]$LocalService,
+    [string[]]$Group,
+    [string]$ChangedSince,
+    [switch]$ReuseChecks
+)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $output = Join-Path $root 'dist/local-qa'
@@ -32,18 +38,16 @@ try {
     }
     Push-Location $root
     try {
-        foreach ($file in (Get-ChildItem -LiteralPath $web -Filter '*.js' -File)) {
-            Invoke-LocalCheck "Syntax: $($file.Name)" 'node' @('--check', $file.FullName) 'syntax.log'
-        }
-        if (!$SkipTests) {
-            Invoke-LocalCheck 'Client regressions' 'node' @('--test', 'tests/*.test.mjs') 'client-tests.log'
-            Invoke-LocalCheck 'Native invariants' 'dotnet' @('run', '--project', 'tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj', '-c', 'Release') 'native-tests.log'
-            Invoke-LocalCheck 'Desktop notification payloads' 'dotnet' @('run', '--project', 'tests/NativeNotificationChecks/NativeNotificationChecks.csproj', '-c', 'Release') 'notification-tests.log'
-            Invoke-LocalCheck 'Native nudge and resize regressions' 'dotnet' @('run', '--project', 'tests/NativeWindowChecks/NativeWindowChecks.csproj', '-c', 'Release') 'window-tests.log'
-            Invoke-LocalCheck 'Local service isolation' 'dotnet' @('run', '--project', 'tests/LocalQaServiceChecks/LocalQaServiceChecks.csproj', '-c', 'Release') 'local-service-tests.log'
-            Invoke-LocalCheck 'Startup updater regressions' 'dotnet' @('run', '--project', 'tests/ClientUpdateChecks/ClientUpdateChecks.csproj', '-c', 'Release') 'updater-tests.log'
-            Invoke-LocalCheck 'Native audio recovery regressions' 'dotnet' @('run', '--project', 'tests/NativeAudioSmoke/NativeAudioSmoke.csproj', '-c', 'Release', '--', '--self-test') 'audio-tests.log'
-            Invoke-LocalCheck 'Diagnostic retention and export' 'dotnet' @('run', '--project', 'tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj', '-c', 'Release') 'diagnostics-tests.log'
+        if ($SkipTests) {
+            foreach ($file in (Get-ChildItem -LiteralPath $web -Filter '*.js' -File)) {
+                Invoke-LocalCheck "Syntax: $($file.Name)" 'node' @('--check', $file.FullName) 'syntax.log'
+            }
+        } else {
+            $checkArguments = @('scripts/Check-Client.mjs', '--skip-backend', '--native', '--output', (Join-Path $output 'checks'))
+            foreach ($name in $Group) { $checkArguments += @('--group', $name) }
+            if ($ChangedSince) { $checkArguments += @('--changed-since', $ChangedSince) }
+            if ($ReuseChecks) { $checkArguments += '--reuse' }
+            Invoke-LocalCheck 'Client and native regressions' 'node' $checkArguments 'checks.log'
         }
         # Stop only this checkout's QA executable. Installed copies use other paths.
         foreach ($process in (Get-Process -Name Vumiro -ErrorAction SilentlyContinue)) {

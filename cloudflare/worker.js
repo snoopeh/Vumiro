@@ -278,7 +278,7 @@ export default {
     }
     if(url.pathname==='/' || url.pathname==='/friends' || url.pathname==='/friends/') url.pathname='/friends.html';
     if(url.pathname==='/call' || url.pathname==='/call/') url.pathname='/call.html';
-    if(!['/call.html','/call-client.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
+    if(!['/call.html','/call-client.js','/stream-mosaic.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
     const response=await env.ASSETS.fetch(new Request(url,request));
     const headers=new Headers(response.headers);headers.set('Cache-Control','no-cache');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');
     // Embedded hosts use the same source files through a trusted WebView2 virtual host.

@@ -386,6 +386,32 @@ test('short links redirect with only the opaque token, remove extra URL data and
   assert.equal((await worker.fetch(new Request('https://vumiro.example/r/Abc_456-xy12',{method:'POST'}),{})).status,405);
 });
 
+test('Worker serves every script referenced by current client HTML while rejecting unknown assets',async()=>{
+  const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
+    .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
+    .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
+    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
+  const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
+  const scripts=new Set();
+  for(const page of ['auth','friends','call']) {
+    const html=readFileSync(new URL(`../Vumiro.Client/WebServer/${page}.html`,import.meta.url),'utf8');
+    for(const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)) scripts.add(match[1]);
+  }
+  assert.ok(scripts.size>0,'current HTML supplies script requests');
+  const forwarded=[];
+  const env={ASSETS:{fetch:async request=>{forwarded.push(request.url);return new Response('asset:'+request.url);}}};
+  for(const script of scripts) {
+    const request=new Request(`https://vumiro.example${script}?version=qa`);
+    const response=await worker.fetch(request,env);
+    assert.equal(response.status,200,script+' reaches the asset binding');
+    assert.equal(await response.text(),'asset:'+request.url,script+' returns the forwarded asset');
+    assert.equal(forwarded.at(-1),request.url);
+  }
+  const count=forwarded.length;
+  assert.equal((await worker.fetch(new Request('https://vumiro.example/unknown-script.js'),env)).status,404);
+  assert.equal(forwarded.length,count,'unknown paths never reach the asset binding');
+});
+
 test('named handles preserve offline and blocked lookup privacy',async t=>{
   const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
   await announce(app,aw,'Alice');await announce(app,bw,'Bob',{username:'bob'});

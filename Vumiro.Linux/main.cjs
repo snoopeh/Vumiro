@@ -20,6 +20,7 @@ const ASSET_PATHS = new Map([
   ['/friends-client.js', 'text/javascript; charset=utf-8'],
   ['/call.html', 'text/html; charset=utf-8'],
   ['/call-client.js', 'text/javascript; charset=utf-8'],
+  ['/stream-mosaic.js', 'text/javascript; charset=utf-8'],
   ['/chat-pane.js', 'text/javascript; charset=utf-8'],
   ['/chat-scrollbar.js', 'text/javascript; charset=utf-8'],
   ['/local-profile.js', 'text/javascript; charset=utf-8'],
