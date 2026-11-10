@@ -2,7 +2,7 @@
 
 Date: 2026-11-09  
 Source: priority 1C, “Arrange active streams as a mosaic”  
-Status: implementation design; human acceptance pending
+Status: source implemented and isolated LOCAL QA open; human acceptance pending
 
 ## Current behavior and goal
 
@@ -11,7 +11,7 @@ The room always expands one focused participant and puts every other participant
 ## Options considered
 
 1. **Fixed CSS presets:** one column for one stream, two for two to four. Simple, but wastes space for portrait screens and narrow windows.
-2. **Responsive measured grid (chosen):** choose the column count that maximizes the visible video area from each stream's aspect ratio and the available scene box. Use CSS Grid for placement and `object-fit: contain` for uncropped video. Keep a compact voice-only strip below it. This adapts to window size and late video dimensions without a library.
+2. **Responsive measured grid (chosen):** score column counts by visible video area from each stream's aspect ratio and the available scene box. Favor side-by-side placement for a pair when the room is wide enough. Use CSS Grid for placement and `object-fit: contain` for uncropped video. Keep a compact voice-only strip below it. This adapts to window size and late video dimensions without a library.
 3. **Fully freeform masonry:** size every tile independently. It can fill gaps but creates unstable positions and makes controls harder to follow during joins and resizes.
 
 ## Behavior
@@ -24,7 +24,7 @@ The room always expands one focused participant and puts every other participant
 
 ## Implementation boundary
 
-`call.html` owns two containers inside `#tiles`: the screen grid and the compact participant strip. `call-client.js` has a pure geometry planner and a small DOM updater. `refreshLayout()` moves existing tile elements between containers when their sharing state changes; it does not recreate players or tracks. A `ResizeObserver` watches the scene width, window resize updates the height budget, and each video's existing resize handler re-plans after intrinsic size changes. Observer work is limited to layout and is detached when the page closes.
+`call.html` owns two containers inside `#tiles`: the screen grid and the compact participant strip. `stream-mosaic.js` has the pure geometry planner and DOM updater; `call-client.js` supplies tile state. The updater moves existing tile elements between containers when their sharing state changes; it does not recreate players or tracks. A `ResizeObserver` watches scene width, window resize updates the height budget, and each video's existing resize handler re-plans after intrinsic size changes. Observer work is limited to layout and is detached when the page closes. Linux and Cloudflare asset manifests include the helper.
 
 ## Acceptance and verification
 
@@ -32,6 +32,13 @@ The room always expands one focused participant and puts every other participant
 - Voice-only participants stay accessible outside the video cells. Joining, leaving and stopping share update the mosaic without losing video playback, selection, fullscreen or audio controls.
 - At mobile-sized widths the page has no horizontal overflow from the tiles, and a user can reach every stream with vertical scroll and keyboard focus.
 - Unit tests cover planner choices, aspect ratios, invalid dimensions, ordering/DOM moves and stream-count transitions. Client syntax and focused room tests pass. Human QA must inspect one to four live streams at wide and narrow sizes, and a room with more than four streams.
+
+### Verification record
+
+- Feature commits: design `37a970f`, plan `f645c9b`, implementation `d7f9229`.
+- The staged, isolated implementation passed release-version checks, JavaScript syntax and 284/284 client tests. The clean `d7f9229` worktree then passed the LOCAL QA launcher's 284 client tests, OAuth/native invariants, local-service isolation, updater checks, native-audio recovery, diagnostics, and a Windows Debug build with zero warnings and errors.
+- The running review window is `Vumiro · LOCAL QA · d7f9229` from `Vumiro-Mosaic-QA`, with its separate QA profile. The main checkout contains simultaneous, uncommitted cover-media work and was not used for this review window. Its aggregate client run had three failures in that unfinished cover work; this record does not claim the aggregate checkout is ready.
+- One-to-four and narrow geometry are automated. Live multi-client video, audio-control focus after reparenting, more than four streams, and Linux/device visuals still require human QA. No human acceptance has been recorded.
 
 ## References
 
