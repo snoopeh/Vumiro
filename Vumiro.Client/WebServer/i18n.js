@@ -10190,8 +10190,9 @@ body:has(dialog[open])>.vumiro-language{visibility:hidden}
 @media(max-width:570px){.vumiro-language{font-size:12px}.vumiro-language:not(.vumiro-language-inline){bottom:7px;left:7px}.vumiro-language-sidebar{display:block;text-align:center;padding:8px 4px;min-height:34px}.vumiro-language-sidebar select{position:absolute;inset:0;width:100%;height:100%;opacity:0;padding:0}.settingsNav .vumiro-language-settings{flex:0 0 142px;width:142px;margin:0 7px 0 0}}
 `;document.head.append(style);
     const sidebar=document.querySelector?.('.sideBottom');
-    const control=mountSelector(sidebar||document.body,!!sidebar);
-    if(sidebar){control.classList.add('vumiro-language-sidebar');sidebar.insertBefore(control,sidebar.firstChild);}
+    let embedded=false;try{embedded=window.parent!==window&&window.parent?.location?.origin===window.location?.origin&&!!window.parent.VumiroI18n;}catch{}
+    const control=embedded?null:mountSelector(sidebar||document.body,!!sidebar);
+    if(sidebar&&control){control.classList.add('vumiro-language-sidebar');sidebar.insertBefore(control,sidebar.firstChild);}
     attachDialogSelectors();refresh();broadcast();
     if(window.MutationObserver){
       let scheduled=false;const observer=new window.MutationObserver(records=>{
