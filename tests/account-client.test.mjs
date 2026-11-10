@@ -26,7 +26,8 @@ class Element {
 
 function response(status,value){return {ok:status>=200&&status<300,status,async json(){return value;}};}
 
-function harness({stored='',route,authPage=false,oauth,href='https://vumiro.local/friends.html',localProfile=null,callFrame=null}={}) {
+function harness({stored='',route,authPage=false,oauth,href,localProfile=null,callFrame=null,pageMarker=true}={}) {
+  href=href||(authPage?'https://vumiro.local/auth.html':'https://vumiro.local/friends.html');
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
   const listeners=new Map();
@@ -39,7 +40,7 @@ function harness({stored='',route,authPage=false,oauth,href='https://vumiro.loca
   const navigations=[],createdProfiles=[];
   const sandbox={
     window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,createProfile:async name=>{createdProfiles.push(name);localProfile={id:'new-local-identity',name};return localProfile;},accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
-    document:{body:{dataset:{page:authPage?'auth':'friends'}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
+    document:{body:{dataset:pageMarker?{page:authPage?'auth':'friends'}:{}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
     crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
     addEventListener:(type,callback)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(callback);},
@@ -592,4 +593,53 @@ test('revoked account credentials leave the lobby while preserving invitation ro
   assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
   assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?invite=keep&authView=signin#room');
   assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+});
+
+
+for(const pageMarker of [true,false])test(`restored Google session with a local profile and no remote backup enters lobby (page marker ${pageMarker})`,async()=>{
+  const localProfile={id:'existing-qa-identity',name:'Existing QA profile'};
+  const app=harness({authPage:true,pageMarker,localProfile,stored:saved,href:'https://screentask.local/auth.html?invite=retained#room',route:(url,options)=>{
+    if(url.includes('grant_type=refresh_token'))return response(200,{...session,user:{...session.user,app_metadata:{providers:['google']}}});
+    return commonRoute(url,options);
+  }});await app.start();
+  assert.equal(app.navigations.at(-1),'https://screentask.local/friends.html?invite=retained#room');
+  assert.equal(app.navigations.length,1,'completion schedules a single navigation');
+  assert.equal(app.createdProfiles.length,0);assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+  assert.equal(app.element('accountActions').hidden,true,'account management belongs only in lobby settings');
+});
+
+for(const pageMarker of [true,false])test(`fresh Google sign-in with existing local profile opens lobby (page marker ${pageMarker})`,async()=>{
+  let releaseData,startedData;
+  const gate=new Promise(resolve=>{releaseData=resolve;}),started=new Promise(resolve=>{startedData=resolve;});
+  const localProfile={id:'existing-qa-identity',name:'Existing QA profile'};
+  const app=harness({authPage:true,pageMarker,localProfile,href:'https://screentask.local/auth.html?invite=retained',oauth:{signIn:async()=>({code:'returned-code'})},route:async(url,options)=>{
+    if(url.endsWith('/account/config'))return response(200,{...config,oauthProviders:['google']});
+    if(url.includes('grant_type=pkce'))return response(200,{...session,user:{...session.user,app_metadata:{providers:['google']}}});
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.endsWith('/account/data')){startedData();await gate;return response(200,{account:{email:session.user.email},data:null,revision:0,devices:[]});}
+    return commonRoute(url,options);
+  }});await app.start();const signingIn=app.element('accountGoogle').onclick();await started;
+  try {
+    assert.equal(app.element('accountHeading').textContent,'Signing you in…');
+    assert.equal(app.element('accountActions').hidden,true);
+    assert.equal(app.element('accountForm').hidden,true);
+  }finally{releaseData();await signingIn;}
+  assert.equal(app.navigations.at(-1),'https://screentask.local/friends.html?invite=retained');
+  assert.equal(app.navigations.length,1,'completion schedules a single navigation');
+  assert.equal(app.createdProfiles.length,0);assert.equal(app.sandbox.window.VumiroLocalProfile.profile(),localProfile);
+});
+
+
+test('authenticated startup failure stays outside account management and retry completes into lobby',async()=>{
+  let unavailable=true;
+  const app=harness({authPage:true,stored:saved,localProfile:{id:'existing-qa-identity',name:'Existing QA profile'},route:(url,options)=>{
+    if(url.endsWith('/account/data')&&unavailable)return response(503,{message:'Account data is temporarily unavailable.'});
+    return commonRoute(url,options);
+  }});await app.start();
+  assert.equal(app.navigations.length,0);assert.equal(app.element('accountActions').hidden,true);
+  assert.equal(app.element('accountHeading').textContent,'Signing you in…');
+  assert.equal(app.element('accountRetry').hidden,false);assert.equal(app.element('accountFooter').hidden,false);
+  unavailable=false;await app.element('accountRetry').onclick();
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html');
+  assert.equal(app.navigations.length,1);
 });
