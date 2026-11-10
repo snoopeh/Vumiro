@@ -49,6 +49,16 @@ test('malformed named handles cannot replace a valid directory tag',async()=>{
   }
 });
 
+test('numeric-only ready messages cannot erase an assigned named handle during reconnect',async()=>{
+  const app=harness({[ownId]:'#12345-67890'}, {}, {[ownId]:'owner#12345'});
+  await app.receive({type:'ready',id:ownId,friendTag:'#12345-67890',namedFriendTagsVersion:1,socialVersion:2,serverTime:Date.now()});
+  assert.equal(app.element('ownFriendTag').textContent,'owner#12345');
+  await app.receive({type:'profile-ready',profile:{id:ownId,friendTag:'#12345-67890'}});
+  assert.equal(app.element('ownFriendTag').textContent,'owner#12345');
+  await app.receive({type:'profile-ready',profile:{id:ownId,friendTag:'#12345-67890',friendHandle:'renamed#54321'},namedFriendTagsVersion:1});
+  assert.equal(app.element('ownFriendTag').textContent,'renamed#54321');
+});
+
 test('an old service username collision preserves the requested name and explains the upgrade',async()=>{
   const app=harness({}, {username:'owner'});app.context.ready=true;
   app.context.local.updateProfile=()=>assert.fail('A service collision must not erase the saved username');

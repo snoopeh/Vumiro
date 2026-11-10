@@ -634,7 +634,8 @@ function rememberDirectoryProfile(value){
   let changed=false;
   if(typeof value.friendTag==='string'&&/^#[0-9]{5}-[0-9]{5}$/.test(value.friendTag)&&directoryTags[value.id]!==value.friendTag){directoryTags[value.id]=value.friendTag;changed=true;}
   if(validFriendHandle(value.friendHandle)&&directoryHandles[value.id]!==value.friendHandle){directoryHandles[value.id]=value.friendHandle;changed=true;}
-  else if(!value.friendHandle&&value.friendTag&&directoryHandles[value.id]){delete directoryHandles[value.id];changed=true;}
+  // The ready envelope may contain only the legacy numeric tag. Keep the
+  // directory-issued handle until a later profile response replaces it.
   if(!changed)return;
   directoryTags=Object.fromEntries(Object.entries(directoryTags).slice(-256));directoryHandles=Object.fromEntries(Object.entries(directoryHandles).slice(-256));
   try{localStorage.setItem('vumiro-directory-tags',JSON.stringify(directoryTags));localStorage.setItem('vumiro-directory-handles',JSON.stringify(directoryHandles));}catch{}
