@@ -340,7 +340,7 @@
       if(!profileCache.has(author.id)){profileCache.set(author.id,{name:author.name,avatar:''});if(profileCache.size>128)profileCache.delete(profileCache.keys().next().value);}
       chatLine(message.text,author.id,message.timestamp,message);
       if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden||document.hasFocus?.()===false)){
-        if(typeof embedded!=='undefined'&&embedded)parentMessage({type:'vumiro-chat-notification',room:chatRoom,id:message.id,text:message.text,sender:{id:author.id,name:author.name,avatar:profileCache.get(author.id)?.avatar||''}});
+        if(typeof embedded!=='undefined'&&embedded)parentMessage({type:'vumiro-chat-notification',room:roomValue($('room').value),id:message.id,text:message.text,sender:{id:author.id,name:author.name,avatar:profileCache.get(author.id)?.avatar||''}});
         else playCallCue('chat');
       }
       return true;
