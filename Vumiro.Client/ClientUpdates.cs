@@ -13,6 +13,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using System.Xml;
 
 namespace Vumiro.Client
 {
@@ -39,11 +40,15 @@ namespace Vumiro.Client
 
         private static bool CompletePackageInstalled()
         {
-            var install = AppDomain.CurrentDomain.BaseDirectory;
+            return CompletePackageInstalled(AppDomain.CurrentDomain.BaseDirectory);
+        }
+
+        private static bool CompletePackageInstalled(string install)
+        {
             return File.Exists(Path.Combine(install, "WebServer", "account-client.js")) &&
                 File.Exists(Path.Combine(install, "WebServer", "auth.html")) &&
                 File.Exists(Path.Combine(install, "WebServer", "identity-recovery.js")) &&
-                File.Exists(Path.Combine(install, "PRIVACY.md"));
+                File.Exists(Path.Combine(install, "PRIVACY.md")) && UsableInstalledHelper(install);
         }
 
         private bool Available(Release release)
@@ -257,20 +262,6 @@ namespace Vumiro.Client
             var install = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
             ClientUpdateInstaller.NoLinks(install);
             ClientUpdateInstaller.EnsureNoOtherInstances(install, Process.GetCurrentProcess().Id);
-            // A developer build must ship its replacement helper too. Detect an
-            // incomplete folder before spending time downloading a package.
-            foreach (var file in new[] { "Vumiro.Updater.exe", "Vumiro.Updater.exe.config" })
-                if (!File.Exists(Path.Combine(install, file)))
-                    throw new IOException("This app folder is missing its update helper. Extract the complete Windows package into a writable folder, then start Vumiro there.");
-            try
-            {
-                if (AssemblyName.GetAssemblyName(Path.Combine(install, "Vumiro.Updater.exe")).Name != "Vumiro.Updater")
-                    throw new InvalidDataException("The installed update helper is invalid. Extract the complete Windows package again.");
-            }
-            catch (BadImageFormatException)
-            {
-                throw new InvalidDataException("The installed update helper is damaged. Extract the complete Windows package again.");
-            }
             var cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Vumiro", "Updates", Guid.NewGuid().ToString("N"));
             ClientUpdateInstaller.NoLinks(Path.GetDirectoryName(cache)); Directory.CreateDirectory(cache);
             var archive = Path.Combine(cache, AssetName); var stage = Path.Combine(cache, "stage");
@@ -289,9 +280,7 @@ namespace Vumiro.Client
                         if (identity.Name != executable || identity.Version != release.Version)
                             throw new InvalidDataException("Update executable identity does not match its release tag.");
                     }
-                    // Run the installed, trusted helper from a disposable location so its installed copy can be replaced.
-                    foreach (var file in new[] { "Vumiro.Updater.exe", "Vumiro.Updater.exe.config" })
-                        File.Copy(Path.Combine(install, file), Path.Combine(cache, file));
+                    CopyUpdateHelper(stage, cache);
                 });
                 var eventName = "Local\\VumiroUpdate-" + Guid.NewGuid().ToString("N");
                 using (var ready = new EventWaitHandle(false, EventResetMode.ManualReset, eventName))
@@ -308,6 +297,41 @@ namespace Vumiro.Client
             {
                 if (!handedOff) try { Directory.Delete(cache, true); } catch { }
             }
+        }
+
+        private static void CopyUpdateHelper(string stage, string cache)
+        {
+            // The release archive and both staged executable identities were checked above.
+            // Always launch that verified helper; an installed helper may have an older
+            // allowlist or altered contents despite a matching assembly name.
+            foreach (var file in new[] { "Vumiro.Updater.exe", "Vumiro.Updater.exe.config" })
+                File.Copy(Path.Combine(stage, file), Path.Combine(cache, file));
+        }
+
+        private static bool UsableInstalledHelper(string install)
+        {
+            var executable = Path.Combine(install, "Vumiro.Updater.exe");
+            var config = Path.Combine(install, "Vumiro.Updater.exe.config");
+            if (!File.Exists(executable) || !File.Exists(config)) return false;
+            try
+            {
+                if ((File.GetAttributes(executable) & FileAttributes.ReparsePoint) != 0 ||
+                    (File.GetAttributes(config) & FileAttributes.ReparsePoint) != 0 ||
+                    AssemblyName.GetAssemblyName(executable).Name != "Vumiro.Updater") return false;
+                using (var reader = XmlReader.Create(config, new XmlReaderSettings {
+                    DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 8192
+                }))
+                {
+                    if (!reader.Read() || reader.MoveToContent() != XmlNodeType.Element || reader.Name != "configuration") return false;
+                    while (reader.Read()) { }
+                }
+                return true;
+            }
+            catch (BadImageFormatException) { return false; }
+            catch (FileLoadException) { return false; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (XmlException) { return false; }
         }
 
         private static string Quote(string value)

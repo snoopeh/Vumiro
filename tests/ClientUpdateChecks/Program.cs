@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Threading;
@@ -111,6 +112,89 @@ internal static class Program
         finally { Environment.SetEnvironmentVariable("VUMIRO_SKIP_STARTUP_UPDATE", null); }
 
         await StalledResponseCancellation();
+        HelperRecovery();
+        MissingHelperMarksPackageIncomplete();
+    }
+
+    private static void MissingHelperMarksPackageIncomplete()
+    {
+        var complete = typeof(ClientUpdates).GetMethod("CompletePackageInstalled", BindingFlags.Static | BindingFlags.NonPublic,
+            null, new[] { typeof(string) }, null);
+        Check(complete != null, "Complete-package detection must inspect an installation folder for a missing helper.");
+        var install = Path.Combine(Path.GetTempPath(), "vumiro-complete-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(install, "WebServer"));
+            foreach (var file in new[] { "account-client.js", "auth.html", "identity-recovery.js" })
+                File.WriteAllText(Path.Combine(install, "WebServer", file), "complete");
+            File.WriteAllText(Path.Combine(install, "PRIVACY.md"), "complete");
+            Check(!(bool)complete.Invoke(null, new object[] { install }),
+                "Same-version update must remain available when complete UI assets exist but the helper is missing.");
+            File.WriteAllBytes(Path.Combine(install, "Vumiro.Updater.exe"), new byte[] { 9, 8, 7 });
+            File.WriteAllText(Path.Combine(install, "Vumiro.Updater.exe.config"), "damaged");
+            Check(!(bool)complete.Invoke(null, new object[] { install }),
+                "Same-version update must remain available when the installed helper is damaged.");
+
+            File.Copy(BuiltUpdaterExecutable(), Path.Combine(install, "Vumiro.Updater.exe"), true);
+            File.Copy(Path.ChangeExtension(BuiltUpdaterExecutable(), ".exe.config"),
+                Path.Combine(install, "Vumiro.Updater.exe.config"), true);
+            Check((bool)complete.Invoke(null, new object[] { install }),
+                "A complete installation with a valid helper and config must not repeat a same-version update.");
+            File.WriteAllText(Path.Combine(install, "Vumiro.Updater.exe.config"), "<configuration><startup></configuration>");
+            Check(!(bool)complete.Invoke(null, new object[] { install }),
+                "Same-version update must remain available when the installed helper config is malformed.");
+        }
+        finally { if (Directory.Exists(install)) Directory.Delete(install, true); }
+    }
+
+    private static void HelperRecovery()
+    {
+        var copy = typeof(ClientUpdates).GetMethod("CopyUpdateHelper", BindingFlags.Static | BindingFlags.NonPublic);
+        Check(copy != null, "Updater must have a recovery path for a missing installed helper.");
+        var root = Path.Combine(Path.GetTempPath(), "vumiro-helper-test-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "install"); var stage = Path.Combine(root, "stage");
+        var cache = Path.Combine(root, "cache");
+        try
+        {
+            Directory.CreateDirectory(install); Directory.CreateDirectory(stage); Directory.CreateDirectory(cache);
+            var stagedExe = new byte[] { 1, 2, 3, 4 };
+            File.WriteAllBytes(Path.Combine(stage, "Vumiro.Updater.exe"), stagedExe);
+            File.WriteAllText(Path.Combine(stage, "Vumiro.Updater.exe.config"), "staged config");
+
+            copy.Invoke(null, new object[] { stage, cache });
+            Check(File.ReadAllBytes(Path.Combine(cache, "Vumiro.Updater.exe")).SequenceEqual(stagedExe),
+                "Missing installed helper must recover from the already verified staged update.");
+            Check(File.ReadAllText(Path.Combine(cache, "Vumiro.Updater.exe.config")) == "staged config",
+                "Recovery must copy the staged helper config with the staged executable.");
+
+            File.WriteAllBytes(Path.Combine(install, "Vumiro.Updater.exe"), new byte[] { 9, 8, 7 });
+            File.WriteAllText(Path.Combine(install, "Vumiro.Updater.exe.config"), "broken config");
+            File.Delete(Path.Combine(cache, "Vumiro.Updater.exe"));
+            File.Delete(Path.Combine(cache, "Vumiro.Updater.exe.config"));
+            copy.Invoke(null, new object[] { stage, cache });
+            Check(File.ReadAllBytes(Path.Combine(cache, "Vumiro.Updater.exe")).SequenceEqual(stagedExe),
+                "Damaged installed helper must recover from the verified staged update.");
+            Check(File.ReadAllText(Path.Combine(cache, "Vumiro.Updater.exe.config")) == "staged config",
+                "Damaged helper recovery must not reuse its installed config.");
+
+            File.Copy(BuiltUpdaterExecutable(), Path.Combine(install, "Vumiro.Updater.exe"), true);
+            File.Delete(Path.Combine(cache, "Vumiro.Updater.exe"));
+            File.Delete(Path.Combine(cache, "Vumiro.Updater.exe.config"));
+            copy.Invoke(null, new object[] { stage, cache });
+            Check(File.ReadAllBytes(Path.Combine(cache, "Vumiro.Updater.exe")).SequenceEqual(stagedExe),
+                "A valid installed helper must not replace the digest-verified staged helper.");
+            Check(File.ReadAllText(Path.Combine(cache, "Vumiro.Updater.exe.config")) == "staged config",
+                "A valid installed helper must not reuse its installed config.");
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static string BuiltUpdaterExecutable()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "../../../../.."));
+        var executable = Path.Combine(root, "Vumiro.Client.Updater", "bin", "Release", "net48", "Vumiro.Updater.exe");
+        Check(File.Exists(executable), "The updater test fixture must build from the current source.");
+        return executable;
     }
 
     private static async Task StalledResponseCancellation()
