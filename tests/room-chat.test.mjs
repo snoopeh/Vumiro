@@ -9,10 +9,12 @@ const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js'
 function harness() {
   const elements=new Map(),lines=[],peers=new Map(),revoked=[],timers=new Map();
   class Element {
-    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;}
-    append(...values){this.children.push(...values);}
+    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;this.classList={add(){},remove(){},toggle(){}};}
+    append(...values){this.children.push(...values);for(const value of values)if(value&&typeof value==='object')value.parentElement=this;}
     replaceChildren(...values){this.children=values;}
     querySelector(){return this.children[0];}
+    scrollIntoView(){this.scrolled=true;}
+    focus(){this.focused=true;}
     remove(){this.removed=true;}
   }
   const $=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
@@ -21,6 +23,8 @@ function harness() {
   vm.runInContext(source.slice(source.indexOf('  const seenMessages='),source.indexOf('  function renderChatText('))+source.slice(source.indexOf('  const openChannels='),source.indexOf('  function cleanProfile(')),app);
   return app;
 }
+function uiHarness(){const app=harness();app.avatarElement=()=>new app.Element('img');app.renderChatText=(target,value)=>{target.textContent=value;};vm.runInContext(source.slice(source.indexOf('  function chatLine('),source.indexOf('  const openChannels=')),app);return app;}
+function descendants(element){return [element,...element.children.flatMap(descendants)];}
 function peer(app,id='B'.repeat(43)) {const sent=[],value={id,name:'Friend',pc:{connectionState:'connected'},channel:{readyState:'open',bufferedAmount:0,send:data=>sent.push(JSON.parse(data))},sent};app.peers.set(id,value);return value;}
 function envelope(app,patch={}) {const value={type:'chat',version:2,room:'room-one',id:'m'.repeat(32),text:'Before you arrived',timestamp:Date.now(),author:{id:'B'.repeat(43),name:'Friend',key:'key:'+'B'.repeat(43)},...patch};value.signature=signature(app.chatSignatureText(value));return value;}
 function connectApps(first,second) {
@@ -72,6 +76,51 @@ test('reply metadata cannot be forged, split, or retargeted without its own sign
     {replyTo:{authorId:'wrong',id:target.id}}
   ])assert.equal(await app.acceptRoomChat(p,{...valid,...patch},true),false);
   assert.equal(await app.acceptRoomChat(p,valid,true),true);
+});
+test('reply selection preserves the draft, signs the reference, and clears after send',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original text'});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='My draft';
+  assert.equal(app.selectChatReply(target.author.id,target.id),true);
+  assert.equal(app.$('chatText').value,'My draft');
+  assert.equal(app.$('replyPreview').hidden,false);
+  assert.match(app.$('replyExcerpt').textContent,/Original text/);
+  await app.sendRoomChat({preventDefault(){}});
+  const sent=vm.runInContext('chatHistory',app).find(item=>item.author.id===app.identity.id);
+  assert.equal(sent.replyTo.id,target.id);
+  assert.equal(sent.replySignature,signature(app.chatReplySignatureText(sent)));
+  assert.equal(app.$('replyPreview').hidden,true);
+  assert.equal(app.$('chatText').value,'');
+});
+test('cancel, room change, and history eviction clear reply selection without clearing draft',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='Keep me';
+  app.selectChatReply(target.author.id,target.id);app.clearChatReply();assert.equal(app.$('replyPreview').hidden,true);assert.equal(app.$('chatText').value,'Keep me');
+  app.selectChatReply(target.author.id,target.id);app.setChatRoom('room-two');assert.equal(app.$('replyPreview').hidden,true);
+  app.setChatRoom('room-one');await app.acceptRoomChat(p,target,true);app.selectChatReply(target.author.id,target.id);
+  for(let i=0;i<101;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0'),timestamp:Date.now()+i}),true);
+  assert.equal(app.$('replyPreview').hidden,true);
+});
+test('verified text rows offer Reply and a one-level citation to a retained original',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original text'});
+  await app.acceptRoomChat(p,target,true);
+  const row=app.$('chatLog').children[0],button=descendants(row).find(item=>item.className==='chat-reply-action');
+  assert.ok(button);assert.equal(button.textContent,'Reply');assert.equal(row.draggable,true);
+  button.onclick();assert.equal(app.$('replyPreview').hidden,false);
+  const reply=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});reply.replySignature=signature(app.chatReplySignatureText(reply));
+  await app.acceptRoomChat(p,reply,true);
+  const citation=descendants(app.$('chatLog').children[1]).find(item=>item.className==='chat-reply-citation');
+  assert.ok(citation);assert.match(citation.textContent,/Friend.*Original text/);citation.onclick();assert.equal(row.scrolled,true);
+});
+test('unavailable reply citations use neutral text and evicted messages lose Reply',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app);
+  const orphan=envelope(app,{id:'r'.repeat(32),replyTo:{authorId:'C'.repeat(43),id:'missing'.padEnd(16,'x')}});orphan.replySignature=signature(app.chatReplySignatureText(orphan));
+  await app.acceptRoomChat(p,orphan,true);
+  const citation=descendants(app.$('chatLog').children[0]).find(item=>item.className==='chat-reply-citation');
+  assert.equal(citation.textContent,'Original message unavailable');
+  const first=envelope(app,{id:'f'.repeat(32),text:'First'});await app.acceptRoomChat(p,first,true);
+  const row=app.$('chatLog').children[1],button=descendants(row).find(item=>item.className==='chat-reply-action');
+  for(let i=0;i<101;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0'),timestamp:Date.now()+i}),true);
+  assert.equal(button.disabled,true);assert.equal(row.draggable,false);
 });
 test('a future chat version is not downgraded to unsigned legacy text',async()=>{
   const app=harness();app.setChatRoom('room-one');const p=peer(app),future=envelope(app,{version:3});

@@ -204,7 +204,9 @@
   function status(message) { const node=$('status');node.textContent=message;node.setAttribute?.('aria-busy',String(/^(?:Preparing|Saving|Searching|Starting|Stopping|Connecting|Reconnecting|Joining)\b/.test(message))); }
   const seenMessages=new Set(),chatHistory=[],chatFiles=new Map(),receivedChatFiles=new Map(),chatFileUrls=new Set();
   const maxChatFile=10*1024*1024,chatChunkBytes=12288;
-  let lastChatSent=0,chatRoom='',chatEpoch=0,chatSending=false;
+  let lastChatSent=0,chatRoom='',chatEpoch=0,chatSending=false,pendingReply=null;
+  const replyRows=new Map(),replyCitations=new Set();
+  const replyKey=(authorId,id)=>authorId+':'+id;
   function rememberMessage(key) { if(seenMessages.has(key)) return false; seenMessages.add(key); if(seenMessages.size>1000) seenMessages.delete(seenMessages.values().next().value); return true; }
   function renderChatText(target,text) {
     const pattern=/\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|`([^`\n]+)`|(https:\/\/[^\s<>]+)/g;let cursor=0,match;
@@ -236,9 +238,24 @@
       if(ctx.state==='suspended')ctx.resume().catch(()=>ctx.close().catch(()=>{}));
     }catch{ctx?.close().catch(()=>{});}
   }
-  function chatLine(text, sender, timestamp=Date.now()) {
+  function chatLine(text, sender, timestamp=Date.now(), signedMessage=null) {
     const log=$('chatLog'), nearEnd=log.scrollHeight-log.scrollTop-log.clientHeight<70,row=document.createElement('li');
-    if(sender) { const profile=profileCache.get(sender) || {name:peers.get(sender)?.name || (sender===identity?.id?'You':'Participant'),avatar:''},photo=avatarElement(profile),body=document.createElement('div'),author=document.createElement('div'),label=document.createElement('span'),time=document.createElement('span'),message=document.createElement('div');row.dataset.sender=sender;photo.classList.add('message-avatar');body.className='message-body';author.className='message-name';label.className='message-label';label.textContent=profile.name+(sender===identity?.id?' (you)':'');time.className='message-time';time.textContent=new Date(Math.abs(timestamp-Date.now())<86400000?timestamp:Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});renderChatText(message,text);author.append(label,time);body.append(author,message);row.append(photo,body); } else { row.className='system';row.textContent=text; }
+    if(sender) {
+      const profile=profileCache.get(sender) || {name:peers.get(sender)?.name || (sender===identity?.id?'You':'Participant'),avatar:''};
+      const photo=avatarElement(profile),body=document.createElement('div'),author=document.createElement('div'),label=document.createElement('span'),time=document.createElement('span'),message=document.createElement('div');
+      row.dataset.sender=sender;photo.classList.add('message-avatar');body.className='message-body';author.className='message-name';label.className='message-label';label.textContent=profile.name+(sender===identity?.id?' (you)':'');time.className='message-time';time.textContent=new Date(Math.abs(timestamp-Date.now())<86400000?timestamp:Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});renderChatText(message,text);author.append(label,time);body.append(author);
+      if(signedMessage?.replyTo){
+        const citation=document.createElement('button');citation.type='button';citation.className='chat-reply-citation';
+        citation.onclick=()=>{const target=findReplyTarget(signedMessage.replyTo.authorId,signedMessage.replyTo.id),original=target&&replyRows.get(replyKey(target.author.id,target.id))?.row;if(original){original.scrollIntoView?.({block:'center'});original.focus?.();}else $('chatStatus').textContent='Original message unavailable.';};
+        replyCitations.add({row,button:citation,target:signedMessage.replyTo});body.append(citation);updateReplyCitations();
+      }
+      body.append(message);
+      if(signedMessage&&findReplyTarget(signedMessage.author.id,signedMessage.id)){
+        const button=document.createElement('button');button.type='button';button.className='chat-reply-action';button.textContent='Reply';button.setAttribute?.('aria-label','Reply to '+profile.name);button.onclick=()=>selectChatReply(signedMessage.author.id,signedMessage.id);
+        body.append(button);row.draggable=true;row.tabIndex=-1;replyRows.set(replyKey(signedMessage.author.id,signedMessage.id),{row,button});
+      }
+      row.append(photo,body);
+    } else { row.className='system';row.textContent=text; }
     log.append(row);while(log.children.length>250){releaseChatRow(log.firstElementChild);log.firstElementChild.remove();}if(nearEnd) log.scrollTop=log.scrollHeight;return row;
   }
   const openChannels=()=>[...peers.values()].filter(peer=>peer.pc.connectionState==='connected' && peer.channel?.readyState==='open');
@@ -255,12 +272,32 @@
   }
   function setChatRoom(value) {
     if(chatRoom===value)return;
-    chatRoom=value;++chatEpoch;chatSending=false;lastChatSent=0;chatHistory.length=0;seenMessages.clear();chatFiles.clear();
+    chatRoom=value;++chatEpoch;chatSending=false;lastChatSent=0;chatHistory.length=0;seenMessages.clear();chatFiles.clear();replyRows.clear();replyCitations.clear();clearChatReply();
     for(const file of receivedChatFiles.values()){clearTimeout(file.timer);if(!file.url){file.parts=[];file.button.textContent='File unavailable · room ended';file.button.onclick=null;}}
     receivedChatFiles.clear();for(const url of chatFileUrls)URL.revokeObjectURL(url);chatFileUrls.clear();$('chatLog').replaceChildren();$('chatText').value='';
     for(const peer of peers.values()){peer.chatHistoryQueue=[];peer.chatHistoryReceived=0;}
   }
   function chatSignatureText(message) { return JSON.stringify(['vumiro-room-chat-v2',message.room,message.id,message.author.id,message.author.key,message.author.name,message.timestamp,message.text]); }
+  function findReplyTarget(authorId,id) { return chatHistory.find(item=>item.room===chatRoom&&item.author.id===authorId&&item.id===id)||null; }
+  function updateReplyCitations() {
+    for(const citation of replyCitations){const target=findReplyTarget(citation.target.authorId,citation.target.id);citation.button.textContent=target?target.author.name+' · '+(target.text.length>100?target.text.slice(0,97)+'…':target.text):'Original message unavailable';}
+  }
+  function syncReplyRows() {
+    for(const [key,value] of replyRows){const available=chatHistory.some(item=>replyKey(item.author.id,item.id)===key);value.button.disabled=!available;value.row.draggable=available;}
+    updateReplyCitations();
+  }
+  function renderReplyPreview() {
+    const target=pendingReply&&findReplyTarget(pendingReply.authorId,pendingReply.id);
+    if(!target){pendingReply=null;$('replyPreview').hidden=true;return;}
+    $('replyAuthor').textContent=target.author.name;
+    $('replyExcerpt').textContent=target.text.length>120?target.text.slice(0,117)+'…':target.text;
+    $('replyPreview').hidden=false;
+  }
+  function selectChatReply(authorId,id) {
+    if(!findReplyTarget(authorId,id))return false;
+    pendingReply={authorId,id};renderReplyPreview();$('chatText').focus?.();return true;
+  }
+  function clearChatReply() { pendingReply=null;$('replyPreview').hidden=true; }
   function chatReplySignatureText(message) { return JSON.stringify(['vumiro-room-chat-reply-v1',chatSignatureText(message),message.signature,message.replyTo.authorId,message.replyTo.id]); }
   function validChatReply(message) {
     const hasTarget=Object.prototype.hasOwnProperty.call(message,'replyTo'),hasSignature=Object.prototype.hasOwnProperty.call(message,'replySignature');
@@ -269,7 +306,7 @@
     return hasTarget&&hasSignature&&target&&typeof target==='object'&&!Array.isArray(target)&&Object.keys(target).length===2&&/^[A-Za-z0-9_-]{43}$/.test(target.authorId||'')&&/^[A-Za-z0-9_-]{16,64}$/.test(target.id||'')&&typeof message.replySignature==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(message.replySignature);
   }
   function validChatMessage(message) { return !!message&&typeof message.id==='string'&&/^[A-Za-z0-9_-]{16,64}$/.test(message.id)&&typeof message.text==='string'&&!!message.text.trim()&&message.text.length<=2000&&Number.isSafeInteger(message.timestamp)&&Math.abs(message.timestamp-serverNow())<86400000; }
-  function storeChatMessage(message) { if(!rememberMessage(message.author.id+':'+message.id))return false;chatHistory.push({type:'chat',version:2,room:message.room,id:message.id,text:message.text,timestamp:message.timestamp,signature:message.signature,author:{id:message.author.id,key:message.author.key,name:message.author.name},...(message.replyTo?{replyTo:{authorId:message.replyTo.authorId,id:message.replyTo.id},replySignature:message.replySignature}:{})});chatHistory.sort((a,b)=>a.timestamp-b.timestamp);if(chatHistory.length>100)chatHistory.splice(0,chatHistory.length-100);return true; }
+  function storeChatMessage(message) { if(!rememberMessage(message.author.id+':'+message.id))return false;chatHistory.push({type:'chat',version:2,room:message.room,id:message.id,text:message.text,timestamp:message.timestamp,signature:message.signature,author:{id:message.author.id,key:message.author.key,name:message.author.name},...(message.replyTo?{replyTo:{authorId:message.replyTo.authorId,id:message.replyTo.id},replySignature:message.replySignature}:{})});chatHistory.sort((a,b)=>a.timestamp-b.timestamp);if(chatHistory.length>100)chatHistory.splice(0,chatHistory.length-100);if(pendingReply&&!findReplyTarget(pendingReply.authorId,pendingReply.id))clearChatReply();syncReplyRows();return true; }
   async function acceptRoomChat(peer,message,history=false) {
     if(!validChatMessage(message))return false;
     if(message.version!==2){if(history||message.version!==undefined&&message.version!==1)return false;if(rememberMessage(peer.id+':'+message.id)){chatLine(message.text,peer.id,message.timestamp);if(peer.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');}return true;}
@@ -279,7 +316,7 @@
       const author=message.author.id===identity?.id?(message.author.key===identity.key?message.author:null):await local.validateContact(message.author);
       if(!author||!await local.verify(author,chatSignatureText(message),message.signature)||message.replyTo&&!await local.verify(author,chatReplySignatureText(message),message.replySignature)||epoch!==chatEpoch||peers.get(peer.id)!==peer||!storeChatMessage(message))return false;
       if(!profileCache.has(author.id)){profileCache.set(author.id,{name:author.name,avatar:''});if(profileCache.size>128)profileCache.delete(profileCache.keys().next().value);}
-      chatLine(message.text,author.id,message.timestamp);if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');return true;
+      chatLine(message.text,author.id,message.timestamp,message);if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');return true;
     } catch{return false;}
   }
   function queueChatHistory(peer) { peer.chatHistoryQueue=chatHistory.filter(message=>message.room===chatRoom&&Math.abs(message.timestamp-serverNow())<86400000).slice(-100).map(message=>({message,history:true}));flushChatHistory(peer); }
@@ -295,9 +332,10 @@
     if(now-lastChatSent<500){$('chatStatus').textContent='Wait a moment before sending another message.';return;}
     chatSending=true;
     try {
-      const message={type:'chat',version:2,room:chatRoom,id:Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join(''),text,timestamp:serverNow(),author:{id:identity.id,key:identity.key,name:identity.name}};
-      message.signature=await local.sign(chatSignatureText(message));if(epoch!==chatEpoch)return;
-      lastChatSent=now;storeChatMessage(message);chatLine(text,identity.id,message.timestamp);
+      const target=pendingReply&&findReplyTarget(pendingReply.authorId,pendingReply.id);
+      const message={type:'chat',version:2,room:chatRoom,id:Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join(''),text,timestamp:serverNow(),author:{id:identity.id,key:identity.key,name:identity.name},...(target?{replyTo:{authorId:target.author.id,id:target.id}}:{})};
+      message.signature=await local.sign(chatSignatureText(message));if(message.replyTo)message.replySignature=await local.sign(chatReplySignatureText(message));if(epoch!==chatEpoch)return;
+      lastChatSent=now;storeChatMessage(message);chatLine(text,identity.id,message.timestamp,message);clearChatReply();
       for(const peer of openChannels())if(!channelSend(peer,message)){if(!peer.chatHistoryQueue)peer.chatHistoryQueue=[];peer.chatHistoryQueue.push({message,history:false});if(peer.chatHistoryQueue.length>100)peer.chatHistoryQueue.shift();}
       if($('chatText').value.trim()===text){$('chatText').value='';$('chatText').style.height='';}chatControls();
     }catch{$('chatStatus').textContent='Message could not be signed. Try again.';}finally{if(epoch===chatEpoch)chatSending=false;}
@@ -326,6 +364,8 @@
   }
   function retainedChatFileBytes() { return [...chatFiles.values()].reduce((sum,file)=>sum+file.file.size,0)+[...receivedChatFiles.values()].filter(file=>file.active||file.url).reduce((sum,file)=>sum+file.size,0); }
   function releaseChatRow(row) {
+    for(const [key,value] of replyRows)if(value.row===row)replyRows.delete(key);
+    for(const citation of replyCitations)if(citation.row===row)replyCitations.delete(citation);
     for(const file of chatFiles.values())if(file.row===row){file.previewRetired=true;if(file.url){URL.revokeObjectURL(file.url);chatFileUrls.delete(file.url);file.url=null;}}
     for(const [key,file] of receivedChatFiles)if(file.row===row){releaseChatFile(file);if(file.url){URL.revokeObjectURL(file.url);chatFileUrls.delete(file.url);}receivedChatFiles.delete(key);}
   }
@@ -1072,6 +1112,14 @@
   }
   /* End emoji picker */
   setupEmojiPicker();
+  function setupChatReplyComposer() {
+    const preview=document.createElement('div'),copy=document.createElement('div'),heading=document.createElement('strong'),author=document.createElement('span'),excerpt=document.createElement('span'),cancel=document.createElement('button');
+    preview.id='replyPreview';preview.className='chat-reply-preview';preview.hidden=true;preview.setAttribute('aria-label','Replying to message');
+    heading.textContent='Replying to ';author.id='replyAuthor';excerpt.id='replyExcerpt';copy.append(heading,author,excerpt);
+    cancel.id='replyCancel';cancel.type='button';cancel.textContent='Cancel';cancel.setAttribute('aria-label','Cancel reply');cancel.onclick=()=>{clearChatReply();$('chatText').focus();};
+    preview.append(copy,cancel);$('chatForm').insertBefore(preview,$('chatTools'));
+  }
+  setupChatReplyComposer();
   $('chatForm').onsubmit=sendRoomChat;
   if($('chatAttach'))$('chatAttach').onclick=()=>$('chatFile')?.click();
   if($('chatFile'))$('chatFile').onchange=()=>{shareChatFile($('chatFile').files?.[0]);$('chatFile').value='';};
@@ -1087,7 +1135,7 @@
   $('qualityOpen').onclick=()=>{syncSettingsControls();$('streamSettingsStatus').textContent='';$('streamSettings').hidden=!$('streamSettings').hidden;$('roomPolicyDialog').hidden=true;if(!$('streamSettings').hidden)$('settingFps').focus();};$('settingsClose').onclick=()=>{syncSettingsControls();$('streamSettingsStatus').textContent='';$('streamSettings').hidden=true;$('qualityOpen').focus();};
   addEventListener('keydown',event=>{ if(event.key==='Escape') { if(!$('streamSettings').hidden) $('qualityOpen').focus();else if(!$('roomPolicyDialog').hidden) $('roomPolicyOpen').focus();$('streamSettings').hidden=true;$('roomPolicyDialog').hidden=true; } });
   $('chatText').oninput=()=>{ $('chatText').style.height='auto';$('chatText').style.height=Math.min(144,$('chatText').scrollHeight+2)+'px'; };
-  $('chatText').onkeydown=event=>{ if(event.key==='Enter' && !event.shiftKey) { event.preventDefault();$('chatForm').requestSubmit(); } };
+  $('chatText').onkeydown=event=>{ if(event.key==='Escape'&&pendingReply){event.preventDefault();clearChatReply();return;}if(event.key==='Enter' && !event.shiftKey) { event.preventDefault();$('chatForm').requestSubmit(); } };
   syncSettingsControls();parentMessage({type:'vumiro-stream-settings',settings:streamSettings});
   let sampling=false;
   setInterval(async()=>{
