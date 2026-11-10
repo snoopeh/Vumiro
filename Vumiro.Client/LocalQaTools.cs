@@ -26,13 +26,13 @@ namespace Vumiro.Client
                     const bar = document.getElementById('windowTitlebar') || document.getElementById('authTitlebar');
                     if (!bar) return;
                     const tools = document.createElement('span'); tools.id = 'localQaBadge';
-                    tools.style.cssText = 'display:flex;align-items:center;gap:10px;margin-left:auto;padding:0 12px;font:11px system-ui;color:#f5c66b';
+                    tools.style.cssText = 'display:flex;align-items:center;gap:10px;padding:0 12px;font:11px system-ui;color:#f5c66b';
                     const label = document.createElement('span'); label.textContent = " + json.Serialize(ClientRuntime.Current.Label + (hasLocalService ? " · LOCAL SERVICE" : "")) + @";
                     const reload = document.createElement('button'); reload.type = 'button'; reload.textContent = 'Reload UI';
                     reload.title = 'Load current source files. This ends any room in this QA window.';
                     reload.style.cssText = 'font:inherit;padding:3px 8px;border:1px solid #675127;border-radius:4px;background:#332918;color:#f5c66b';
                     reload.onclick = () => window.chrome.webview.postMessage({type:'development',action:'reload'});
-                    tools.append(label, reload); bar.insertBefore(tools, bar.querySelector('.windowControls'));
+                    tools.append(label, reload); bar.insertBefore(tools, bar.querySelector('.windowControls, .authWindowControls'));
                     document.title = 'Vumiro · ' + label.textContent;
                 });");
         }
