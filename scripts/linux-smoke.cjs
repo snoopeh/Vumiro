@@ -62,12 +62,23 @@ function createSmokeAccountFixture() {
   return {credentials,allows,serve,secureStore,stats:()=>({requests,writes})};
 }
 
+function createSmokeProgress(report,now=Date.now) {
+  const started=now();report.progress=[];
+  return stage=>{report.stage=stage;report.progress.push({stage,ms:Math.max(0,now()-started)});if(report.progress.length>48)report.progress.shift();};
+}
+async function withSmokeDeadline(operation,stage,milliseconds=5000) {
+  let timer;
+  try{return await Promise.race([Promise.resolve().then(operation),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`Smoke stage timed out after ${milliseconds} ms: ${stage}.`)),milliseconds);})]);}
+  finally{clearTimeout(timer);}
+}
+
 function install({ app, session }) {
   const directory = process.env.VUMIRO_SMOKE_DIR;
   if (!directory || !path.isAbsolute(directory) || !fs.statSync(directory).isDirectory()) throw new Error('Smoke mode needs a disposable runner directory.');
   const fixture=createSmokeAccountFixture();
   let fixtureEnabled=false;
   const report = { ok: false, packaged: app.isPackaged, checks: [], rendererErrors: [], blockedRequests: 0, mediaRequests: 0 };
+  const progress=createSmokeProgress(report);progress('driver:installed');
   let finished = false;
   const finish = error => {
     if (finished) return;
@@ -78,7 +89,7 @@ function install({ app, session }) {
     fs.writeFileSync(path.join(directory, 'report.json'), JSON.stringify(report));
     app.exit(error ? 1 : 0);
   };
-  const timer = setTimeout(() => finish(new Error('Smoke UI timed out after 45 seconds.')), 45000);
+  const timer = setTimeout(() => finish(new Error('Smoke UI timed out after 45 seconds at '+report.stage+'.')), 45000);
   for (const [name, folder] of [['userData', 'user-data'], ['sessionData', 'session-data']]) {
     const target = path.join(directory, folder);
     fs.mkdirSync(target, { recursive: true });
@@ -92,10 +103,16 @@ function install({ app, session }) {
   process.on('unhandledRejection', finish);
   const assets = new Set();
   function configure() {
+    progress('configure:starting');
     const ses = session.defaultSession;
     // Intercept the entire HTTPS scheme. No request is forwarded to net.fetch,
     // including unknown URLs. onBeforeRequest opens only exact fixture routes.
-    ses.protocol.handle('https',request=>fixtureEnabled?fixture.serve(request):new Response('Offline smoke mode',{status:503}));
+    ses.protocol.handle('https',request=>{
+      if(!fixtureEnabled)return new Response('Offline smoke mode',{status:503});
+      const url=new URL(request.url),label=url.pathname==='/auth/v1/token'?'fixture:token':url.pathname==='/api/v1/account/config'?'fixture:config':url.pathname==='/api/v1/account/devices/register'?'fixture:device':'fixture:account-data';
+      progress(label);return withSmokeDeadline(()=>fixture.serve(request),label);
+    });
+    progress('configure:https-interceptor-ready');
     ses.webRequest.onBeforeRequest((details, callback) => {
       const allowed = allowSmokeRequest(details.url) || fixtureEnabled&&fixture.allows(details.url);
       if (!allowed) report.blockedRequests++;
@@ -104,8 +121,19 @@ function install({ app, session }) {
     ses.setPermissionCheckHandler((_contents, permission) => { if (['media', 'display-capture'].includes(permission)) report.mediaRequests++; return false; });
     ses.setPermissionRequestHandler((_contents, permission, callback) => { if (['media', 'display-capture'].includes(permission)) report.mediaRequests++; callback(false); });
     ses.setDisplayMediaRequestHandler((_request, callback) => { report.mediaRequests++; callback(null); });
+    progress('configure:ready');
   }
   async function observe(window) {
+    progress('observe:starting');
+    const navigationStage=(event,url,isInPlace,isMainFrame)=>{
+      if(!isMainFrame||isInPlace)return;
+      let page='other';try{const target=new URL(url);if(allowSmokeRequest(url)&&['/auth.html','/friends.html','/call.html'].includes(target.pathname))page=target.pathname;}catch{}
+      progress('navigation:starting:'+page);
+    };
+    window.webContents.on('did-start-navigation',navigationStage);
+    window.webContents.on('dom-ready',()=>progress('navigation:dom-ready'));
+    window.webContents.on('did-finish-load',()=>progress('navigation:finished'));
+
     window.webContents.on('render-process-gone', (_event, details) => finish(new Error(`Renderer exited: ${details.reason}`)));
     window.webContents.debugger.on('message', (_event, method, params) => {
       if (method === 'Runtime.exceptionThrown') {
@@ -113,14 +141,19 @@ function install({ app, session }) {
         report.rendererErrors.push(details.exception?.description || details.text);
       }
     });
-    window.webContents.debugger.attach('1.3');
-    await window.webContents.debugger.sendCommand('Runtime.enable');
+    progress('observe:debugger-attach');window.webContents.debugger.attach('1.3');
+    progress('observe:runtime-enable');
+    await withSmokeDeadline(()=>window.webContents.debugger.sendCommand('Runtime.enable'),'observe:runtime-enable');
+    progress('observe:ready');
   }
   async function run(window) {
     try {
+      progress('run:starting');
       if (!app.isPackaged) throw new Error('Smoke mode requires packaged app resources.');
-      const evaluate = (fn, ...args) => window.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true);
+      let action='initial';
+      const evaluate = (fn, ...args) => withSmokeDeadline(()=>window.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true),'renderer:'+action);
       const wait = async (fn, label, ...args) => {
+        action=label;progress('ui:'+label);
         const deadline = Date.now() + 5000;
         do {
           if (report.rendererErrors.length) throw new Error(`Renderer exception: ${report.rendererErrors[0]}`);
@@ -129,10 +162,11 @@ function install({ app, session }) {
         } while (Date.now() < deadline);
         throw new Error(`UI assertion timed out: ${label}`);
       };
-      const check = name => report.checks.push(name);
+      const check = name => {report.checks.push(name);progress('passed:'+name);};
       await wait(() => location.pathname==='/auth.html' && !!document.querySelector('#accountForm'), 'signed-out account gate');
       if(!await evaluate(()=>!window.VumiroAccount.getState().signedIn&&!document.querySelector('#continueLocal')&&!document.querySelector('#setupDialog')?.open))throw new Error('Anonymous app entry bypassed the account gate.');
       check('account-gate');
+      action='original secure-store read';progress('secure-store:original-read');
       const secure = await evaluate(async () => {
         try { return { value: await window.vumiroDesktop.secureStore.get() }; }
         catch (error) { return { error: error.message }; }
@@ -145,9 +179,11 @@ function install({ app, session }) {
       const {ipcMain}=require('electron');
       ipcMain.removeHandler('vumiro:secure-store');
       ipcMain.handle('vumiro:secure-store',(event,request)=>fixture.secureStore(event,request,window.webContents));
-      fixtureEnabled=true;
-      await window.loadURL('vumiro://app/auth.html?platform=linux');
+      fixtureEnabled=true;progress('fixture:native-adapter-ready');
+      progress('fixture:auth-document-load');
+      await withSmokeDeadline(()=>window.loadURL('vumiro://app/auth.html?platform=linux'),'fixture:auth-document-load',7000);
       await wait(()=>location.pathname==='/auth.html'&&document.querySelector('#accountSignIn')?.disabled===false,'fixture account availability');
+      action='fixture sign-in submission';progress('fixture:sign-in-submission');
       await evaluate(credentials=>{
         document.querySelector('#accountEmail').value=credentials.email;
         document.querySelector('#accountPassword').value=credentials.password;
@@ -213,4 +249,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, createSmokeAccountFixture, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, createSmokeProgress, withSmokeDeadline, install };

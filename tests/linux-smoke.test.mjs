@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
-import { buildLaunch, validatePackage, validateReport } from '../scripts/Test-LinuxSmoke.mjs';
+import { buildLaunch, validatePackage, validateReport, smokeDiagnostics } from '../scripts/Test-LinuxSmoke.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -113,4 +113,21 @@ test('smoke credential adapter accepts only its synthetic session from its own m
   assert.equal(fixture.secureStore(event,{action:'get'},contents),value);assert.equal(fixture.stats().writes,1);
   assert.equal(fixture.secureStore(event,{action:'delete'},contents),true);assert.equal(fixture.secureStore(event,{action:'get'},contents),'');
   contents.mainFrame.url='vumiro://app/call.html';assert.throws(()=>fixture.secureStore(event,{action:'get'},contents),/main frame/);
+});
+
+
+test('failed smoke diagnostics retain bounded stage progress without session or renderer contents',()=>{
+  const summary=smokeDiagnostics({stage:'observe:runtime-enable',progress:[{stage:'driver:installed',ms:0},{stage:'observe:runtime-enable',ms:100}],checks:['account-gate'],blockedRequests:3,authFixtureRequests:0,memorySessionWrites:0,rendererErrors:['must-not-leak-renderer-content'],refreshToken:'must-not-leak-session'});
+  assert.equal(summary.stage,'observe:runtime-enable');assert.equal(summary.progress.at(-1).ms,100);
+  assert.equal(summary.blockedRequests,3);assert.doesNotMatch(JSON.stringify(summary),/must-not-leak/);
+});
+
+test('smoke stage deadlines identify a pending native operation and retain earlier ordered progress',async()=>{
+  const {createSmokeProgress,withSmokeDeadline}=require('../scripts/linux-smoke.cjs');
+  const report={};let now=100;const progress=createSmokeProgress(report,()=>now);
+  progress('driver:installed');now=150;progress('configure:ready');now=200;progress('observe:runtime-enable');
+  await assert.rejects(withSmokeDeadline(()=>new Promise(()=>{}),'observe:runtime-enable',5),/observe:runtime-enable/);
+  assert.deepEqual(report.progress.map(item=>item.stage),['driver:installed','configure:ready','observe:runtime-enable']);
+  assert.equal(report.stage,'observe:runtime-enable');assert.equal(report.progress.at(-1).ms,100);
+  assert.equal(await withSmokeDeadline(async()=>true,'completed-stage',20),true);
 });

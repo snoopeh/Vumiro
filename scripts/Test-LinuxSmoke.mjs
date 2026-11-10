@@ -44,6 +44,16 @@ export function validateReport(report) {
   for (const check of requiredChecks) if (!report.checks?.includes(check)) throw new Error(`Missing smoke assertion: ${check}`);
 }
 
+// Failure diagnostics deliberately exclude renderer exception contents, URLs,
+// request bodies, and native session values.
+export function smokeDiagnostics(report) {
+  if(!report||typeof report!=='object')return undefined;
+  const text=value=>typeof value==='string'?value.slice(0,180):'';
+  const result={stage:text(report.stage),progress:Array.isArray(report.progress)?report.progress.slice(-48).map(item=>({stage:text(item.stage),ms:Number.isFinite(item.ms)?item.ms:0})):[],checks:Array.isArray(report.checks)?report.checks.filter(item=>typeof item==='string').map(text):[]};
+  for(const key of ['blockedRequests','mediaRequests','authFixtureRequests','memorySessionWrites'])if(Number.isSafeInteger(report[key]))result[key]=report[key];
+  return result;
+}
+
 async function runChild(launch) {
   return new Promise((resolve, reject) => {
     const child = spawn(launch.executable, launch.args, { env: launch.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
@@ -64,7 +74,7 @@ async function runChild(launch) {
 }
 
 export async function main() {
-  let directory;
+  let directory,lastReport;
   try {
     const args = process.argv.slice(2);
     if (args.length) throw new Error('Usage: xvfb-run -a node scripts/Test-LinuxSmoke.mjs');
@@ -76,11 +86,12 @@ export async function main() {
     let report;
     try { report = JSON.parse(await readFile(path.join(directory, 'report.json'), 'utf8')); }
     catch { throw new Error(`No app smoke report (exit ${result.code ?? result.signal}${result.timedOut ? ', timeout' : ''}). ${result.output}`); }
+    lastReport=report;
     validateReport(report);
     if (result.code !== 0 || result.timedOut) throw new Error(`App failed after smoke assertions (exit ${result.code ?? result.signal}).`);
     console.log(JSON.stringify({ type: 'linux-smoke', ...report }));
   } catch (error) {
-    console.error(JSON.stringify({ type: 'linux-smoke', ok: false, error: error.message }));
+    console.error(JSON.stringify({ type: 'linux-smoke', ok: false, error: error.message, diagnostics:smokeDiagnostics(lastReport) }));
     process.exitCode = 1;
   } finally { if (directory) await rm(directory, { recursive: true, force: true }); }
 }
