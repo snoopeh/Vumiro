@@ -31,7 +31,7 @@ test('embedded call audio opens the app settings only in the trusted app parent'
 
 class Element {
   constructor(tag='div'){this.tagName=tag;this.children=[];this.attributes={};this.listeners=new Map();this.dataset={};this.style={};this.value='';this.hidden=false;this.open=false;this.disabled=false;this.volume=1;this.muted=false;this.sinkId='';this.classList={toggle(){},add(){}};}
-  append(...children){for(const child of children){this.children.push(child);child.parentElement=this;}}
+  append(...children){for(const child of children){child.remove();this.children.push(child);child.parentElement=this;}}
   replaceChildren(...children){this.children=[];this.append(...children);}
   remove(){if(this.parentElement)this.parentElement.children=this.parentElement.children.filter(child=>child!==this);}
   setAttribute(name,value){this.attributes[name.toLowerCase()]=value;}
@@ -47,8 +47,8 @@ class Element {
   pause(){this.paused=true;}
   async setSinkId(id){if(this.rejectSink?.(id))throw Error('Speaker unavailable');this.sinkId=id;}
   get firstElementChild(){return this.children[0];}
-  querySelector(selector){const name=selector.slice(1,-1).toLowerCase();return descendants(this).find(node=>Object.hasOwn(node.attributes,name))||null;}
-  set innerHTML(value){this.children=[];for(const match of value.matchAll(/<(button|h2|p|div|select|input|meter|output|span|label)\b([^>]*)>/g)){const node=new Element(match[1]);for(const attr of match[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g))node.setAttribute(attr[1],attr[2]||'');this.append(node);}}
+  querySelector(selector){if(selector.startsWith('.'))return descendants(this).find(node=>(node.attributes.class||'').split(' ').includes(selector.slice(1)))||null;const name=selector.slice(1,-1).toLowerCase();return descendants(this).find(node=>Object.hasOwn(node.attributes,name))||null;}
+  set innerHTML(value){this.children=[];const stack=[this];for(const match of value.matchAll(/<(\/)?([a-z][\w-]*)\b([^>]*)>/gi)){if(match[1]){if(stack.length>1)stack.pop();continue;}const node=new Element(match[2]);for(const attr of match[3].matchAll(/([\w-]+)(?:="([^"]*)")?/g))node.setAttribute(attr[1],attr[2]||'');stack.at(-1).append(node);if(!['input','br','hr','img'].includes(match[2]))stack.push(node);}}
 }
 const descendants=element=>[element,...element.children.flatMap(descendants)];
 class Track {
@@ -98,6 +98,31 @@ test('opening audio settings and refreshing devices never requests microphone ca
   const app=harness();app.api.open();await tick();assert.equal(app.dialog().open,true);assert.equal(app.captures(),0);
   await app.field('refresh').onclick();assert.equal(app.captures(),0);assert.equal(app.field('input').children.length,3);
   assert.ok(app.document.head.children[0].textContent.includes('vumiro-audio-dialog'));
+});
+
+test('audio controls mount in the common settings panel and keep local tests operable',async()=>{
+  const app=harness(),panel=new Element('section');panel.closest=()=>({open:true});app.document.body.append(panel);
+  assert.equal(typeof app.api.prepare,'function');
+  app.api.prepare(panel);await tick();
+  assert.equal(app.dialog().open,false,'preparing a section never opens a second modal');
+  assert.equal(app.captures(),0);
+  const field=name=>panel.querySelector('[data-audio-'+name+']');
+  await field('permission').onclick();
+  assert.equal(app.captures(),1);assert.equal(field('stop').disabled,false);
+  app.api.stopTest();assert.equal(app.streams[0].getTracks()[0].stopped,true);
+  assert.equal(field('stop').disabled,true);
+  let navigations=0;app.api.setSettingsNavigation(()=>navigations++);app.api.open();
+  assert.equal(navigations,1);assert.equal(app.dialog().open,false);
+});
+
+test('leaving mounted audio controls stops a microphone granted after the panel was hidden',async()=>{
+  let release;const stream=new Stream([new Track()]);
+  const app=harness({getUserMedia:()=>new Promise(resolve=>release=resolve)}),panel=new Element('section');
+  panel.closest=()=>({open:true});app.document.body.append(panel);app.api.prepare(panel);await tick();
+  const pending=panel.querySelector('[data-audio-permission]').onclick();await tick();
+  panel.hidden=true;app.api.stopTest();release(stream);await pending;
+  assert.equal(stream.getTracks()[0].stopped,true);
+  assert.equal(app.api.isSuppressed(),false,'preview isolation is released when leaving the section');
 });
 
 test('injected audio styles cannot change shared settings navigation or shell controls',()=>{
@@ -218,7 +243,7 @@ async function callHarness(options={}){
     createDataChannel(){return {readyState:'connecting',close(){}};}
     close(){this.connectionState='closed';}
   }
-  Object.assign(app.sandbox,{location:new URL('/call.html?autojoin=1&room='+room+'&mode=public&signaling='+encodeURIComponent('wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling'),'https://vumiro.local'),VumiroLocalProfile:{initialize:async()=>({id:ownId,key:'public-key',name:'Host'}),profile:()=>({name:'Host'}),listFriends:async()=>[],listBlocked:async()=>[],sign:async()=>''},RTCPeerConnection:Connection,WebSocket:Socket,parent:{},history:{replaceState(){}}});
+  Object.assign(app.sandbox,{location:new URL('/call.html?autojoin=1&embedded=1&room='+room+'&mode=public&signaling='+encodeURIComponent('wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling'),'https://vumiro.local'),VumiroLocalProfile:{initialize:async()=>({id:ownId,key:'public-key',name:'Host'}),profile:()=>({name:'Host'}),listFriends:async()=>[],listBlocked:async()=>[],sign:async()=>''},RTCPeerConnection:Connection,WebSocket:Socket,parent:{location:new URL('https://vumiro.local/friends.html'),VumiroAccount:{getState:()=>({signedIn:true})},postMessage(){}},history:{replaceState(){}}});
   vm.runInContext(callSource,app.sandbox);await tick();assert.equal(sockets.length,1);await sockets[0].onmessage({data:JSON.stringify({type:'welcome',id:ownId,peers:[{id:peerId,name:'Guest'}],policy:{mode:'public'}})});
   return {...app,connection:connections[0],diagnostics};
 }

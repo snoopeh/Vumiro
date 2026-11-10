@@ -10191,8 +10191,9 @@ body:has(dialog[open])>.vumiro-language{visibility:hidden}
 `;document.head.append(style);
     const sidebar=document.querySelector?.('.sideBottom');
     let embedded=false;try{embedded=window.parent!==window&&window.parent?.location?.origin===window.location?.origin&&!!window.parent.VumiroI18n;}catch{}
-    const control=embedded?null:mountSelector(sidebar||document.body,!!sidebar);
-    if(sidebar&&control){control.classList.add('vumiro-language-sidebar');sidebar.insertBefore(control,sidebar.firstChild);}
+    // The lobby has a permanent language slot in its settings navigation.
+    // Sign-in and standalone rooms still expose a selector before settings open.
+    if(!embedded&&!sidebar)mountSelector(document.body);
     attachDialogSelectors();refresh();broadcast();
     if(window.MutationObserver){
       let scheduled=false;const observer=new window.MutationObserver(records=>{

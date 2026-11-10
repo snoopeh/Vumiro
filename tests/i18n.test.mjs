@@ -12,7 +12,7 @@ function load(saved, languages=['en'], document) {
   if(fs.existsSync(path))vm.runInContext(fs.readFileSync(path,'utf8'),app);
   return {api:app.VumiroI18n,values};
 }
-test('lobby language selector occupies its own sidebar row before service and profile',()=>{
+test('lobby language selector stays in the settings menu while sign-in keeps its visible control',()=>{
   function fixture(withSidebar,withSettings=false){
     let dialog=null;
     const document={readyState:'complete',documentElement:{},querySelector:selector=>selector==='.sideBottom'?bottom:null,querySelectorAll:selector=>selector==='dialog'&&dialog?[dialog]:[],addEventListener(){}};
@@ -25,10 +25,8 @@ test('lobby language selector occupies its own sidebar row before service and pr
     return {document,bottom,service,profile,dialog,nav,title,back};
   }
   const lobby=fixture(true);load('pt-BR',['en'],lobby.document);
-  assert.equal(lobby.bottom.children.length,3);
-  assert.ok(lobby.bottom.children[0].classList.contains('vumiro-language'));
-  assert.ok(lobby.bottom.children[0].classList.contains('vumiro-language-sidebar'));
-  assert.equal(lobby.bottom.children[1],lobby.service);assert.equal(lobby.bottom.children[2],lobby.profile);
+  assert.equal(lobby.bottom.children.length,2);
+  assert.equal(lobby.bottom.children[0],lobby.service);assert.equal(lobby.bottom.children[1],lobby.profile);
   assert.equal(lobby.document.body.children.length,1,'no fixed control overlays the lobby profile');
   const auth=fixture(false);load('en',['en'],auth.document);
   assert.ok(auth.document.body.children[0].classList.contains('vumiro-language'));

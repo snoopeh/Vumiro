@@ -1260,7 +1260,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   if (window.__VUMIRO_LOCAL_QA__ === true) sections.push(['qa', 'QA notification tests']);
   const panels = new Map();
   let currentSection = 'profile';
-  let profileDraftInSession = false, settingsTransitions = 0;
+  let profileDraftInSession = false, settingsTransitions = 0, navigationSerial = 0;
   let exitController = null, exitingSettings = false;
   const titlebar = $('windowTitlebar');
   const titlebarSlot = titlebar ? document.createComment('Desktop title bar home') : null;
@@ -1276,7 +1276,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
 
   function syncSettingsSession() {
     if (profileDialog.open) profileDraftInSession = true;
-    else if (!settingsTransitions && !document.querySelector('dialog.settingsScreen[open]')) profileDraftInSession = false;
+    else if (!settingsTransitions) { profileDraftInSession = false; window.VumiroAudioSettings?.stopTest?.(); }
     syncTitlebar();
   }
 
@@ -1287,35 +1287,52 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
     return node;
   }
   function closeSettings() {
+    navigationSerial++;
     for (const dialog of document.querySelectorAll('dialog.settingsScreen[open]')) dialog.close();
   }
   function selectPanel(key) {
+    if (currentSection === 'audio' && key !== 'audio') window.VumiroAudioSettings?.stopTest?.();
     currentSection = key;
     for (const [name, panel] of panels) panel.hidden = name !== key;
     const heading = profileDialog.querySelector('.dialogHead h2');
     if (heading) heading.textContent = sections.find(([name]) => name === key)?.[1] || 'Settings';
     refreshNavigation();
+    if (key === 'audio') void window.VumiroAudioSettings?.refresh?.();
     profileDialog.querySelector('.settingsBody')?.scrollTo?.(0, 0);
   }
+  async function preparePanel(key) {
+    if (key !== 'account' && key !== 'audio') return;
+    const service = key === 'account' ? window.VumiroAccount : window.VumiroAudioSettings;
+    if (typeof service?.prepare !== 'function') throw Error('These settings are unavailable. Restart Vumiro and try again.');
+    let panel = panels.get(key);
+    if (!panel) {
+      panel = element('section', 'settingsPanel'); panel.id = key === 'account' ? 'settingsAccountPanel' : 'settingsAudioPanel';
+      panel.hidden = true; panels.set(key, panel); profileDialog.querySelector('.settingsBody').append(panel);
+    }
+    const source = await service.prepare(key === 'audio' ? panel : undefined);
+    if (key === 'account' && source && source !== panel) {
+      for (const child of [...source.children]) {
+        if (child.classList.contains('vumiro-language')) continue;
+        panel.append(child);
+      }
+      const header = panel.querySelector('.dialogHead'); if (header) header.hidden = true;
+      if ($('accountClose')) $('accountClose').onclick = () => profileDialog.close();
+    }
+  }
   async function navigate(key, from) {
+    const serial = ++navigationSerial;
     if (profileDialog.open) profileDraftInSession = true;
     settingsTransitions++;
     try {
-      if (key === 'account' || key === 'audio') {
-        closeSettings();
-        const service = key === 'account' ? window.VumiroAccount : window.VumiroAudioSettings;
-        if (typeof service?.open !== 'function') throw Error('These settings are unavailable. Restart Vumiro and try again.');
-        await service.open();
-      } else {
-        if (from !== profileDialog) closeSettings();
-        if (!profileDialog.open) {
-          // Keep the existing field nodes and avatar draft throughout this settings visit.
-          if (profileDraftInSession) profileDialog.showModal();
-          else $('profileNav')?.click();
-        }
-        if (key === 'updates') $('updatesNav')?.click();
-        selectPanel(key);
+      await preparePanel(key);
+      if (serial !== navigationSerial) return;
+      if (!profileDialog.open) {
+        // Keep every section in one modal, including lazily created audio controls.
+        if (profileDraftInSession) profileDialog.showModal();
+        else $('profileNav')?.click();
       }
+      if (key === 'updates') $('updatesNav')?.click();
+      selectPanel(key);
     } catch (error) {
       if ($('status')) $('status').textContent = (globalThis.VumiroI18n?.error(error)||error.message);
     } finally {
@@ -1398,7 +1415,6 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   }
   if (heading) heading.after(profilePanel); else profileDialog.prepend(profilePanel);
   shell(profileDialog, 'profile');
-  shell(accountDialog, 'account');
   if (window.VumiroSettingsDrafts) {
     exitController = window.VumiroSettingsDrafts.create({
       sections: window.VumiroSettingsSections || [],
@@ -1411,6 +1427,11 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   for (const id of ['profileNav', 'shareMyCode']) $(id)?.addEventListener('click', () => selectPanel('profile'), true);
   for (const id of ['settingsNav', 'roomSettings']) $(id)?.addEventListener('click', () => selectPanel('stream'), true);
   $('updatesNav')?.addEventListener('click', () => selectPanel('updates'), true);
+  for (const [id, key] of [['accountNav', 'account'], ['audioNav', 'audio']]) {
+    if ($(id)) $(id).onclick = () => navigate(key);
+  }
+  window.VumiroAccount?.setSettingsNavigation?.(() => navigate('account'));
+  window.VumiroAudioSettings?.setSettingsNavigation?.(() => navigate('audio'));
 
   function actionRow(id, title, description, label, danger = false) {
     const button = $(id); if (!button) return null;
@@ -1464,15 +1485,9 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
     oldButtons?.remove();
   }
 
-  // Audio settings are created lazily; decorate them once without changing capture state.
-  const decorateAudio = () => {
-    const audio = document.querySelector('dialog.vumiro-audio-dialog');
-    if (audio) shell(audio, 'audio');
-  };
-  decorateAudio();
   new MutationObserver(records => {
-    if (!records.some(record => record.target === document.body || record.type === 'attributes')) return;
-    decorateAudio(); syncSettingsSession();
+    if (!records.some(record => record.type === 'attributes' && record.target === profileDialog)) return;
+    syncSettingsSession();
   }).observe(document.body, {
     childList: true, subtree: true, attributes: true, attributeFilter: ['open']
   });

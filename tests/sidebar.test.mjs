@@ -115,22 +115,23 @@ function settingsHarness() {
   const updatesEnd=source.indexOf("$('checkUpdate').onclick",updatesStart);
   assert.ok(routingStart>=0&&routingEnd>routingStart&&lifecycleStart>=0&&updatesStart>=0);
   const events=[],field={value:'Saved display name'},avatar={value:'saved-avatar'};
-  let context,renders=0,updates=0;
-  const makeDialog=()=>({open:false,showModal(){this.open=true;},close(){this.open=false;context.sync();}});
+  let context,renders=0,updates=0,closes=0,previewsStopped=0;
+  const makeDialog=()=>({open:false,showModal(){this.open=true;},close(){closes++;this.open=false;context.sync();}});
   const profileDialog=makeDialog(),account=makeDialog(),audio=makeDialog(),dialogs=[profileDialog,account,audio];
   function showProfile(){renders++;field.value='Saved display name';avatar.value='saved-avatar';profileDialog.showModal();}
   const elements={profileDialog,status:{textContent:''},updateDetails:{open:false,scrollIntoView(){}},
     profileNav:{click:showProfile},updatesNav:{click(){this.onclick();}}};
-  context={profileDialog,window:{VumiroAccount:{open(){account.showModal();}},VumiroAudioSettings:{open(){audio.showModal();}}},
+  context={profileDialog,window:{VumiroAccount:{prepare(){events.push('prepare-account');return account;},open(){account.showModal();}},VumiroAudioSettings:{prepare(){events.push('prepare-audio');return audio;},open(){audio.showModal();},stopTest(){previewsStopped++;}}},
     document:{querySelector(){return dialogs.find(dialog=>dialog.open);}},$:id=>elements[id],
     closeSettings(){for(const dialog of dialogs)if(dialog.open)dialog.close();},
-    selectPanel(key){events.push(key);},browseRoom(){events.push('browse');},showProfile,
+    async preparePanel(key){if(key==='account'||key==='audio')await context.window[key==='account'?'VumiroAccount':'VumiroAudioSettings'].prepare();},
+    selectPanel(key){events.push(key);context.currentSection=key;},browseRoom(){events.push('browse');},showProfile,
     syncTitlebar(){events.push('titlebar');},requestUpdate(action){assert.equal(action,'state');updates++;}};
-  vm.runInNewContext('let profileDraftInSession=false,settingsTransitions=0;'+source.slice(updatesStart,updatesEnd)+
+  vm.runInNewContext('let profileDraftInSession=false,settingsTransitions=0,navigationSerial=0;'+source.slice(updatesStart,updatesEnd)+
     source.slice(lifecycleStart,lifecycleEnd)+source.slice(routingStart,routingEnd)+
     ';globalThis.route=navigate;globalThis.sync=syncSettingsSession;',context);
   return {context,profileDialog,account,audio,field,avatar,events,elements,showProfile,
-    get renders(){return renders;},get updates(){return updates;}};
+    get renders(){return renders;},get updates(){return updates;},get closes(){return closes;},get previewsStopped(){return previewsStopped;}};
 }
 
 test('shared settings retain field and avatar drafts across account, audio and updates',async()=>{
@@ -140,14 +141,16 @@ test('shared settings retain field and avatar drafts across account, audio and u
   await app.context.route('stream',app.profileDialog);
   await app.context.route('connection',app.profileDialog);
   await app.context.route('account',app.profileDialog);
-  assert.equal(app.account.open,true);
-  await app.context.route('audio',app.account);
-  assert.equal(app.audio.open,true);
-  await app.context.route('updates',app.audio);
+  assert.equal(app.profileDialog.open,true);
+  assert.equal(app.account.open,false);
+  await app.context.route('audio',app.profileDialog);
+  assert.equal(app.audio.open,false);
+  await app.context.route('updates',app.profileDialog);
   assert.equal(app.profileDialog.open,true);
   assert.equal(app.field.value,'Unsaved display name');
   assert.equal(app.avatar.value,'unsaved-avatar');
-  assert.equal(app.renders,1,'cross-dialog navigation reuses the existing profile fields');
+  assert.equal(app.renders,1,'section navigation reuses the existing profile fields');
+  assert.equal(app.closes,0,'section navigation never closes the settings modal');
   assert.equal(app.updates,1,'the updates section still requests fresh native update state');
 });
 
@@ -155,9 +158,8 @@ test('fully closing settings ends the draft session and reopens fresh from anoth
   const app=settingsHarness();
   app.showProfile();app.context.sync();app.field.value='Uncommitted name';
   await app.context.route('account',app.profileDialog);
-  app.account.close();
-  app.account.showModal();app.context.sync();
-  await app.context.route('profile',app.account);
+  app.profileDialog.close();
+  await app.context.route('profile');
   assert.equal(app.renders,2);
   assert.equal(app.field.value,'Saved display name');
   app.profileDialog.close();
@@ -165,15 +167,24 @@ test('fully closing settings ends the draft session and reopens fresh from anoth
   assert.equal(app.renders,3,'the original profile entry keeps its fresh render behavior');
 });
 
-test('failed async audio navigation reports the failure and releases the draft session',async()=>{
+test('failed async audio navigation reports the failure and keeps the current settings draft',async()=>{
   const app=settingsHarness();
   app.showProfile();app.context.sync();app.field.value='Uncommitted name';
-  app.context.window.VumiroAudioSettings.open=()=>Promise.reject(Error('Audio device unavailable'));
+  app.context.window.VumiroAudioSettings.prepare=()=>Promise.reject(Error('Audio device unavailable'));
   await app.context.route('audio',app.profileDialog);
   assert.equal(app.elements.status.textContent,'Audio device unavailable');
-  assert.equal(app.profileDialog.open||app.account.open||app.audio.open,false);
-  app.account.showModal();app.context.sync();
-  await app.context.route('profile',app.account);
-  assert.equal(app.renders,2);
-  assert.equal(app.field.value,'Saved display name');
+  assert.equal(app.profileDialog.open,true);
+  await app.context.route('profile',app.profileDialog);
+  assert.equal(app.renders,1);
+  assert.equal(app.field.value,'Uncommitted name');
+});
+
+test('a delayed section cannot replace the section selected most recently',async()=>{
+  const app=settingsHarness();app.showProfile();app.context.sync();let release;
+  app.context.window.VumiroAudioSettings.prepare=()=>new Promise(resolve=>release=resolve);
+  const pending=app.context.route('audio',app.profileDialog);
+  await app.context.route('notifications',app.profileDialog);
+  release(app.audio);await pending;
+  assert.equal(app.events.filter(value=>['audio','notifications'].includes(value)).at(-1),'notifications');
+  assert.equal(app.profileDialog.open,true);assert.equal(app.closes,0);
 });

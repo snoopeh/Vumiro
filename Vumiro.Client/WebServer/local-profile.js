@@ -574,7 +574,7 @@
     return { inputId: device(value.inputId), outputId: device(value.outputId), masterVolume: Number.isFinite(value.masterVolume) ? Math.round(Math.max(0, Math.min(100, value.masterVolume))) : 100,
       echoCancellation: value.echoCancellation !== false, noiseSuppression: value.noiseSuppression !== false, autoGainControl: value.autoGainControl !== false };
   }
-  let settings = { ...defaults }, adapter = null, deafened = false, isolation = 0, queue = Promise.resolve(), dialog = null, preview = null, serial = 0, opener = null, deviceChangeHandler = null;
+  let settings = { ...defaults }, adapter = null, deafened = false, isolation = 0, queue = Promise.resolve(), dialog = null, mountedPanel = null, settingsNavigation = null, preview = null, serial = 0, opener = null, deviceChangeHandler = null;
   const players = new Map(), routing = new Map(), attachments = new WeakMap(), listeners = new Set();
   let playbackContext = null;
   const boostGraphs = new Set();
@@ -697,7 +697,8 @@
     }
     return api;
   }
-  const status = message => { if (dialog) dialog.querySelector('[data-audio-status]').textContent = message; };
+  const settingsVisible = () => mountedPanel ? !mountedPanel.hidden && !!mountedPanel.closest?.('dialog[open]') : !!dialog?.open;
+  const status = message => { if (dialog) (mountedPanel || dialog).querySelector('[data-audio-status]').textContent = message; };
   function stopPreview(message) {
     ++serial; const active = preview; preview = null;
     if (active) {
@@ -708,21 +709,21 @@
       active.unsubscribe?.(); active.stream?.getTracks().forEach(track => { if(active.ended)track.removeEventListener?.('ended',active.ended);track.stop(); });
       active.context?.close().catch(() => {}); active.release?.();
     }
-    if (dialog) { dialog.querySelector('[data-audio-meter]').value = 0; dialog.querySelector('[data-audio-level]').textContent = 'Microphone off'; dialog.querySelector('[data-audio-stop]').disabled = true; }
+    if (dialog) { (mountedPanel || dialog).querySelector('[data-audio-meter]').value = 0; (mountedPanel || dialog).querySelector('[data-audio-level]').textContent = 'Microphone off'; (mountedPanel || dialog).querySelector('[data-audio-stop]').disabled = true; }
     if (message) status(message);
   }
   async function startPreview(test = false) {
     stopPreview(); const target = controller(), session = { token: serial, release: test ? target.isolate() : null }; preview = session;
     if(test && target.hasRoom())session.unsubscribe=target.subscribe(()=>{if(preview===session&&!target.hasRoom())stopPreview('Microphone test stopped because the room ended.');});
-    if (dialog) dialog.querySelector('[data-audio-stop]').disabled = false;
+    if (dialog) (mountedPanel || dialog).querySelector('[data-audio-stop]').disabled = false;
     const value = controller().snapshot();
     try {
       if (!media()?.getUserMedia) throw Error('Microphone access is unavailable in this environment.');
       if (test && typeof MediaRecorder !== 'function') throw Error('Microphone recording tests are unavailable here. You can still check the input meter.');
       status(test ? 'Recording for 3 seconds. Your room microphone and received audio are paused.' : 'Requesting microphone permission…');
       const stream = await media().getUserMedia(constraints(value));
-      if (preview !== session || !dialog?.open) { stream.getTracks().forEach(track => track.stop()); return; }
-      session.stream = stream; dialog.querySelector('[data-audio-stop]').disabled = false;
+      if (preview !== session || !settingsVisible()) { stream.getTracks().forEach(track => track.stop()); return; }
+      session.stream = stream; (mountedPanel || dialog).querySelector('[data-audio-stop]').disabled = false;
       session.ended = () => { if (preview === session) stopPreview('Microphone disconnected. Choose an available device.'); };
       for (const track of stream.getTracks()) track.addEventListener?.('ended', session.ended);
       const Context = window.AudioContext || window.webkitAudioContext;
@@ -734,7 +735,7 @@
         session.meterTimer = setInterval(() => {
           if (preview !== session) return; analyser.getFloatTimeDomainData(samples);
           const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length), level = Math.min(100, Math.round(rms * 300));
-          dialog.querySelector('[data-audio-meter]').value = level; dialog.querySelector('[data-audio-level]').textContent = level > 95 ? 'Input is very loud' : 'Microphone active';
+          (mountedPanel || dialog).querySelector('[data-audio-meter]').value = level; (mountedPanel || dialog).querySelector('[data-audio-level]').textContent = level > 95 ? 'Input is very loud' : 'Microphone active';
         }, 80);
       }
       await refreshDevices(); renderProcessing(stream.getAudioTracks()[0]);
@@ -748,7 +749,7 @@
         stream.getTracks().forEach(track => { track.removeEventListener?.('ended',session.ended);track.stop(); });
         try {
           if (!chunks.length) throw Error('No audio was recorded. Check your microphone.');
-          const audio = session.audio = document.createElement('audio'); audio.hidden = true; dialog.append(audio);
+          const audio = session.audio = document.createElement('audio'); audio.hidden = true; (mountedPanel || dialog).append(audio);
           session.url = URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType || chunks[0].type })); audio.src = session.url;
           await sink(audio, value.outputId); audio.volume = value.masterVolume / 100;
           audio.onended = () => { if (preview === session) stopPreview('Microphone test finished. Your previous room audio state is restored.'); };
@@ -764,9 +765,9 @@
   function option(select, value, label) { const item = document.createElement('option'); item.value = value; item.textContent = label; select.append(item); }
   async function refreshDevices() {
     if (!dialog) return;
-    const value = controller().snapshot(), input = dialog.querySelector('[data-audio-input]'), output = dialog.querySelector('[data-audio-output]');
+    const value = controller().snapshot(), input = (mountedPanel || dialog).querySelector('[data-audio-input]'), output = (mountedPanel || dialog).querySelector('[data-audio-output]');
     let devices = []; try { devices = await media()?.enumerateDevices?.() || []; } catch (error) { status('Could not list devices: ' + error.message); }
-    if (!dialog?.open) return;
+    if (!settingsVisible()) return;
     for (const [select, kind, selected] of [[input, 'audioinput', value.inputId], [output, 'audiooutput', value.outputId]]) {
       select.replaceChildren(); option(select, '', 'System default'); let count = 0;
       for (const item of devices.filter(item => item.kind === kind && item.deviceId && item.deviceId !== 'default')) option(select, item.deviceId, item.label || (kind === 'audioinput' ? 'Microphone ' : 'Speaker ') + (++count));
@@ -774,23 +775,23 @@
       select.value = selected;
     }
     output.disabled = typeof document.createElement('audio').setSinkId !== 'function';
-    dialog.querySelector('[data-audio-speaker-help]').textContent = output.disabled ? 'Speaker selection is unavailable here. Use your system sound settings.' : 'Changes affect Vumiro playback, not system-wide volume or screen-audio capture.';
+    (mountedPanel || dialog).querySelector('[data-audio-speaker-help]').textContent = output.disabled ? 'Speaker selection is unavailable here. Use your system sound settings.' : 'Changes affect Vumiro playback, not system-wide volume or screen-audio capture.';
   }
   function renderProcessing(track) {
     if (!dialog) return;
     const support = supported(), capabilities = track?.getCapabilities?.() || {}, actual = track?.getSettings?.() || {};
     for (const name of ['echoCancellation', 'noiseSuppression', 'autoGainControl']) {
-      const input = dialog.querySelector('[data-audio-' + name + ']');
+      const input = (mountedPanel || dialog).querySelector('[data-audio-' + name + ']');
       input.disabled = !support[name] || (Array.isArray(capabilities[name]) && !(capabilities[name].includes(true) && capabilities[name].includes(false)));
       input.parentElement.title = input.disabled ? 'This audio engine does not expose an adjustable setting.' : '';
     }
     const details = [['echoCancellation', 'Echo cancellation'], ['noiseSuppression', 'Noise suppression'], ['autoGainControl', 'Automatic gain']].filter(([name]) => typeof actual[name] === 'boolean').map(([name, label]) => label + ': ' + (actual[name] ? 'on' : 'off'));
-    dialog.querySelector('[data-audio-processing]').textContent = details.length ? 'Current input: ' + details.join(' · ') : 'Supported preferences apply when a microphone starts. Availability depends on the audio engine.';
+    (mountedPanel || dialog).querySelector('[data-audio-processing]').textContent = details.length ? 'Current input: ' + details.join(' · ') : 'Supported preferences apply when a microphone starts. Availability depends on the audio engine.';
   }
   function render() {
     if (!dialog) return; const value = controller().snapshot();
-    dialog.querySelector('[data-audio-volume]').value = value.masterVolume; dialog.querySelector('[data-audio-volume-value]').textContent = value.masterVolume + '%';
-    for (const name of ['echoCancellation', 'noiseSuppression', 'autoGainControl']) dialog.querySelector('[data-audio-' + name + ']').checked = value[name];
+    (mountedPanel || dialog).querySelector('[data-audio-volume]').value = value.masterVolume; (mountedPanel || dialog).querySelector('[data-audio-volume-value]').textContent = value.masterVolume + '%';
+    for (const name of ['echoCancellation', 'noiseSuppression', 'autoGainControl']) (mountedPanel || dialog).querySelector('[data-audio-' + name + ']').checked = value[name];
     renderProcessing(controller().getMicrophone()?.getAudioTracks()[0]);
   }
   async function change(patch) {
@@ -806,11 +807,11 @@
       const text = (at, value) => [...value].forEach((letter, i) => view.setUint8(at + i, letter.charCodeAt(0)));
       text(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); text(8, 'WAVEfmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, frames * 2, true);
       for (let i = 0; i < frames; i++) view.setInt16(44 + i * 2, Math.sin(i * 2 * Math.PI * 660 / rate) * 5000 * Math.min(1, i / 200, (frames - i) / 200), true);
-      const audio = session.audio = document.createElement('audio'), value = controller().snapshot(); audio.hidden = true; dialog.append(audio);
+      const audio = session.audio = document.createElement('audio'), value = controller().snapshot(); audio.hidden = true; (mountedPanel || dialog).append(audio);
       session.url = URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' })); audio.src = session.url; audio.volume = value.masterVolume / 100;
       await sink(audio, value.outputId); if (preview !== session) return;
       audio.onended = () => { if (preview === session) stopPreview('Speaker test finished.'); }; audio.onerror = () => { if (preview === session) stopPreview('Speaker test could not play.'); };
-      dialog.querySelector('[data-audio-stop]').disabled = false; session.timeout = setTimeout(() => { if (preview === session) stopPreview(); }, 5000);
+      (mountedPanel || dialog).querySelector('[data-audio-stop]').disabled = false; session.timeout = setTimeout(() => { if (preview === session) stopPreview(); }, 5000);
       status(value.masterVolume ? 'Playing a short tone through the selected speaker.' : 'Playback volume is 0%. Raise it to hear the test tone.'); await audio.play();
     } catch (error) { if (preview === session) stopPreview('Speaker: ' + error.message); }
   }
@@ -822,19 +823,31 @@
     document.head.append(style); dialog = document.createElement('dialog'); dialog.className = 'vumiro-audio-dialog'; dialog.setAttribute('aria-labelledby', 'vumiro-audio-title');
     dialog.innerHTML = `<div class="va-content"><div class="dialogHead va-header"><h2 id="vumiro-audio-title">Voice &amp; audio</h2><button type="button" class="va-close" data-audio-close aria-label="Close voice and audio">×</button></div><p class="va-intro">Choose what you speak through and where you listen. Saved only on this device.</p><section aria-label="Microphone and speaker devices"><div class="va-grid"><label>Microphone<select data-audio-input aria-label="Microphone device"></select></label><label>Speaker / headphones<select data-audio-output aria-label="Speaker device"></select></label></div><div class="va-actions"><button type="button" data-audio-refresh>Refresh devices</button><button type="button" data-audio-permission>Enable mic meter</button></div><meter data-audio-meter min="0" max="100" value="0" aria-label="Microphone input level"></meter><div class="va-level" data-audio-level>Microphone off</div><div class="va-actions"><button type="button" data-audio-test>Record &amp; play test</button><button type="button" data-audio-stop disabled>Stop test / meter</button></div><p>Tests stay on this device. A microphone test pauses room voice and playback until it ends. The meter alone does not change your call mute.</p></section><section class="va-section" aria-labelledby="va-playback-title"><h3 id="va-playback-title">Playback</h3><label><span class="va-volume">Playback volume <output data-audio-volume-value>100%</output></span><input data-audio-volume type="range" min="0" max="100" step="1" aria-label="Master playback volume"></label><div class="va-actions"><button type="button" data-audio-speaker-test>Test speaker</button></div><p data-audio-speaker-help></p><p>In a room, open a participant’s Audio controls to adjust Screen and Voice separately, with boost up to 400% for quiet sources.</p></section><section class="va-section" aria-labelledby="va-processing-title"><h3 id="va-processing-title">Voice processing</h3><label class="va-check"><input data-audio-echoCancellation type="checkbox">Echo cancellation</label><label class="va-check"><input data-audio-noiseSuppression type="checkbox">Noise suppression</label><label class="va-check"><input data-audio-autoGainControl type="checkbox">Automatic microphone level</label><p data-audio-processing></p></section><div data-audio-status role="status" aria-live="polite">Microphone stays off until you enable the meter or start a test.</div></div>`;
     document.body.append(dialog);
-    const get = selector => dialog.querySelector('[data-audio-' + selector + ']');
+    const get = selector => (mountedPanel || dialog).querySelector('[data-audio-' + selector + ']');
     get('close').onclick = () => dialog.close(); dialog.addEventListener('close', () => { stopPreview(); opener?.focus?.(); });
     dialog.addEventListener('cancel', () => stopPreview()); dialog.addEventListener('click', event => { if (event.target === dialog) { const box = dialog.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close(); } });
     get('refresh').onclick = refreshDevices; get('permission').onclick = () => startPreview(); get('test').onclick = () => startPreview(true); get('stop').onclick = () => stopPreview('Stopped. Your previous room audio state is restored.'); get('speaker-test').onclick = testSpeaker;
     get('input').onchange = () => change({ inputId: get('input').value }); get('output').onchange = () => change({ outputId: get('output').value });
     get('volume').oninput = () => change({ masterVolume: Number(get('volume').value) });
     for (const name of ['echoCancellation', 'noiseSuppression', 'autoGainControl']) get(name).onchange = () => change({ [name]: get(name).checked });
-    deviceChangeHandler = () => { if (dialog.open) refreshDevices(); };
+    deviceChangeHandler = () => { if (settingsVisible()) refreshDevices(); };
     media()?.addEventListener?.('devicechange', deviceChangeHandler);
   }
-  function open() { ensureDialog(); opener = document.activeElement; render(); if (!dialog.open) dialog.showModal(); refreshDevices();status(controller().getMicrophone()?'Your call microphone keeps its current mute state. Tests are local only.':'Opening settings does not enable your microphone. Enable the meter or start a local test when ready.');dialog.querySelector('[data-audio-close]').focus(); }
+  function prepare(panel) {
+    ensureDialog();
+    if (panel && mountedPanel !== panel) {
+      const content = (mountedPanel || dialog).querySelector('.va-content');
+      if (content) panel.append(content);
+      mountedPanel = panel;
+      const header = panel.querySelector('.va-header'); if (header) header.hidden = true;
+    }
+    render(); refreshDevices();
+    status(controller().getMicrophone() ? 'Your call microphone keeps its current mute state. Tests are local only.' : 'Opening settings does not enable your microphone. Enable the meter or start a local test when ready.');
+    return mountedPanel || dialog;
+  }
+  function open() { if (settingsNavigation) return settingsNavigation(); ensureDialog(); opener = document.activeElement; render(); if (!dialog.open) dialog.showModal(); refreshDevices();status(controller().getMicrophone()?'Your call microphone keeps its current mute state. Tests are local only.':'Opening settings does not enable your microphone. Enable the meter or start a local test when ready.');(mountedPanel || dialog).querySelector('[data-audio-close]').focus(); }
   function dispose() { stopPreview(); dialog?.close();media()?.removeEventListener?.('devicechange',deviceChangeHandler);adapter?.gate?.(true);adapter=null;for(const audio of [...players.keys()])forgetPlayback(audio);deafened=false;isolation=0;emit(); }
-  const api = Object.freeze({ open, snapshot, constraints, update, isolate, setDeafened, isDeafened: () => deafened, isSuppressed: () => deafened || isolation > 0,
+  const api = Object.freeze({ open, prepare, refresh: refreshDevices, setSettingsNavigation(value) { settingsNavigation = typeof value === 'function' ? value : null; }, snapshot, constraints, update, isolate, setDeafened, isDeafened: () => deafened, isSuppressed: () => deafened || isolation > 0,
     hasRoom: () => !!adapter && adapter.active?.() !== false, getMicrophone: () => adapter?.microphone?.() || null,
     registerRoom(value) { adapter = value; gate(); }, registerPlayback, forgetPlayback, refreshPlayback: applyVolumes,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }, stopTest: stopPreview, dispose });
