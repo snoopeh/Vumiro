@@ -30,7 +30,7 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
 `; document.head.append(style);
     }
     const listeners = [], visible = new Map(), seen = new Set();
-    let pinned = false, opened = false, restoringFocus = false, leaveTimer = null, items = [];
+    let opened = false, items = [];
     const stack = document.createElement('div');
     stack.className = 'notificationPopups'; stack.setAttribute('aria-live', 'polite'); stack.setAttribute('aria-relevant', 'additions');
     document.body.append(stack);
@@ -42,13 +42,9 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
     bell.setAttribute('aria-controls', panel.id); bell.setAttribute('aria-expanded', 'false');
     bell.setAttribute('aria-haspopup', 'true');
     function listen(node, type, callback) { node.addEventListener(type, callback); listeners.push(() => node.removeEventListener(type, callback)); }
-    function cancelLeave() { if (leaveTimer !== null) clearTimeout(leaveTimer); leaveTimer = null; }
-    function open() { cancelLeave(); opened = true; panel.hidden = false; panel.classList.toggle('isOpen', true); panel.setAttribute('aria-hidden', 'false'); bell.setAttribute('aria-expanded', 'true'); }
-    function close(restoreFocus = false) { cancelLeave(); pinned = false; opened = false; panel.classList.toggle('isOpen', false); panel.setAttribute('aria-hidden', 'true'); panel.inert = true; bell.setAttribute('aria-expanded', 'false'); if (restoreFocus) { restoringFocus = true; bell.focus(); restoringFocus = false; } }
+    function open() { opened = true; panel.hidden = false; panel.classList.toggle('isOpen', true); panel.setAttribute('aria-hidden', 'false'); bell.setAttribute('aria-expanded', 'true'); }
+    function close(restoreFocus = false) { opened = false; panel.classList.toggle('isOpen', false); panel.setAttribute('aria-hidden', 'true'); panel.inert = true; bell.setAttribute('aria-expanded', 'false'); if (restoreFocus) bell.focus(); }
     function show() { panel.inert = false; open(); }
-    function scheduleClose() {
-      cancelLeave(); leaveTimer = setTimeout(() => { leaveTimer = null; if (!pinned && !panel.contains(document.activeElement) && document.activeElement !== bell) close(); }, 220);
-    }
     function removePopup(id) { const entry = visible.get(id); if (!entry) return; clearTimeout(entry.timer); entry.node.remove(); visible.delete(id); }
     function row(item, popup) {
       const node = document.createElement(popup ? 'article' : 'li'); node.className = 'notificationCard'; node.dataset.notificationId = item.id;
@@ -88,16 +84,13 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
       node.addEventListener('focusin', () => clearTimeout(entry.timer)); node.addEventListener('focusout', expire);
       visible.set(item.id, entry); stack.append(node); expire(); return true;
     }
-    function clear() { cancelLeave(); for (const id of [...visible.keys()]) removePopup(id); seen.clear(); sync([]); close(); }
-    listen(bell, 'pointerenter', show); listen(bell, 'pointerleave', scheduleClose);
-    listen(panel, 'pointerenter', cancelLeave); listen(panel, 'pointerleave', scheduleClose);
-    listen(bell, 'focusin', () => { if (!restoringFocus) show(); }); listen(bell, 'focusout', scheduleClose); listen(panel, 'focusin', cancelLeave); listen(panel, 'focusout', scheduleClose);
-    listen(bell, 'click', () => { if (pinned) close(); else { pinned = true; show(); } });
-    listen(bell, 'keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); pinned = true; show(); panel.focus(); } });
+    function clear() { for (const id of [...visible.keys()]) removePopup(id); seen.clear(); sync([]); close(); }
+    listen(bell, 'click', () => { if (opened) close(); else show(); });
+    listen(bell, 'keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); show(); panel.focus(); } });
     listen(document, 'keydown', event => { if (event.key === 'Escape' && opened) { event.preventDefault(); close(true); } });
     listen(document, 'pointerdown', event => { if (opened && !bell.contains(event.target) && !panel.contains(event.target)) close(); });
     close();
-    return Object.freeze({sync, popup, open: () => { pinned = true; show(); }, close, clear,
+    return Object.freeze({sync, popup, open: show, close, clear,
       destroy: () => { clear(); listeners.forEach(remove => remove()); stack.remove(); }});
   }
   window.VumiroNotificationCenter = Object.freeze({create, normalize});

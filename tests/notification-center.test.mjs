@@ -38,8 +38,12 @@ test('notification identity is text, external avatars are rejected, and the inbo
   assert.equal(h.count.textContent,'64');
   body.dispatch('click');assert.deepEqual(h.opened,['event-0']);
 });
-test('bell supports hover, pinned click, Escape and focus restoration',()=>{
-  const h=harness();h.bell.dispatch('pointerenter');assert.equal(h.panel.attributes['aria-hidden'],'false');
+test('bell opens only through explicit activation and Escape restores focus without reopening',()=>{
+  const h=harness();h.bell.dispatch('pointerenter');assert.equal(h.panel.attributes['aria-hidden'],'true');
+  h.bell.focus();assert.equal(h.panel.attributes['aria-hidden'],'true');
+  h.bell.dispatch('click');assert.equal(h.panel.attributes['aria-hidden'],'false');
+  h.bell.dispatch('pointerleave');assert.equal(h.timers.size,0);
+  h.bell.dispatch('click');assert.equal(h.panel.attributes['aria-hidden'],'true');
   h.bell.dispatch('click');h.document.dispatch('keydown',{key:'Escape',preventDefault(){}});
   assert.equal(h.panel.attributes['aria-hidden'],'true');assert.equal(h.document.activeElement,h.bell);
   h.bell.dispatch('keydown',{key:'ArrowDown',preventDefault(){}});assert.equal(h.panel.attributes['aria-hidden'],'false');
