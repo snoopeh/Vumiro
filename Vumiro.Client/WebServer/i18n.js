@@ -1672,7 +1672,10 @@
     "Nudge delivered.": "Nudge delivered.",
     "You received a nudge.": "You received a nudge.",
     "Preview shake": "Preview shake",
-    "Preview silent glow": "Preview silent glow"
+    "Preview silent glow": "Preview silent glow",
+    "Chat and people width": "Chat and people width",
+    "Signing you in…": "Signing you in…",
+    "Opening your lobby.": "Opening your lobby."
   },
   "es": {
     "Welcome to Vumiro": "Bienvenido a Vumiro",
@@ -3344,7 +3347,10 @@
     "Nudge delivered.": "Toque entregado.",
     "You received a nudge.": "Recibiste un toque.",
     "Preview shake": "Probar sacudida",
-    "Preview silent glow": "Probar brillo silencioso"
+    "Preview silent glow": "Probar brillo silencioso",
+    "Chat and people width": "Ancho del chat y participantes",
+    "Signing you in…": "Iniciando sesión…",
+    "Opening your lobby.": "Abriendo tu sala principal."
   },
   "pt-BR": {
     "Welcome to Vumiro": "Bem-vindo ao Vumiro",
@@ -5016,7 +5022,10 @@
     "Nudge delivered.": "Toque entregue.",
     "You received a nudge.": "Você recebeu um toque.",
     "Preview shake": "Testar sacudida",
-    "Preview silent glow": "Testar brilho silencioso"
+    "Preview silent glow": "Testar brilho silencioso",
+    "Chat and people width": "Largura do chat e participantes",
+    "Signing you in…": "Entrando na sua conta…",
+    "Opening your lobby.": "Abrindo seu lobby."
   },
   "ja": {
     "Welcome to Vumiro": "Vumiroへようこそ",
@@ -6688,7 +6697,10 @@
     "Nudge delivered.": "呼びかけが届きました。",
     "You received a nudge.": "呼びかけが届きました。",
     "Preview shake": "揺れをプレビュー",
-    "Preview silent glow": "光の通知をプレビュー"
+    "Preview silent glow": "光の通知をプレビュー",
+    "Chat and people width": "チャットと参加者の幅",
+    "Signing you in…": "サインイン中…",
+    "Opening your lobby.": "ロビーを開いています。"
   },
   "zh-CN": {
     "Welcome to Vumiro": "欢迎使用Vumiro",
@@ -8360,7 +8372,10 @@
     "Nudge delivered.": "提醒已送达。",
     "You received a nudge.": "你收到了一条提醒。",
     "Preview shake": "预览抖动",
-    "Preview silent glow": "预览静音光晕"
+    "Preview silent glow": "预览静音光晕",
+    "Chat and people width": "聊天和成员面板宽度",
+    "Signing you in…": "正在登录…",
+    "Opening your lobby.": "正在打开大厅。"
   },
   "ru": {
     "Welcome to Vumiro": "Добро пожаловать в Vumiro",
@@ -10032,7 +10047,10 @@
     "Nudge delivered.": "Сигнал доставлен.",
     "You received a nudge.": "Вы получили сигнал.",
     "Preview shake": "Просмотр тряски",
-    "Preview silent glow": "Просмотр тихого свечения"
+    "Preview silent glow": "Просмотр тихого свечения",
+    "Chat and people width": "Ширина чата и списка участников",
+    "Signing you in…": "Вход в аккаунт…",
+    "Opening your lobby.": "Открываем главное меню."
   }
 };
   const locales = Object.freeze([

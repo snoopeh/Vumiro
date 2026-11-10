@@ -57,6 +57,13 @@ test('six complete catalogs have identical keys and parameters',()=>{
     }
   }
 });
+test('chat resize and authenticated entry copy are available in all six languages',()=>{
+  const {api}=load();
+  for(const {code} of api.locales)for(const key of ['Chat and people width','Signing you in…','Opening your lobby.']){
+    assert.ok(Object.hasOwn(api.catalogs[code],key),`${code}: ${key}`);
+    if(code!=='en')assert.notEqual(api.catalogs[code][key],key);
+  }
+});
 test('language choice survives device preference changes and unavailable storage',()=>{
   const {api,values}=load();assert.ok(api);api.setLocale('ru');assert.equal(values.get('vumiro.locale'),'ru');
   assert.equal(api.t('Sign in'),'Войти');assert.equal(api.setLocale('nonsense'),'en');
