@@ -325,8 +325,54 @@
   async function accountRequest(method,body,tokenOverride,path='/api/v1/account/data') {
     const token=tokenOverride||await accessToken();
     if(!deviceToken)await enrollDevice(token);
-    try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1'}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
+    try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1',...(authConfig?.profileMediaEnabled===true?{'X-Vumiro-Profile-Media':'1'}:{})}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
     catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
+  }
+  async function coverRequest(method, manifest, blob) {
+    if(authConfig?.profileMediaEnabled!==true)throw Error('Private high-resolution cover backup is not enabled on this service yet.');
+    const tools=window.VumiroCoverMedia;if(!tools)throw Error('Reload Vumiro to restore high-resolution covers.');tools.validateManifest(manifest);
+    const token=await accessToken();if(!deviceToken)await enrollDevice(token);
+    const headers={Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,'X-Vumiro-Profile-Cards':'1','X-Vumiro-Profile-Media':'1'};
+    if(method==='POST'){headers['Content-Type']=manifest.mime;headers['X-Vumiro-Cover-Manifest']=JSON.stringify(manifest);}
+    const controller=new AbortController();let reader=null,timedOut=false;
+    const timeoutError=()=>Error('Cover transfer timed out. Your local cover is unchanged. Try again.');
+    let rejectDeadline;
+    const deadline=new Promise((_,reject)=>{rejectDeadline=reject;});
+    const timer=setTimeout(()=>{
+      timedOut=true;rejectDeadline(timeoutError());controller.abort();
+      if(reader)void reader.cancel().catch(()=>{});
+    },20000);
+    const bounded=promise=>Promise.race([promise,deadline]);
+    try {
+      const response=await bounded(fetch(`${accountService}/api/v1/account/cover${method==='GET'?'/'+manifest.revision:''}`,{method,headers,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error',...(blob?{body:blob}:{})}));
+      if(!response.ok){let data={};try{data=await bounded(response.json());}catch(error){if(timedOut)throw error;}const error=Error(authError(data));error.status=response.status;if(response.status===401||response.status===403){session=null;deviceToken='';active=false;await secureStore?.delete?.();render();}throw error;}
+      if(method==='POST')return await bounded(response.json());
+      if(Number(response.headers.get('Content-Length'))>tools.MAX_BYTES)throw Error('The downloaded cover exceeds its size limit.');
+      reader=response.body?.getReader();let result;
+      if(reader){const chunks=[];let count=0;while(true){const part=await bounded(reader.read());if(part.done)break;count+=part.value.byteLength;if(count>tools.MAX_BYTES)throw Error('The downloaded cover exceeds its size limit.');chunks.push(part.value);}result=new Blob(chunks,{type:response.headers.get('Content-Type')?.split(';')[0]||''});}
+      else result=await bounded(response.blob());
+      await bounded(tools.validateBlob(manifest,result));return result;
+    } catch(error) {
+      controller.abort();if(reader)void reader.cancel().catch(()=>{});
+      if(timedOut)throw timeoutError();throw error;
+    } finally {
+      clearTimeout(timer);if(reader)reader.releaseLock();
+    }
+  }
+
+  async function coverSnapshotForUpload(value) {
+    const cover=value.profile.cover;if(!cover)return value;
+    if(authConfig?.profileMediaEnabled!==true){const copy={...value,profile:{...value.profile}};delete copy.profile.cover;return copy;}
+    // Staging can expire after a failed CAS or disappear after another device replaces
+    // this revision. A page-lifetime cache cannot prove the server still has it.
+    // Re-stage idempotently before every snapshot that references finished media.
+    // This repeats at most 1 MiB per sync; optimize only with verified server state.
+    const blob=await window.VumiroLocalProfile.coverBlob(cover.digest);if(!blob)throw Error('The cover changed during backup. Try again.');
+    await window.VumiroCoverMedia.validateBlob(cover,blob,value.profile.banner);
+    const result=await coverRequest('POST',cover,blob);
+    window.VumiroCoverMedia.validateManifest(result.cover);
+    if(Object.keys(cover).some(key=>result.cover[key]!==cover[key]))throw Error('The service did not confirm the finished cover.');
+    return value;
   }
   function readSettings() {
     try { const value=JSON.parse(localStorage.getItem('vumiro-stream-settings')||'{}'); return value&&typeof value==='object'&&!Array.isArray(value)?value:{}; } catch { return {}; }
@@ -340,6 +386,8 @@
   }
   async function restore(data) {
     validateSnapshot(data);
+    let restoredCover;
+    if(data.profile.cover){const blob=await coverRequest('GET',data.profile.cover);await window.VumiroCoverMedia.validateBlob(data.profile.cover,blob,data.profile.banner||'');restoredCover={manifest:data.profile.cover,blob,banner:data.profile.banner||'',source:null,crop:null};}
     if(data.identityRecovery){
       if(!window.VumiroIdentityRecovery)throw Error('This app version cannot restore the encrypted account identity. Update Vumiro and try again.');
       await window.VumiroIdentityRecovery.validateEnvelope(data.identityRecovery);
@@ -365,7 +413,7 @@
     try {
       localStorage.setItem('vumiro-stream-settings',JSON.stringify(data.settings));
       if(typeof data.privacyNoticeAcceptedAt==='string'&&data.privacyNoticeAcceptedAt)writeNoticeAck(data.privacyNoticeAcceptedAt,data.privacyNoticeVersion);
-      await window.VumiroLocalProfile.applyAccountSnapshot(data);
+      await window.VumiroLocalProfile.applyAccountSnapshot(data,restoredCover);
       dispatchEvent(new StorageEvent('storage',{key:'vumiro-stream-settings',newValue:JSON.stringify(data.settings)}));
       try { await saveAcknowledged(await snapshot()); } catch {}
     } catch(error) {
@@ -376,7 +424,8 @@
   }
   function validateSnapshot(data) {
     if(!data||data.version!==1||!data.profile||typeof data.profile!=='object'||!Array.isArray(data.friends)||data.friends.length>128||!Array.isArray(data.blocked)||data.blocked.length>64||!data.settings||typeof data.settings!=='object'||Array.isArray(data.settings))throw Error('The saved account data is invalid.');
-    if(Array.isArray(data.profile)||Object.keys(data.profile).some(key=>!['name','username','avatar','bio','banner','connections'].includes(key)))throw Error('The saved profile is invalid.');
+    if(Array.isArray(data.profile)||Object.keys(data.profile).some(key=>!['name','username','avatar','bio','banner','connections','cover'].includes(key)))throw Error('The saved profile is invalid.');
+    if(data.profile.cover){if(!window.VumiroCoverMedia)throw Error('High-resolution covers are unavailable in this app.');window.VumiroCoverMedia.validateManifest(data.profile.cover);}
     for(const [field,validator] of [['bio','validateBio'],['banner','validateBanner'],['connections','validateConnections']]) {
       if(Object.hasOwn(data.profile,field)) {
         const validate=window.VumiroLocalProfile?.[validator];
@@ -420,8 +469,8 @@
       writeNoticeAck(new Date().toISOString());
     }
     if(replaceLatest){const remote=await accountRequest('GET');accountRevision=remote.revision||0;}
-    const local=await snapshot();const result=await accountRequest('PUT',{snapshot:local,expectedRevision:accountRevision});
-    accountRevision=result.revision;active=true;await saveAcknowledged(local);status('This device is backed up. Changes will sync automatically while Vumiro is open.');
+    const local=await snapshot(),wire=await coverSnapshotForUpload(local);const result=await accountRequest('PUT',{snapshot:wire,expectedRevision:accountRevision});
+    accountRevision=result.revision;active=true;await saveAcknowledged(local);status(local.profile.cover&&authConfig?.profileMediaEnabled!==true?'Profile backed up. High-resolution covers still stay on this device and share directly with updated friends; private cover backup is not enabled on the service yet.':'This device is backed up. Only the finished cover is backed up; the editable original stays on this device. Changes will sync automatically while Vumiro is open.');
   }
   async function enableIdentityRecovery(password) {
     if(identityRecovery)return upload(true);
@@ -533,6 +582,7 @@
       const data=await accountRequest('GET');
       remote={version:1,exportedAt:new Date().toISOString(),account:data.account||{},data:data.data||null,sync:{revision:data.revision||0,updatedAt:data.updatedAt||null},devices:data.devices||[],currentDevice:data.currentDevice||deviceId,noticeRecords:data.noticeRecords||[]};
     }
+    if(remote.data?.profile?.cover){const manifest=remote.data.profile.cover,blob=await coverRequest('GET',manifest);const bytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));remote.finishedCover={manifest,dataUrl:`data:${manifest.mime};base64,${btoa(binary)}`};}
     const content=JSON.stringify(remote,null,2);
     const url=URL.createObjectURL(new Blob([content],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download='vumiro-account-export.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     status('Your account data export was downloaded.');

@@ -15,6 +15,10 @@ internal static class Program
         int start = source.IndexOf("async function resizeBanner(", StringComparison.Ordinal);
         int end = source.IndexOf("$('bannerFile').onchange", start, StringComparison.Ordinal);
         string encoder = source.Substring(start, end - start);
+        encoder = File.ReadAllText(Path.Combine(root, "Vumiro.Client/WebServer/profile-cover.js")) + "\n" +
+            File.ReadAllText(Path.Combine(root, "Vumiro.Client/WebServer/profile-crop.js")) + "\n" +
+            File.ReadAllText(Path.Combine(root, "Vumiro.Client/WebServer/cover-editor.js")) + "\n" +
+            File.ReadAllText(Path.Combine(root, "Vumiro.Client/WebServer/local-profile.js")).Split(new[] { "/* Local voice preferences" }, StringSplitOptions.None)[0] + "\n" + encoder;
         string fixtures = File.ReadAllText(Path.Combine(root, "tests/CoverEncodingChecks/fixtures.js"));
         // Separate ephemeral browser data: never open the installed or LOCAL QA profile.
         string data = Path.Combine(Path.GetTempPath(), "vumiro-cover-check-" + Guid.NewGuid().ToString("N"));
@@ -46,7 +50,8 @@ internal static class Program
                         if (!navigation.IsSuccess) { Console.Error.WriteLine("Test document failed to load."); form.Close(); return; }
                         await web.CoreWebView2.ExecuteScriptAsync(encoder + "\n" + fixtures);
                     };
-                    web.NavigateToString("<!doctype html><meta charset='utf-8'><title>Vumiro cover encoder checks</title>");
+                    web.CoreWebView2.SetVirtualHostNameToFolderMapping("cover-tests.local", root, CoreWebView2HostResourceAccessKind.DenyCors);
+                    web.CoreWebView2.Navigate("https://cover-tests.local/tests/CoverEncodingChecks/host.html");
                     timeout.Start();
                 } catch (Exception error) { Console.Error.WriteLine(error); form.Close(); }
             };

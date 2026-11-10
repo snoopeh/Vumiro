@@ -125,7 +125,7 @@ test('an active peer replacement error remains observable to the microphone roll
  await assert.rejects(app.replaceTracks(),/device rejected/);
 });
 test('saved data-channel callbacks cannot announce or clear chat for a departed peer',()=>{
- const app={peers:new Map(),Date,announce:()=>assert.fail('late announcement'),clearPeerChat:()=>assert.fail('late chat cleanup')};vm.createContext(app);vm.runInContext(section('  function dataChannel(','  // One bounded recovery cycle'),app);
+ const app={window:{},peers:new Map(),Date,announce:()=>assert.fail('late announcement'),clearPeerChat:()=>assert.fail('late chat cleanup')};vm.createContext(app);vm.runInContext(section('  function dataChannel(','  // One bounded recovery cycle'),app);
  const peer={id:'gone'},channel={close(){}};app.dataChannel(peer,channel);channel.onopen();channel.onclose();
 });
 test('Stop sharing clears every track even when one stop and native cleanup fail',async()=>{

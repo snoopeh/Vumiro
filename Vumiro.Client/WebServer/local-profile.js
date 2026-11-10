@@ -134,12 +134,20 @@
     if ('bio' in update) patch.bio = cleanBio(update.bio);
     if ('banner' in update) patch.banner = cleanBanner(update.banner);
     if ('connections' in update) patch.connections = cleanConnections(update.connections);
+    const expectedId=identity.id;
+    const coverEdit = Object.hasOwn(update, 'coverMedia');
+    const cover = coverEdit && update.coverMedia ? await validatedOwnCover(update.coverMedia, patch.banner ?? identity.banner ?? '',expectedId) : null;
+    if(identity?.id!==expectedId)throw Error('The local identity changed before the cover was saved.');
     let candidate;
     await transaction('state', 'readwrite', (store, tx) => {
       const request = store.get('profile');
       request.onsuccess = () => {
-        if (!request.result || request.result.id !== identity.id) { tx.abort(); return; }
-        candidate = {...request.result, ...patch}; store.put(candidate, 'profile');
+        if (!request.result || request.result.id !== expectedId || identity?.id!==expectedId) { tx.abort(); return; }
+        candidate = {...request.result, ...patch};
+        if (cover && cover.banner !== (candidate.banner || '')) { tx.abort(); return; }
+        store.put(candidate, 'profile');
+        if (coverEdit) { if (cover) store.put(cover, 'profile-cover'); else store.delete('profile-cover'); }
+        else if ('banner' in patch && patch.banner !== (request.result.banner || '')) store.delete('profile-cover');
       };
     });
     identity = candidate; profileChanged(); return publicProfile();
@@ -314,7 +322,7 @@
     const alias = nickname?.trim() ? cleanName(nickname) : '';
     await transaction('friends', 'readwrite', store => { const request = store.get(id); request.onsuccess = () => { if (request.result) store.put({...request.result, nickname: alias || request.result.name, nicknameOverride: !!alias}); }; }); changed();
   }
-  async function removeFriend(id) { await transaction('friends', 'readwrite', store => store.delete(id)); changed(); }
+  async function removeFriend(id) { await transaction('friends', 'readwrite', store => store.delete(id)); await transaction('state','readwrite',store=>deleteCachedCover(store,id)); changed(); }
   async function listBlocked() { return await transaction('state', 'readonly', store => store.get('blocked-ids')) || []; }
   async function blockContact(id) {
     if (!/^[A-Za-z0-9_-]{43}$/.test(id || '') || id === identity?.id) throw Error('Invalid contact identity.');
@@ -322,15 +330,69 @@
     await transaction('state', 'readwrite', store => store.put(ids, 'blocked-ids')); await removeFriend(id);
   }
   async function unblockContact(id) { const ids = (await listBlocked()).filter(value => value !== id); await transaction('state', 'readwrite', store => store.put(ids, 'blocked-ids')); changed(); }
+  const coverTools = () => { if (!window.VumiroCoverMedia) throw Error('High-resolution covers are unavailable. Reload Vumiro.'); return window.VumiroCoverMedia; };
+  async function validatedOwnCover(value, banner, owner=identity.id) {
+    const tools = coverTools(), manifest = await tools.validateBlob(value.manifest, value.blob, banner);
+    if (value.banner !== undefined && value.banner !== banner) throw Error('The cover preview changed before saving.');
+    const source = value.source || null, crop = value.crop || null;
+    if (source && (!(source instanceof Blob) || source.size > 10*1024*1024 || !['image/png','image/jpeg','image/webp'].includes(source.type))) throw Error('The editable cover source is invalid.');
+    if (crop && (!source || !['x','y','width','height'].every(key => Number.isFinite(crop[key])) || crop.x < 0 || crop.y < 0 || crop.width <= 0 || crop.height <= 0)) throw Error('The saved cover crop is invalid.');
+    return {owner, manifest, blob:value.blob, banner, source, crop};
+  }
+  async function getCover(id, banner) {
+    if (!identity || typeof id !== 'string' || !banner) return null;
+    const own = id === identity.id;
+    const record = await transaction('state','readonly',store=>store.get(own?'profile-cover':'cover-cache:'+id));
+    if (!record || record.owner !== id || record.banner !== banner || record.blob?.size !== record.manifest?.bytes) return null;
+    try { coverTools().validateManifest(record.manifest); } catch { return null; }
+    if (own && identity?.id !== id) return null;
+    return record;
+  }
+  async function coverManifest() { return identity ? (await getCover(identity.id, identity.banner || ''))?.manifest || null : null; }
+  async function coverBlob(digest,id=identity?.id) { if(!identity||!id)return null;const value=await transaction('state','readonly',store=>store.get(id===identity.id?'profile-cover':'cover-cache:'+id));return value?.owner===id&&value.manifest?.digest===digest?value.blob:null; }
+  function deleteCachedCover(store, id) {
+    store.delete('cover-cache:'+id);
+    const request=store.get('cover-cache-index');
+    request.onsuccess=()=>store.put((request.result||[]).filter(item=>item.id!==id),'cover-cache-index');
+  }
+  async function removeCachedCover(id, banner) {
+    if (!identity || id === identity.id) return;
+    await transaction('state','readwrite',store=>{const request=store.get('cover-cache:'+id);request.onsuccess=()=>{if(!request.result || request.result.banner!==banner)deleteCachedCover(store,id);};});
+  }
+  async function receiveCover(id, manifest, blob) {
+    if (!identity || id === identity.id) return false;
+    const ownId=identity.id, friend=(await listFriends()).find(value=>value.id===id);
+    if (!friend?.banner) return false;
+    const banner=friend.banner; await coverTools().validateBlob(manifest,blob,banner);
+    const db=await open(); let saved=false;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(['state','friends'],'readwrite'),state=tx.objectStore('state'),friends=tx.objectStore('friends');
+      tx.oncomplete=resolve;tx.onabort=tx.onerror=()=>reject(tx.error||Error('Could not cache the cover.'));
+      const request=friends.get(id);request.onsuccess=()=>{
+        if(identity?.id!==ownId||!request.result||request.result.key!==friend.key||request.result.banner!==banner)return;
+        const indexRequest=state.get('cover-cache-index');indexRequest.onsuccess=()=>{
+          const entries=(indexRequest.result||[]).filter(item=>item.id!==id);
+          entries.push({id,bytes:blob.size});
+          let total=entries.reduce((sum,item)=>sum+item.bytes,0);
+          while(entries.length>32||total>16*1024*1024){const old=entries.shift();total-=old.bytes;state.delete('cover-cache:'+old.id);}
+          state.put({owner:id,manifest,blob,banner},'cover-cache:'+id);state.put(entries,'cover-cache-index');saved=true;
+        };
+      };
+    });
+    if(saved)dispatchEvent(new CustomEvent('vumiro-cover-changed',{detail:{id}}));return saved;
+  }
   async function accountSnapshot() {
     if (!identity) throw Error('Create a local profile before syncing account data.');
     const friends = (await listFriends()).map(friend => ({id:friend.id,key:friend.key,name:friend.name,username:friend.username||'',avatar:'',nickname:friend.nicknameOverride?friend.nickname:''}));
-    return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||'',...cardFields(identity)},friends,blocked:await listBlocked(),settings:{}};
+    const cover=await coverManifest();
+    return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||'',...cardFields(identity),...(cover?{cover}:{})},friends,blocked:await listBlocked(),settings:{}};
   }
-  async function applyAccountSnapshot(snapshot) {
+  async function applyAccountSnapshot(snapshot, restoredCover = undefined) {
     if (!identity) throw Error('Create a local profile before restoring account data.');
     if (!snapshot || snapshot.version !== 1 || !snapshot.profile || !Array.isArray(snapshot.friends) || snapshot.friends.length > 128 || !Array.isArray(snapshot.blocked) || snapshot.blocked.length > 64) throw Error('The saved account data is invalid.');
-    if(Object.keys(snapshot.profile).some(key=>!['name','username','avatar','bio','banner','connections'].includes(key)))throw Error('The saved profile is invalid.');
+    if(Object.keys(snapshot.profile).some(key=>!['name','username','avatar','bio','banner','connections','cover'].includes(key)))throw Error('The saved profile is invalid.');
+    const restored = restoredCover ? await validatedOwnCover(restoredCover, snapshot.profile.banner || '') : null;
+    if (snapshot.profile.cover && (!restored || Object.keys(restored.manifest).some(key=>restored.manifest[key]!==snapshot.profile.cover[key]))) throw Error('Download the finished high-resolution cover before restoring this profile.');
     const profilePatch={name:cleanName(snapshot.profile.name),username:cleanUsername(snapshot.profile.username||''),avatar:cleanAvatar(snapshot.profile.avatar||''),...cardFields(snapshot.profile)};
     if(snapshot.blocked.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id))||new Set(snapshot.blocked).size!==snapshot.blocked.length)throw Error('The saved block list is invalid.');
     // A snapshot can contain this installation's current identity when it was
@@ -361,6 +423,10 @@
         try {
           if(!req.result||req.result.id!==identity.id)throw Error('The local identity changed during restore.');
           candidate={...req.result,...profilePatch};state.put(candidate,'profile');
+          if(restored) {
+            const old=state.get('profile-cover');old.onsuccess=()=>state.put(old.result?.owner===identity.id&&old.result.manifest?.digest===restored.manifest.digest?{...restored,source:old.result.source,crop:old.result.crop}:restored,'profile-cover');
+          } else if(profilePatch.banner!==(req.result.banner||''))state.delete('profile-cover');
+          const cache=state.get('cover-cache-index');cache.onsuccess=()=>{for(const item of cache.result||[])state.delete('cover-cache:'+item.id);state.delete('cover-cache-index');};
           friends.clear();for(const friend of wanted.values())friends.put(friend);
           state.put(blocked,'blocked-ids');
         } catch(error) {failure=error;tx.abort();}
@@ -446,7 +512,7 @@
     changed();return next;
   }
   const identityTransition=()=>identity?.transition||null;
-  window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar, validateBio: cleanBio, validateBanner: cleanBanner, validateConnections: cleanConnections};
+  window.VumiroLocalProfile = {getCover, coverManifest, coverBlob, receiveCover, removeCachedCover, initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar, validateBio: cleanBio, validateBanner: cleanBanner, validateConnections: cleanConnections};
 })();
 
 /* Local diagnostics: bounded technical events only; never account or media content. */

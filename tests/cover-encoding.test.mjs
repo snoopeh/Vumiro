@@ -82,7 +82,7 @@ test('new selection, removal, or dismissal cancels in-flight encoding and releas
   let current=true;const h=harness({encode:()=>{current=false;return {size:1000};}});
   await assert.rejects(h.resize(input,()=>current),/selection changed/);assert.equal(h.counts().validates,0);assert.equal(h.counts().closed,1);assert.equal(h.calls.length,1);
   const stale=harness();await assert.rejects(stale.resize(input,()=>false),/selection changed/);assert.equal(stale.counts().decodes,0);
-  assert.match(source,/resizeBanner\(file,\(\)=>version===bannerSelection\)/);
+  assert.match(source,/thumbnailer:blob=>resizeBanner\(blob,isCurrent\),isCurrent/);
 });
 test('a transient encoding failure at large size does not disable smaller attempts',async()=>{
   const h=harness({encode:({width,type})=>width>960?null:{size:type==='image/png'?1000:20000}});

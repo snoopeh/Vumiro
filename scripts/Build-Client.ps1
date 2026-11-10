@@ -74,6 +74,8 @@ try {
     if (!$loader) { throw 'x64 WebView2 loader is missing.' }
     Copy-Item -LiteralPath $loader.FullName -Destination (Join-Path $source 'WebView2Loader.dll')
     Copy-Item -LiteralPath (Join-Path $build 'WebServer') -Destination $source -Recurse
+    & node (Join-Path $PSScriptRoot 'bundle-client-web.mjs') (Join-Path $source 'WebServer')
+    if ($LASTEXITCODE -ne 0) { throw 'Client web module bundling failed.' }
     Copy-Item COPYING, THIRD-PARTY.md -Destination $source
     Copy-Item docs/CLIENT.md -Destination (Join-Path $source 'README.md')
     Copy-Item docs/PRIVACY.md -Destination (Join-Path $source 'PRIVACY.md')

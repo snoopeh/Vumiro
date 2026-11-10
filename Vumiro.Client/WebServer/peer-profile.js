@@ -16,7 +16,7 @@
     function close(peer) {
       if (peers.get(peer.id) !== peer) return;
       const refresh = peer.refreshRequested && known(peer.id) && identity().id < peer.id;
-      peers.delete(peer.id); clearTimeout(peer.timeout); clearTimeout(peer.finish);
+      peers.delete(peer.id); peer.cover?.dispose(); clearTimeout(peer.timeout); clearTimeout(peer.finish);
       peer.channel?.close(); peer.pc.onicecandidate = peer.pc.ondatachannel = peer.pc.onconnectionstatechange = null; peer.pc.close();
       if (refresh) waiting.add(peer.id);
       pump();
@@ -60,16 +60,17 @@
         const value = {type:'profile',id:own.id,key:own.key,nonce:crypto.randomUUID(),expires:serverNow()+60000,profile:{name:own.name,username:own.username||'',avatar:own.avatar||'',bio:own.bio||'',banner:own.banner||'',connections:own.connections||[]}};
         value.signature = await local.sign(profileText(own.id,peer.id,value));
         if (!active(peer)) return;
-        if (channelSend(peer,value)) { peer.sent = value.nonce; peer.acknowledged = false; peer.profileSent = ticket; clearTimeout(peer.finish); peer.finish = 0; }
+        if (channelSend(peer,value)) { peer.sent = value.nonce; peer.acknowledged = false; peer.profileSent = ticket; clearTimeout(peer.finish); peer.finish = 0; void peer.cover?.announce(); }
       });
       return peer.profiles;
     }
     function finish(peer) {
-      if (peer.received && peer.acknowledged && peer.profileSent === peer.profileRequested && !peer.finish) peer.finish = setTimeout(() => { if (active(peer)) close(peer); },250);
+      if (!peer.cover?.busy() && peer.received && peer.acknowledged && peer.profileSent === peer.profileRequested && !peer.finish) peer.finish = setTimeout(() => { if (active(peer)) close(peer); },250);
     }
     async function data(peer,text) {
       if (!active(peer) || typeof text !== 'string' || encoder.encode(text).length > 65536) return;
       const value = JSON.parse(text);
+      if (peer.cover?.receive(value)) return;
       if (value?.type === 'received' && value.nonce === peer.sent) { peer.acknowledged = true; finish(peer); return; }
       const friend = getFriend(peer.id), own = identity();
       if (value?.type !== 'profile' || value.id !== peer.id || value.key !== friend?.key || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires <= serverNow() || value.expires > serverNow()+60000 || !value.profile || typeof value.profile !== 'object' || Array.isArray(value.profile)) return;
@@ -81,13 +82,22 @@
       if (!await local.verify(friend,profileText(peer.id,own.id,value),value.signature) || !active(peer) || getFriend(peer.id)?.key !== friend.key || value.expires <= serverNow()) return;
       await onProfile(peer.id,{name:profile.name,username:profile.username,avatar:profile.avatar,bio,banner,connections});
       if (!active(peer)) return;
+      await peer.cover?.profileReceived(banner);
+      if (!active(peer)) return;
       peer.received = true; channelSend(peer,{type:'received',nonce:value.nonce}); finish(peer);
     }
     function channel(peer,value) {
       if (peer.channel || value.label !== 'vumiro-profile') { value.close(); return; }
       peer.channel = value;
-      value.onopen = () => ownProfile(peer).catch(() => close(peer));
-      value.onmessage = event => { peer.data = peer.data.then(() => data(peer,event.data)).catch(() => close(peer)); };
+      peer.cover = window.VumiroCoverTransfer?.create({local,own:identity,remoteId:peer.id,friend:()=>getFriend(peer.id),send:message=>channelSend(peer,message),active:()=>active(peer)&&value.readyState==='open',buffered:()=>value.bufferedAmount,onBusy:busy=>{if(busy){clearTimeout(peer.finish);peer.finish=0;if(!peer.coverTimeout){peer.coverTimeout=true;clearTimeout(peer.timeout);peer.timeout=setTimeout(()=>close(peer),35000);}}else if(active(peer))finish(peer);}});
+      value.onopen = () => { peer.cover?.start(); ownProfile(peer).catch(() => close(peer)); };
+      peer.dataPending=0;peer.dataWindow=Date.now();peer.dataCount=0;
+      value.onmessage = event => {
+        if(!active(peer)||typeof event.data!=='string'||event.data.length>65536||encoder.encode(event.data).length>65536)return;
+        const now=Date.now();if(now-peer.dataWindow>10000){peer.dataWindow=now;peer.dataCount=0;}
+        if(++peer.dataCount>260||peer.dataPending>=100){close(peer);return;}
+        peer.dataPending++;peer.data=peer.data.then(()=>data(peer,event.data)).catch(()=>close(peer)).finally(()=>{peer.dataPending--;});
+      };
       value.onclose = () => { if (active(peer)) close(peer); };
       value.onerror = () => { if (active(peer)) close(peer); };
     }

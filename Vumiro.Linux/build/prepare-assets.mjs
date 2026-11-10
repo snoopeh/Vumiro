@@ -14,6 +14,10 @@ const expectedAssets = [
   'friends.html',
   'auth.html',
   'local-profile.js',
+  'profile-cover.js',
+  'profile-crop.js',
+  'cover-editor.js',
+  'cover-transfer.js',
   'peer-profile.js',
   'account-client.js',
   'identity-recovery.js'

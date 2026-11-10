@@ -86,7 +86,7 @@ test('room profile card renders user text literally and opens validated links sa
     removeAttribute(name){delete this[name];}
   }
   const elements=new Map(),app=profileHarness();
-  const sandbox={$:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},document:{createElement:tag=>new Element(tag)},fallbackAvatar:()=>'<fallback>'};vm.createContext(sandbox);
+  const sandbox={window:{},peers:new Map(),profileViewingId:'', $:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},document:{createElement:tag=>new Element(tag)},fallbackAvatar:()=>'<fallback>'};vm.createContext(sandbox);
   vm.runInContext(functionAt('renderParticipantCard','  function friendStatus('),sandbox);
   sandbox.renderParticipantCard(app.cleanProfile({name:'<img src=x onerror=alert(1)>',bio:'<script>literal text</script>',connections:[{provider:'github',url:'https://github.com/snoopeh'}]}),false);
   assert.equal(elements.get('profileName').textContent,'<img src=x onerror=alert(1)>');

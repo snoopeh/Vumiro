@@ -86,6 +86,7 @@
 
   window.VumiroStreamMosaic = {plan, create};
 })();
+
 /* Vumiro room: signaling-only server, direct WebRTC media. No TURN configuration. */
 (() => {
   'use strict';
@@ -153,7 +154,10 @@
   }
   function renderParticipantCard(profile,isLocal) {
     $('profileName').textContent=profile.name+(isLocal?' (you)':'');$('profileUsername').textContent=profile.username?'@'+profile.username:'';$('profileUsername').hidden=!profile.username;$('profileAvatar').src=profile.avatar||fallbackAvatar(profile.name);
-    $('profileBanner').hidden=!profile.banner;if(profile.banner)$('profileBanner').src=profile.banner;else $('profileBanner').removeAttribute('src');
+    const cover=peers.get(profileViewingId)?.coverImage, banner=cover?.banner===profile.banner?cover.url:profile.banner;
+    if(cover?.banner===profile.banner){window.VumiroCoverMedia?.release($('profileBanner'));$('profileBanner').hidden=!banner;if(banner)$('profileBanner').src=banner;else $('profileBanner').removeAttribute('src');}
+    else if(window.VumiroCoverMedia)void window.VumiroCoverMedia.display($('profileBanner'),profileViewingId,profile.banner,local);
+    else {$('profileBanner').hidden=!banner;if(banner)$('profileBanner').src=banner;else $('profileBanner').removeAttribute('src');}
     $('profileBio').textContent=profile.bio||'';$('profileBio').hidden=!profile.bio;
     const links=$('profileLinks');links.replaceChildren();
     const labels={steam:'Steam',spotify:'Spotify',twitch:'Twitch',youtube:'YouTube',github:'GitHub',xbox:'Xbox'};
@@ -176,7 +180,7 @@
   }
   $('profileClose').onclick=()=>{ clearTimeout(profileRequestTimer);profileRequestId='';$('profilePopover').close(); };
   $('profilePopover').addEventListener('click',event=>{ if(event.target===$('profilePopover')) $('profilePopover').close(); });
-  $('profilePopover').addEventListener('close',()=>{ clearTimeout(profileRequestTimer);profileRequestTimer=0;profileRequestId='';profileViewingId='';profileAddBusy=false; });
+  $('profilePopover').addEventListener('close',()=>{ window.VumiroCoverMedia?.release($('profileBanner'));clearTimeout(profileRequestTimer);profileRequestTimer=0;profileRequestId='';profileViewingId='';profileAddBusy=false; });
   $('profileFriend').onclick=()=>{ const id=profileRequestId;if(!id||profileAddBusy) return;if(!embedded) { location.href=new URL('/friends.html',location.href).href;return; }profileAddBusy=true;$('profileFriend').disabled=true;$('profileFriend').textContent='Sending…';$('profileNote').textContent='';parentMessage({type:'vumiro-add-friend',id});profileRequestTimer=setTimeout(()=>{ if(profileRequestId===id&&profileAddBusy) { profileAddBusy=false;$('profileFriend').disabled=false;$('profileFriend').textContent='Add friend';$('profileNote').textContent='No response from Vumiro. You can try again.'; } },8000); };
   function avatarElement(profile) { const image=document.createElement('img');image.className='avatar';image.alt='';image.src=profile.avatar || fallbackAvatar(profile.name);return image; }
   function fallbackAvatar(name) { const initial=Array.from(String(name || '?').trim())[0] || '?',svg='<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="32" fill="#3b303a"/><text x="32" y="42" font-size="28" text-anchor="middle" fill="#f8dce1" font-family="sans-serif">'+initial.replace(/[<>&"']/g,'')+'</text></svg>';return 'data:image/svg+xml,'+encodeURIComponent(svg); }
@@ -393,11 +397,14 @@
   }
   function showProfile(target,profile,isLocal=false) { target.heading.textContent=profile.name+(isLocal?' (you)':'');target.avatar.hidden=false;target.avatar.src=profile.avatar || fallbackAvatar(profile.name);target.placeholderAvatar.src=target.avatar.src;refreshLayout(); }
   function ownProfile() { return cleanProfile(local.profile?.() || identity); }
-  function announceProfile(peer) { const profile=ownProfile();if(profile) channelSend(peer,{type:'profile',profile}); }
+  function announceProfile(peer) { const profile=ownProfile();if(profile&&channelSend(peer,{type:'profile',profile}))void peer.cover?.announce(); }
   async function receiveProfile(peer,value) {
     const profile=cleanProfile(value);if(!profile) return;
+    if(peers.get(peer.id)!==peer)return;
+    if(peer.coverImage?.banner!==profile.banner)clearRoomCover(peer);
     peer.name=profile.name;cacheProfile(peer.id,profile);showProfile(peer.tile,profile);parentMessage({type:'vumiro-peer-profile',id:peer.id,profile});
     try { if(local.updateContactProfile) await local.updateContactProfile(peer.id,profile); } catch { /* A noncontact participant need not be saved. */ }
+    if(peers.get(peer.id)===peer)await peer.cover?.profileReceived(profile.banner);
   }
   function syncSettingsControls() { $('settingFps').value=streamSettings.fps;$('settingMbps').value=streamSettings.mbps;$('settingResolution').value=streamSettings.resolution;$('settingContent').value=streamSettings.contentHint;$('settingAudio').checked=streamSettings.audio;$('settingAudio').disabled=linuxPlatform;$('settingExcludeDiscord').checked=streamSettings.excludeDiscord;$('settingExcludeDiscordLabel').hidden=false;$('settingExcludeDiscord').disabled=!nativeAudioSupported;$('excludeDiscordHelp').hidden=false;$('roomAudioCapability').hidden=nativeAudioSupported;$('roomAudioCapability').textContent=linuxPlatform?'Microphone works on Linux, but system audio capture is not supported in this release.':(nativeAudioReason||'Discord exclusion requires native audio capture on Windows build 20348 or newer. Browser-captured audio cannot filter Discord.'); }
   function videoConstraints() { const value={frameRate:{ideal:requestedFps,max:requestedFps}};if(streamSettings.resolution!=='native') { const height=Number.parseInt(streamSettings.resolution,10);value.height={max:height};value.width={max:Math.round(height*16/9)}; }return value; }
@@ -604,12 +611,15 @@
       try { await sender.setParameters(parameters); } catch { /* Browser retains its negotiated parameters. */ }
     }
   }
+  function clearRoomCover(peer) { if(peer.coverImage){URL.revokeObjectURL(peer.coverImage.url);peer.coverImage=null;} }
   function dataChannel(peer, channel) {
     if(peer.channel && peer.channel!==channel) { channel.close();return; }
     peer.channel=channel;peer.dataWindow=Date.now();peer.dataCount=0;peer.chatWindow=Date.now();peer.chatCount=0;peer.chatHistoryReceived=0;peer.chatPending=0;peer.chatQueue=Promise.resolve();peer.fileWindow=Date.now();peer.fileCount=0;
+    peer.cover?.dispose();peer.coverQueue=Promise.resolve();peer.coverQueued=0;
+    peer.cover=window.VumiroCoverTransfer?.create({local,own:()=>local.profile?.()||identity,remoteId:peer.id,send:value=>channelSend(peer,value),active:()=>peers.get(peer.id)===peer&&channel.readyState==='open',buffered:()=>channel.bufferedAmount+(peer.fileSending?65536:0),onCover:(manifest,blob,banner)=>{if(peers.get(peer.id)!==peer||profileCache.get(peer.id)?.banner!==banner)return;clearRoomCover(peer);peer.coverImage={url:URL.createObjectURL(blob),banner,digest:manifest.digest};if(profileViewingId===peer.id&&$('profilePopover').open)renderParticipantCard(profileCache.get(peer.id),false);}});
     channel.bufferedAmountLowThreshold=32768;channel.onbufferedamountlow=()=>flushChatHistory(peer);
-    channel.onopen=()=>{ if(peers.get(peer.id)!==peer)return;announce(peer);announceProfile(peer);channelSend(peer,{type:'chat-ready',version:2});chatControls();chatLine(peer.name+' connected to direct chat.'); };
-    channel.onclose=()=>{ if(peers.get(peer.id)!==peer)return;clearPeerChat(peer);chatControls();chatLine(peer.name+' disconnected from direct chat.'); };
+    channel.onopen=()=>{ if(peers.get(peer.id)!==peer)return;peer.cover?.start();announce(peer);announceProfile(peer);channelSend(peer,{type:'chat-ready',version:2});chatControls();chatLine(peer.name+' connected to direct chat.'); };
+    channel.onclose=()=>{ if(peers.get(peer.id)!==peer)return;peer.cover?.dispose();clearRoomCover(peer);clearPeerChat(peer);chatControls();chatLine(peer.name+' disconnected from direct chat.'); };
     channel.onerror=()=>chatControls();
     channel.onmessage=event=>{
       if(typeof event.data!=='string' || event.data.length>65536 || encoder.encode(event.data).length>65536 || peers.get(peer.id)!==peer) return;
@@ -617,6 +627,7 @@
       try {
         const state=JSON.parse(event.data);
         if(!state || typeof state!=='object') return;
+        if(typeof state.type==='string'&&state.type.startsWith('cover-')){if(peer.coverQueued>=100)return;peer.coverQueued++;peer.coverQueue=peer.coverQueue.then(()=>{if(peers.get(peer.id)===peer)peer.cover?.receive(state);}).catch(()=>{}).finally(()=>{peer.coverQueued--;});return;}
         if(typeof state.type==='string'&&state.type.startsWith('file-')){if(now-peer.fileWindow>10000){peer.fileWindow=now;peer.fileCount=0;}if(++peer.fileCount>1200)return;receiveChatFile(peer,state);return;}
         if(now-peer.dataWindow>10000) { peer.dataWindow=now;peer.dataCount=0; }if(++peer.dataCount>240) return;
         if(state.type==='chat-ready'&&state.version===2){if(!peer.chatReady){peer.chatReady=true;queueChatHistory(peer);}return;}
@@ -627,7 +638,7 @@
           if((!history&&++peer.chatCount>20)||peer.chatPending>=120)return;
           ++peer.chatPending;const epoch=chatEpoch;peer.chatQueue=peer.chatQueue.then(()=>{if(epoch===chatEpoch&&peers.get(peer.id)===peer)return acceptRoomChat(peer,message,history);}).catch(()=>{}).finally(()=>{--peer.chatPending;});
         } else if(state.type==='profile') {
-          if(!peer.profileWindow || now-peer.profileWindow>10000) { peer.profileWindow=now;peer.profileCount=0; }if(++peer.profileCount<=10) receiveProfile(peer,state.profile);
+          if(!peer.profileWindow || now-peer.profileWindow>10000) { peer.profileWindow=now;peer.profileCount=0; }if(++peer.profileCount<=10){peer.coverQueue=peer.coverQueue.then(()=>receiveProfile(peer,state.profile)).catch(()=>{});}
         } else {if(typeof state.micMuted==='boolean'){peer.tile.micMuted=state.micMuted;peer.tile.muteBadge.hidden=!state.micMuted;refreshLayout();}if(typeof state.sharing==='boolean')peer.tile.show(state.sharing);}
       } catch { /* Ignore malformed direct metadata. */ }
     };
@@ -774,7 +785,7 @@
     if(localTile)safeCleanup(()=>localTile.element.remove());localTile=null;selfId='';
   }
   function removePeer(id) {
-    const peer=peers.get(id);if(!peer)return;peers.delete(id);safeCleanup(()=>peer.recovery?.dispose());
+    const peer=peers.get(id);if(!peer)return;peers.delete(id);safeCleanup(()=>peer.cover?.dispose());safeCleanup(()=>clearRoomCover(peer));safeCleanup(()=>peer.recovery?.dispose());
     for(const name of ['ontrack','onicecandidate','onnegotiationneeded','onconnectionstatechange','oniceconnectionstatechange','ondatachannel'])safeCleanup(()=>{peer.pc[name]=null;});
     if(peer.channel) {
       for(const name of ['onopen','onclose','onerror','onmessage','onbufferedamountlow'])safeCleanup(()=>{peer.channel[name]=null;});

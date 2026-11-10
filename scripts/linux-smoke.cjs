@@ -134,7 +134,7 @@ function install({ app, session }) {
           doc.querySelector('#captureInfo')?.textContent.includes('Choose Share screen or Microphone');
       }, 'direct room entry and packaged call UI');
       check('direct-room');
-      for (const asset of ['/friends.html', '/friends-client.js', '/local-profile.js', '/peer-profile.js', '/account-client.js', '/identity-recovery.js', '/call.html', '/call-client.js']) {
+      for (const asset of ['/friends.html', '/friends-client.js', '/local-profile.js', '/profile-cover.js', '/profile-crop.js', '/cover-editor.js', '/cover-transfer.js', '/peer-profile.js', '/account-client.js', '/identity-recovery.js', '/call.html', '/call-client.js']) {
         if (!assets.has(asset)) throw new Error(`Packaged asset did not load: ${asset}`);
       }
       if (report.rendererErrors.length) throw new Error(`Renderer exception: ${report.rendererErrors[0]}`);
