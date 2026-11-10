@@ -20,11 +20,19 @@ const ASSET_PATHS = new Map([
   ['/friends-client.js', 'text/javascript; charset=utf-8'],
   ['/call.html', 'text/html; charset=utf-8'],
   ['/call-client.js', 'text/javascript; charset=utf-8'],
+  ['/chat-pane.js', 'text/javascript; charset=utf-8'],
+  ['/chat-scrollbar.js', 'text/javascript; charset=utf-8'],
   ['/local-profile.js', 'text/javascript; charset=utf-8'],
   ['/profile-cover.js', 'text/javascript; charset=utf-8'],
   ['/profile-crop.js', 'text/javascript; charset=utf-8'],
   ['/cover-editor.js', 'text/javascript; charset=utf-8'],
   ['/cover-transfer.js', 'text/javascript; charset=utf-8'],
+  ['/notification-center.js', 'text/javascript; charset=utf-8'],
+  ['/settings-drafts.js', 'text/javascript; charset=utf-8'],
+  ['/motion.js', 'text/javascript; charset=utf-8'],
+  ['/nudge.js', 'text/javascript; charset=utf-8'],
+  ['/friend-nudges.js', 'text/javascript; charset=utf-8'],
+  ['/i18n.js', 'text/javascript; charset=utf-8'],
   ['/peer-profile.js', 'text/javascript; charset=utf-8'],
   ['/account-client.js', 'text/javascript; charset=utf-8'],
   ['/identity-recovery.js', 'text/javascript; charset=utf-8']
@@ -633,7 +641,6 @@ async function createWindows() {
   await splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(splashHtml())}`);
   }
   const initialUrl = new URL(`${APP_URL}/friends.html`);
-  if (smoke) initialUrl.searchParams.set('view', 'local');
   initialUrl.searchParams.set('signaling', DEFAULT_SIGNALING);
   initialUrl.searchParams.set('fps', '60');
   initialUrl.searchParams.set('mbps', '20');

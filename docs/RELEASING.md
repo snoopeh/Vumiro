@@ -46,7 +46,7 @@ Fast checks finish before native/package jobs start. Ordinary source pushes do n
 
 - Windows: exact legacy/complete manifests, executable versions, updater compatibility, archive limits, SHA256 manifests, and packaged HTML/JavaScript compared with source.
 - Linux: all three distribution files and hashes; the packaged Electron app starts under Xvfb with disposable storage, blocked network access and denied media permissions.
-- UI smoke: signed-out account gating, synthetic account authentication through the packaged account client, automatic local profile creation, offline contact import, nickname click/edit/save at a narrow width, profile backdrop dismissal, direct room entry, packaged asset loading, and secure-store behavior without saved credentials.
+- UI smoke: signed-out account gating, synthetic account authentication through the packaged account client, automatic local profile creation, offline contact import, inspection-card nickname editing at a narrow width, profile backdrop dismissal, room UI readiness and exit cleanup, packaged resource loading, and secure-store behavior without saved credentials.
 - Before publication: all seven required files must exist; their sizes, hashes, manifests, draft metadata and release-tag source SHA must agree.
 - After publication: verify public metadata, download and hash the complete Windows package and manifests, confirm GitHub's hashes for all files, and check the release discovery endpoints used by Windows and Linux.
 
@@ -71,3 +71,11 @@ xvfb-run -a node scripts/Test-LinuxSmoke.mjs
 The smoke test uses the actual `linux-unpacked/vumiro` executable and `resources/app.asar`, preserves Chromium's sandbox, times out failed startup and removes its disposable profile. It does not use real accounts or capture media. The smoke driver first checks the signed-out account gate and normal empty/unavailable secure-store behavior, then intercepts HTTPS with exact in-process account fixtures and supplies a process-memory native session adapter. The packaged preload, account client and local identity store remain unchanged; synthetic credentials never reach a network or keyring, and unexpected requests remain blocked. Building full distributions still uses `node scripts/Build-Linux.mjs`.
 
 These checks cover startup, packaging and selected regressions. Human QA remains responsible for acceptance, including real accounts, peer connections, screen/audio capture and desktop integration on target systems.
+
+### Keep the Linux smoke aligned with the app
+
+When the smoke fails, review its complete route through the current handlers before rerunning CI: native startup → account gate → sign-in → hydrated lobby → contact card → nickname editor → room handshake → room exit. Check modal stacking, asynchronous readiness and cancellation together. Room UI readiness is separate from a live peer connection; the smoke deliberately blocks external signaling and media capture.
+
+Check the Linux asset allowlist against the packaging list and every script referenced by the three entry pages. A file being bundled or read from disk does not prove that Chromium loaded it. The smoke must reject failed local resource requests, including iframe scripts, and wait for document and resource completion. Use the [Electron debugger API](https://www.electronjs.org/docs/latest/api/debugger) and [DevTools Network events](https://chromedevtools.github.io/devtools-protocol/tot/Network/) for this distinction. Queue debugger commands before the first navigation, then await readiness after navigation so startup can proceed.
+
+Fix all confirmed mismatches in one batch, run the focused contracts locally, then validate the complete packaged flow in CI. Do not remove assertions or repeat the full pipeline to discover one stale selector at a time.

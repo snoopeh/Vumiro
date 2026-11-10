@@ -75,6 +75,69 @@ function smokeFriendCardReady(expectedName) {
   return card?.open===true&&editor?.open!==true&&document.querySelector('#userCardName')?.textContent===expectedName&&!!pencil&&!pencil.hidden&&!pencil.disabled;
 }
 
+function smokeRoomReady() {
+  const frame=document.querySelector('#callFrameSlot iframe'),doc=frame?.contentDocument,child=frame?.contentWindow;
+  const profile=window.VumiroLocalProfile?.profile(),connection=doc?.querySelector('#roomConnection');
+  // The parent reveals the frame only after its source/origin/launchId handshake.
+  // End-of-script controls plus the loaded identity distinguish it from static HTML.
+  return !!profile?.id&&child?.VumiroLocalProfile?.profile()?.id===profile.id&&
+    document.querySelector('#callArea')?.hidden===false&&document.body.classList.contains('room-view')&&
+    document.querySelector('#friendsBody')?.hidden===true&&!document.querySelector('dialog[open]')&&
+    document.querySelector('.roomLaunchSurface')?.hidden===true&&frame.inert===false&&getComputedStyle(frame).visibility==='visible'&&
+    doc.readyState==='complete'&&!!doc.querySelector('#replyPreview')&&typeof child.VumiroRoomConnection?.set==='function'&&
+    connection?.hidden===false&&['joining','reconnecting','error','slow'].includes(connection.dataset.state)&&
+    doc.querySelector('#connectionCancel')?.hidden===false&&doc.querySelector('#connectionCancel')?.disabled===false&&
+    doc.querySelector('main')?.inert===true&&doc.querySelector('.call-dock')?.inert===true&&
+    doc.querySelector('#mic')?.disabled===true&&doc.querySelector('#share')?.disabled===true&&
+    doc.querySelector('#mute')?.hidden===true&&doc.querySelector('#stopShare')?.hidden===true;
+}
+
+function smokeRoomCleanupReady(expectedNickname) {
+  return !document.querySelector('#callFrameSlot iframe')&&document.querySelector('#callArea')?.hidden===true&&
+    !document.body.classList.contains('room-view')&&document.querySelector('#friendsBody')?.hidden===false&&
+    document.querySelector('.roomLaunchSurface')?.hidden===true&&!document.querySelector('dialog[open]')&&
+    window.VumiroAccount?.getState().signedIn===true&&document.querySelector('#selfName')?.textContent==='Linux Smoke'&&
+    document.querySelector('#friendsList .friendNameButton')?.textContent===expectedNickname;
+}
+
+function requiredSmokeResources(readHtml) {
+  const pages=['/auth.html','/friends.html','/call.html'],required=new Set(pages);
+  for(const page of pages){
+    const html=readHtml(page);
+    for(const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)){
+      const url=new URL(match[1],'vumiro://app'+page);
+      if(!allowSmokeRequest(url.href)||url.search||url.hash)throw new Error('Packaged smoke scripts must use trusted local asset paths.');
+      required.add(url.pathname);
+    }
+  }
+  return [...required].sort();
+}
+
+function createSmokeResources() {
+  const requests=new Map(),completed=new Set(),errors=[];
+  const localPath=value=>{try{return allowSmokeRequest(value)?new URL(value).pathname:null;}catch{return null;}};
+  const fail=(entry,reason)=>{if(entry.failed)return;entry.failed=true;if(errors.length<48)errors.push(entry.path+': '+reason);};
+  function record(method,params) {
+    if(method==='Network.requestWillBeSent'){
+      const path=localPath(params.request?.url);if(path)requests.set(params.requestId,{path,done:false,status:null});
+    }else if(method==='Network.responseReceived'){
+      const path=localPath(params.response?.url);if(!path)return;
+      const entry=requests.get(params.requestId)||{path,done:false};requests.set(params.requestId,entry);
+      entry.status=params.response.status;if(entry.status!==200)fail(entry,'HTTP '+entry.status);
+    }else if(method==='Network.loadingFinished'){
+      const entry=requests.get(params.requestId);if(!entry)return;entry.done=true;
+      if(entry.status===200&&!entry.failed)completed.add(entry.path);
+    }else if(method==='Network.loadingFailed'){
+      const entry=requests.get(params.requestId);if(!entry)return;entry.done=true;
+      // Navigation can cancel an obsolete document or its outstanding scripts.
+      // Its required paths must still finish successfully on a later navigation.
+      if(!params.canceled)fail(entry,'load failed');
+    }
+  }
+  const snapshot=()=>({errors:[...errors],completed:[...completed].sort(),pending:[...new Set([...requests.values()].filter(entry=>!entry.done).map(entry=>entry.path))].sort()});
+  return {record,snapshot,ready:required=>{const state=snapshot();return !state.errors.length&&!state.pending.length&&required.every(path=>completed.has(path));}};
+}
+
 function createSmokeProgress(report,now=Date.now) {
   const started=now();report.progress=[];
   return stage=>{report.stage=stage;report.progress.push({stage,ms:Math.max(0,now()-started)});if(report.progress.length>48)report.progress.shift();};
@@ -88,9 +151,9 @@ async function withSmokeDeadline(operation,stage,milliseconds=5000) {
 function install({ app, session }) {
   const directory = process.env.VUMIRO_SMOKE_DIR;
   if (!directory || !path.isAbsolute(directory) || !fs.statSync(directory).isDirectory()) throw new Error('Smoke mode needs a disposable runner directory.');
-  const fixture=createSmokeAccountFixture();
+  const fixture=createSmokeAccountFixture(),resources=createSmokeResources();
   let fixtureEnabled=false,runtimeReady=null;
-  const report = { ok: false, packaged: app.isPackaged, checks: [], rendererErrors: [], blockedRequests: 0, mediaRequests: 0 };
+  const report = { ok: false, packaged: app.isPackaged, checks: [], rendererErrors: [], blockedRequests: 0, mediaRequests: 0, lobbyConnectionAttempts:0 };
   const progress=createSmokeProgress(report);progress('driver:installed');
   let finished = false;
   const finish = error => {
@@ -98,6 +161,7 @@ function install({ app, session }) {
     finished = true; clearTimeout(timer);
     report.ok = !error;
     report.authFixtureRequests=fixture.stats().requests;report.memorySessionWrites=fixture.stats().writes;
+    const resourceState=resources.snapshot();report.resourceErrors=resourceState.errors;report.completedResources=resourceState.completed;report.pendingResources=resourceState.pending;
     if (error) report.error = error.message || String(error);
     fs.writeFileSync(path.join(directory, 'report.json'), JSON.stringify(report));
     app.exit(error ? 1 : 0);
@@ -115,6 +179,17 @@ function install({ app, session }) {
   process.on('uncaughtException', finish);
   process.on('unhandledRejection', finish);
   const assets = new Set();
+  async function verifyPackagedResources() {
+    const required=requiredSmokeResources(page=>fs.readFileSync(path.join(app.getAppPath(),'webserver',page.slice(1)),'utf8'));
+    report.expectedResources=required;progress('resources:completion');
+    await withSmokeDeadline(async()=>{
+      while(!resources.ready(required)){
+        const state=resources.snapshot();if(state.errors.length)throw new Error('Packaged resource failed: '+state.errors[0]);
+        await new Promise(resolve=>setTimeout(resolve,25));
+      }
+    },'packaged resource completion');
+    for(const asset of required)if(!assets.has(asset))throw new Error('Packaged asset did not load: '+asset);
+  }
   function configure() {
     progress('configure:starting');
     const ses = session.defaultSession;
@@ -149,6 +224,10 @@ function install({ app, session }) {
 
     window.webContents.on('render-process-gone', (_event, details) => finish(new Error(`Renderer exited: ${details.reason}`)));
     window.webContents.debugger.on('message', (_event, method, params) => {
+      resources.record(method,params);
+      if(method==='Network.webSocketCreated'){
+        try{const url=new URL(params.url);if(url.protocol==='wss:'&&url.hostname==='vumiro-rooms.vumiro-signaling.workers.dev'&&url.pathname==='/friends-signaling')report.lobbyConnectionAttempts++;}catch{}
+      }
       if (method === 'Runtime.exceptionThrown') {
         const details = params.exceptionDetails;
         report.rendererErrors.push(details.exception?.description || details.text);
@@ -158,7 +237,7 @@ function install({ app, session }) {
     progress('observe:runtime-requested');
     // A new hidden BrowserWindow may not have a renderer yet. Main must reach
     // its initial loadURL before it waits for Runtime.enable to complete.
-    runtimeReady=Promise.resolve().then(()=>window.webContents.debugger.sendCommand('Runtime.enable'));
+    runtimeReady=Promise.resolve().then(()=>Promise.all([window.webContents.debugger.sendCommand('Runtime.enable'),window.webContents.debugger.sendCommand('Network.enable')]));
     runtimeReady.catch(()=>{}); // Preserve failure for run(), without an unhandled rejection before navigation.
     progress('observe:ready');
   }
@@ -211,6 +290,15 @@ function install({ app, session }) {
         document.querySelector('#accountSignIn').click();
       },fixture.credentials);
       await wait(()=>location.pathname==='/friends.html'&&window.VumiroAccount?.getState().signedIn&&document.querySelector('#selfName')?.textContent==='Linux Smoke'&&!document.querySelector('#setupDialog')?.open,'real account-client authentication and lobby');
+      // renderProfile precedes asynchronous lobby hydration. The first real
+      // signaling attempt happens only after hydration and lobbyInitialized.
+      progress('ui:lobby initialization');
+      await withSmokeDeadline(async()=>{
+        while(!report.lobbyConnectionAttempts){
+          if(report.rendererErrors.length)throw new Error(`Renderer exception: ${report.rendererErrors[0]}`);
+          await new Promise(resolve=>setTimeout(resolve,25));
+        }
+      },'lobby initialization');
       check('fixture-authentication');check('local-profile');
       if (!await evaluate(() => !document.querySelector('#topSettings, #TechnicalIdentity, #technicalIdentity, .technicalIdentity, #contactIdentity, #createRoomDialog'))) throw new Error('Retired UI is present.');
       check('legacy-ui-absent');
@@ -255,16 +343,15 @@ function install({ app, session }) {
       check('profile-backdrop');
       if (fs.existsSync(path.join(app.getPath('userData'), 'account-session.bin'))) throw new Error('Synthetic session escaped memory storage.');
       await evaluate(() => document.querySelector('#createRoom').click());
-      await wait(() => {
-        const frame = document.querySelector('#callFrameSlot iframe'), doc = frame?.contentDocument;
-        return !document.querySelector('#callArea').hidden && document.body.classList.contains('room-view') &&
-          !document.querySelector('dialog[open]') && doc?.querySelector('#mic') && doc?.querySelector('#share') &&
-          doc.querySelector('#captureInfo')?.textContent.includes('Choose Share screen or Microphone');
-      }, 'direct room entry and packaged call UI');
+      await wait(smokeRoomReady,'initialized offline room and parent ready handshake');
       check('direct-room');
-      for (const asset of ['/auth.html', '/friends.html', '/friends-client.js', '/local-profile.js', '/profile-cover.js', '/profile-crop.js', '/cover-editor.js', '/cover-transfer.js', '/peer-profile.js', '/account-client.js', '/identity-recovery.js', '/call.html', '/call-client.js']) {
-        if (!assets.has(asset)) throw new Error(`Packaged asset did not load: ${asset}`);
-      }
+      await verifyPackagedResources();
+      // Use the child's real cancellation path, which releases room resources
+      // and acknowledges leave. The parent's fallback timeout is not exercised.
+      await evaluate(()=>document.querySelector('#callFrameSlot iframe').contentDocument.querySelector('#connectionCancel').click());
+      await wait(smokeRoomCleanupReady,'room cancellation restores authenticated lobby','Renamed Smoke');
+      check('room-cleanup');
+      await verifyPackagedResources();
       if (report.rendererErrors.length) throw new Error(`Renderer exception: ${report.rendererErrors[0]}`);
       if (report.mediaRequests) throw new Error('Smoke UI attempted media capture.');
       if (!report.blockedRequests) throw new Error('The offline network guard was not exercised.');
@@ -274,4 +361,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, smokeFriendCardReady, createSmokeProgress, withSmokeDeadline, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, smokeFriendCardReady, smokeRoomReady, smokeRoomCleanupReady, requiredSmokeResources, createSmokeResources, createSmokeProgress, withSmokeDeadline, install };

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const requiredChecks = ['account-gate', 'fixture-authentication', 'packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
-  'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'secure-store'];
+  'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'room-cleanup', 'secure-store'];
 
 export function buildLaunch(executable, directory, environment = process.env) {
   const env = { ...environment, VUMIRO_SMOKE_DIR: directory,
@@ -41,7 +41,10 @@ export function validateReport(report) {
   if (report.mediaRequests !== 0) throw new Error('The smoke check attempted media capture.');
   if (!Number.isSafeInteger(report.authFixtureRequests) || report.authFixtureRequests < 4) throw new Error('The authentication fixture was not exercised.');
   if (!Number.isSafeInteger(report.memorySessionWrites) || report.memorySessionWrites < 1) throw new Error('The memory session adapter was not exercised.');
-  for (const check of requiredChecks) if (!report.checks?.includes(check)) throw new Error(`Missing smoke assertion: ${check}`);
+  if (!Array.isArray(report.resourceErrors) || report.resourceErrors.length) throw new Error('The packaged app reported resource load failures.');
+  if (!Array.isArray(report.expectedResources) || !['/auth.html','/friends.html','/call.html'].every(page=>report.expectedResources.includes(page)) || !Array.isArray(report.completedResources) || !report.expectedResources.every(asset=>report.completedResources.includes(asset))) throw new Error('Packaged resource completion evidence is missing.');
+  if (!Array.isArray(report.pendingResources) || report.pendingResources.length) throw new Error('Packaged resources were still loading when smoke ended.');
+  for (const check of requiredChecks) if (!Array.isArray(report.checks)||!report.checks.includes(check)) throw new Error(`Missing smoke assertion: ${check}`);
 }
 
 // Failure diagnostics deliberately exclude renderer exception contents, URLs,
@@ -50,6 +53,7 @@ export function smokeDiagnostics(report) {
   if(!report||typeof report!=='object')return undefined;
   const text=value=>typeof value==='string'?value.slice(0,180):'';
   const result={stage:text(report.stage),progress:Array.isArray(report.progress)?report.progress.slice(-48).map(item=>({stage:text(item.stage),ms:Number.isFinite(item.ms)?item.ms:0})):[],checks:Array.isArray(report.checks)?report.checks.filter(item=>typeof item==='string').map(text):[]};
+  for(const key of ['resourceErrors','expectedResources','completedResources','pendingResources'])if(Array.isArray(report[key]))result[key]=report[key].slice(0,64).filter(value=>typeof value==='string').map(text);
   for(const key of ['blockedRequests','mediaRequests','authFixtureRequests','memorySessionWrites'])if(Number.isSafeInteger(report[key]))result[key]=report[key];
   return result;
 }

@@ -38,8 +38,8 @@ test('package validation requires Linux and the built executable with its app re
 
 test('runner requires successful packaged report and every focused UI assertion', () => {
   const checks = ['account-gate', 'fixture-authentication', 'packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
-    'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'secure-store'];
-  const report = { ok: true, packaged: true, checks, rendererErrors: [], blockedRequests: 1, mediaRequests: 0, authFixtureRequests: 4, memorySessionWrites: 1 };
+    'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'room-cleanup', 'secure-store'];
+  const report = { ok: true, packaged: true, checks, rendererErrors: [], blockedRequests: 1, mediaRequests: 0, authFixtureRequests: 4, memorySessionWrites: 1, resourceErrors:[],expectedResources:['/auth.html','/friends.html','/call.html'],completedResources:['/auth.html','/friends.html','/call.html'],pendingResources:[] };
   assert.doesNotThrow(() => validateReport(report));
   assert.throws(() => validateReport({ ...report, packaged: false }), /packaged/);
   assert.throws(() => validateReport({ ...report, checks: checks.filter(check=>check!=='packaged-assets') }), /packaged-assets/);
@@ -154,7 +154,7 @@ test('smoke observer lets main load the first document before awaiting runtime r
   assert.equal([...f.timers.values()].filter(timer=>timer.ms===5000).length,0,'runtime deadline starts after initial navigation');
   f.order.push('loadURL');enableRuntime();await observing;
   await f.driver.run(f.window);
-  assert.deepEqual(f.order,['attach','Runtime.enable','loadURL','evaluate']);
+  assert.deepEqual(f.order,['attach','Runtime.enable','Network.enable','loadURL','evaluate']);
   assert.match(f.reports.at(-1).error,/bootstrap evaluation reached/);
   assert.ok(f.reports.at(-1).progress.some(item=>item.stage==='run:renderer-ready'));
 });
