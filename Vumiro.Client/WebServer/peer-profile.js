@@ -7,22 +7,35 @@
   const noncePattern = /^[A-Za-z0-9_-]{16,64}$/;
   const signalText = value => `vumiro-profile-signal-v1\n${value.from}\n${value.to}\n${value.nonce}\n${value.expires}\n${JSON.stringify(value.payload)}`;
   const profileText = (from,to,value) => `vumiro-peer-profile-v1\n${from}\n${to}\n${value.nonce}\n${value.expires}\n${JSON.stringify(value.profile)}`;
-  function create({local,send,getFriend,onProfile}) {
+  const nudgeText = value => `vumiro-peer-nudge-v1\n${value.type}\n${value.version}\n${value.from}\n${value.to}\n${value.key}\n${value.nonce}\n${value.expires}\n${value.type==='nudge-ack'?value.request+'\n'+value.accepted:''}`;
+  function create({local,send,getFriend,onProfile,onNudge}) {
     const online = new Set(), peers = new Map(), waiting = new Set(), deferred = new Set(), seen = new Map(), early = new Map();
+    const nudges=new Map(),nudgeSeen=new Map(),sentNudges=new Map(),receivedNudges=new Map();
+    let sendBurst=[],receiveBurst=[];
     let epoch = 0, scheduling = false, wire = Promise.resolve(), nextSignalAt = 0, queuedSignals = 0;
     const identity = () => local.profile();
     const known = id => online.has(id) && !!getFriend(id) && !!identity();
-    const active = peer => peers.get(peer.id) === peer && peer.epoch === epoch && known(peer.id);
+    const active = peer => peers.get(peer.id) === peer && peer.epoch === epoch && known(peer.id) && identity().id===peer.ownId && identity().key===peer.ownKey;
+    const nudgeBusy=peer=>[...nudges.values()].some(item=>item.id===peer.id);
+    function settleNudge(item,error) {
+      if(nudges.get(item.nonce)!==item)return;
+      nudges.delete(item.nonce);clearTimeout(item.timeout);
+      if(error)item.reject(Error(error));else item.resolve({delivered:true});
+      const peer=peers.get(item.id);if(peer&&active(peer))finish(peer);
+    }
+    function cancelNudges(id,message) { for(const item of [...nudges.values()])if(!id||item.id===id)settleNudge(item,message); }
     function close(peer) {
       if (peers.get(peer.id) !== peer) return;
       const refresh = peer.refreshRequested && known(peer.id) && identity().id < peer.id;
       peers.delete(peer.id); peer.cover?.dispose(); clearTimeout(peer.timeout); clearTimeout(peer.finish);
+      cancelNudges(peer.id,'Friend connection closed before the nudge was acknowledged.');
       peer.channel?.close(); peer.pc.onicecandidate = peer.pc.ondatachannel = peer.pc.onconnectionstatechange = null; peer.pc.close();
       if (refresh) waiting.add(peer.id);
       pump();
     }
     function reset() {
       epoch++; nextSignalAt=0; waiting.clear(); deferred.clear(); early.clear(); seen.clear(); online.clear();
+      cancelNudges(null,'Nudge cancelled because your connection changed.');nudgeSeen.clear();sentNudges.clear();receivedNudges.clear();sendBurst=[];receiveBurst=[];
       for (const peer of [...peers.values()]) close(peer);
     }
     function signal(id,payload,peer) {
@@ -65,12 +78,56 @@
       return peer.profiles;
     }
     function finish(peer) {
-      if (!peer.cover?.busy() && peer.received && peer.acknowledged && peer.profileSent === peer.profileRequested && !peer.finish) peer.finish = setTimeout(() => { if (active(peer)) close(peer); },250);
+      if (!peer.cover?.busy() && !nudgeBusy(peer) && !peer.dataPending && peer.received && peer.acknowledged && peer.profileSent === peer.profileRequested && !peer.finish) peer.finish = setTimeout(() => { if (active(peer)) close(peer); },250);
+    }
+    async function sendNudge(peer,item) {
+      if(item.sending||nudges.get(item.nonce)!==item)return;item.sending=true;
+      try {
+        const current=()=>active(peer)&&epoch===item.epoch&&identity().id===item.own.id&&identity().key===item.own.key&&getFriend(item.id)?.key===item.key&&nudges.get(item.nonce)===item&&item.expires>serverNow();
+        if(!current()){settleNudge(item,'Nudge cancelled because your identity or friendship changed.');return;}
+        const value={type:'nudge',version:1,from:item.own.id,to:item.id,key:item.own.key,nonce:item.nonce,expires:item.expires};
+        value.signature=await local.sign(nudgeText(value));
+        if(!current()){settleNudge(item,'Nudge cancelled because your identity or friendship changed.');return;}
+        if(!channelSend(peer,value))settleNudge(item,'The nudge could not be sent. Try again later.');
+      } catch { settleNudge(item,'The nudge could not be signed. Try again later.'); }
+    }
+    function flushNudges(peer) { if(peer.channel?.readyState==='open')for(const item of nudges.values())if(item.id===peer.id)void sendNudge(peer,item); }
+    function nudge(id) {
+      if(!known(id))return Promise.reject(Error('Nudges are available for online friends only.'));
+      const now=serverNow(),last=sentNudges.get(id);sendBurst=sendBurst.filter(time=>now-time<10000);
+      if(last!==undefined&&now-last<30000)return Promise.reject(Error('Wait 30 seconds before nudging this friend again.'));
+      if(nudges.size>=8||sendBurst.length>=3)return Promise.reject(Error('Too many nudges. Try again in a moment.'));
+      const own=identity(),friend=getFriend(id);
+      return new Promise((resolve,reject)=>{
+        const item={id,key:friend.key,own:{id:own.id,key:own.key},epoch,nonce:crypto.randomUUID(),expires:now+10000,resolve,reject,sending:false};
+        sentNudges.set(id,now);while(sentNudges.size>256)sentNudges.delete(sentNudges.keys().next().value);sendBurst.push(now);nudges.set(item.nonce,item);
+        item.timeout=setTimeout(()=>settleNudge(item,'No nudge acknowledgment. Your friend may need a newer Vumiro version.'),10000);
+        const peer=peers.get(id);if(peer){clearTimeout(peer.finish);peer.finish=0;flushNudges(peer);}
+        else try{queue(id);}catch{settleNudge(item,'The friend connection could not start. Try again later.');}
+      });
+    }
+    async function receiveNudge(peer,value) {
+      const friend=getFriend(peer.id),own=identity(),now=serverNow(),ack=value.type==='nudge-ack';
+      const fields=['type','version','from','to','key','nonce','expires','signature',...(ack?['request','accepted']:[])];
+      if(!friend||!own||Object.keys(value).some(key=>!fields.includes(key))||value.version!==1||value.from!==peer.id||value.to!==own.id||value.key!==friend.key||!noncePattern.test(value.nonce||'')||!Number.isSafeInteger(value.expires)||value.expires<=now||value.expires>now+10000||typeof value.signature!=='string'||value.signature.length>256||ack&&(!noncePattern.test(value.request||'')||typeof value.accepted!=='boolean'))return;
+      for(const [key,expires] of nudgeSeen)if(expires<=now)nudgeSeen.delete(key);
+      const replay=peer.id+':'+value.nonce;if(nudgeSeen.has(replay))return;
+      const current=()=>active(peer)&&identity().id===own.id&&identity().key===own.key&&getFriend(peer.id)?.key===friend.key&&value.expires>serverNow();
+      if(!await local.verify(friend,nudgeText(value),value.signature)||!current())return;
+      nudgeSeen.set(replay,value.expires);while(nudgeSeen.size>512)nudgeSeen.delete(nudgeSeen.keys().next().value);
+      if(ack){const item=nudges.get(value.request);if(item?.id===peer.id&&item.expires>serverNow()&&item.own.id===own.id&&item.key===friend.key)settleNudge(item,value.accepted?null:'Your friend is not accepting nudges.');return;}
+      const last=receivedNudges.get(peer.id);receiveBurst=receiveBurst.filter(time=>serverNow()-time<10000);
+      if(last!==undefined&&serverNow()-last<30000||receiveBurst.length>=3)return;
+      receivedNudges.set(peer.id,serverNow());while(receivedNudges.size>256)receivedNudges.delete(receivedNudges.keys().next().value);receiveBurst.push(serverNow());
+      const accepted=!!onNudge&&(await onNudge(peer.id))!==false;if(!current())return;
+      const response={type:'nudge-ack',version:1,from:own.id,to:peer.id,key:own.key,nonce:crypto.randomUUID(),expires:value.expires,request:value.nonce,accepted};
+      response.signature=await local.sign(nudgeText(response));if(current())channelSend(peer,response);
     }
     async function data(peer,text) {
       if (!active(peer) || typeof text !== 'string' || encoder.encode(text).length > 65536) return;
       const value = JSON.parse(text);
       if (peer.cover?.receive(value)) return;
+      if(value?.type==='nudge'||value?.type==='nudge-ack'){clearTimeout(peer.finish);peer.finish=0;await receiveNudge(peer,value);return;}
       if (value?.type === 'received' && value.nonce === peer.sent) { peer.acknowledged = true; finish(peer); return; }
       const friend = getFriend(peer.id), own = identity();
       if (value?.type !== 'profile' || value.id !== peer.id || value.key !== friend?.key || !noncePattern.test(value.nonce||'') || !Number.isSafeInteger(value.expires) || value.expires <= serverNow() || value.expires > serverNow()+60000 || !value.profile || typeof value.profile !== 'object' || Array.isArray(value.profile)) return;
@@ -90,13 +147,13 @@
       if (peer.channel || value.label !== 'vumiro-profile') { value.close(); return; }
       peer.channel = value;
       peer.cover = window.VumiroCoverTransfer?.create({local,own:identity,remoteId:peer.id,friend:()=>getFriend(peer.id),send:message=>channelSend(peer,message),active:()=>active(peer)&&value.readyState==='open',buffered:()=>value.bufferedAmount,onBusy:busy=>{if(busy){clearTimeout(peer.finish);peer.finish=0;if(!peer.coverTimeout){peer.coverTimeout=true;clearTimeout(peer.timeout);peer.timeout=setTimeout(()=>close(peer),35000);}}else if(active(peer))finish(peer);}});
-      value.onopen = () => { peer.cover?.start(); ownProfile(peer).catch(() => close(peer)); };
+      value.onopen = () => { if(!active(peer))return;peer.cover?.start(); ownProfile(peer).catch(() => close(peer));flushNudges(peer); };
       peer.dataPending=0;peer.dataWindow=Date.now();peer.dataCount=0;
       value.onmessage = event => {
         if(!active(peer)||typeof event.data!=='string'||event.data.length>65536||encoder.encode(event.data).length>65536)return;
         const now=Date.now();if(now-peer.dataWindow>10000){peer.dataWindow=now;peer.dataCount=0;}
         if(++peer.dataCount>260||peer.dataPending>=100){close(peer);return;}
-        peer.dataPending++;peer.data=peer.data.then(()=>data(peer,event.data)).catch(()=>close(peer)).finally(()=>{peer.dataPending--;});
+        peer.dataPending++;peer.data=peer.data.then(()=>data(peer,event.data)).catch(()=>close(peer)).finally(()=>{peer.dataPending--;if(active(peer))finish(peer);});
       };
       value.onclose = () => { if (active(peer)) close(peer); };
       value.onerror = () => { if (active(peer)) close(peer); };
@@ -104,7 +161,8 @@
     function make(id,initiator) {
       if (!known(id) || peers.size >= 6) return null;
       const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.cloudflare.com:3478'}],bundlePolicy:'max-bundle'});
-      const peer = {id,pc,epoch,signals:Promise.resolve(),data:Promise.resolve(),profiles:Promise.resolve(),candidates:early.get(id)||[],localCandidates:[],descriptionSent:false,channel:null,received:false,acknowledged:false,sent:'',finish:0,profileRequested:0,profileSent:0,refreshRequested:false};
+      const own=identity();
+      const peer = {id,pc,epoch,ownId:own.id,ownKey:own.key,signals:Promise.resolve(),data:Promise.resolve(),profiles:Promise.resolve(),candidates:early.get(id)||[],localCandidates:[],descriptionSent:false,channel:null,received:false,acknowledged:false,sent:'',finish:0,profileRequested:0,profileSent:0,refreshRequested:false};
       early.delete(id); peers.set(id,peer); peer.timeout = setTimeout(() => close(peer),15000);
       pc.onicecandidate = event => {
         if (!active(peer)) return;
@@ -150,7 +208,7 @@
       });
     }
     function presence(id,isOnline) {
-      if (!isOnline) { online.delete(id); waiting.delete(id); deferred.delete(id); early.delete(id); const peer=peers.get(id); if (peer) close(peer); return; }
+      if (!isOnline) { online.delete(id); waiting.delete(id); deferred.delete(id); early.delete(id);cancelNudges(id,'Nudge cancelled because your friend went offline.'); const peer=peers.get(id); if (peer) close(peer); return; }
       const wasOnline = online.has(id); online.add(id);
       if (!wasOnline) queue(id);
     }
@@ -211,7 +269,7 @@
       for (const candidate of peer.candidates.splice(0)) await addCandidate(peer,candidate);
       if (remote.type==='offer') await description(peer,'answer');
     }
-    return {presence,ownChanged,syncContacts,receive,reset};
+    return {presence,ownChanged,syncContacts,receive,reset,nudge};
   }
-  window.VumiroPeerProfiles={create};
+  window.VumiroPeerProfiles={create,nudgeText};
 })();
