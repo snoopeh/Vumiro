@@ -24,7 +24,7 @@ The room always expands one focused participant and puts every other participant
 
 ## Implementation boundary
 
-`call.html` owns two containers inside `#tiles`: the screen grid and the compact participant strip. `stream-mosaic.js` has the pure geometry planner and DOM updater; `call-client.js` supplies tile state. The updater moves existing tile elements between containers when their sharing state changes; it does not recreate players or tracks. A `ResizeObserver` watches scene width, window resize updates the height budget, and each video's existing resize handler re-plans after intrinsic size changes. Observer work is limited to layout and is detached when the page closes. Linux and Cloudflare asset manifests include the helper.
+`call.html` owns two containers inside `#tiles`: the screen grid and the compact participant strip. The pure geometry planner and DOM updater are at the start of the existing `call-client.js` asset, followed by room state and tile handling. The updater moves existing tile elements between containers when their sharing state changes; it does not recreate players or tracks. A `ResizeObserver` watches scene width, window resize updates the height budget, and each video's existing resize handler re-plans after intrinsic size changes. Observer work is limited to layout and is detached when the page closes. Keeping this code in the existing asset preserves the fixed Windows updater file lists, including the legacy bridge package.
 
 ## Acceptance and verification
 
@@ -35,9 +35,9 @@ The room always expands one focused participant and puts every other participant
 
 ### Verification record
 
-- Feature commits: design `37a970f`, plan `f645c9b`, implementation `d7f9229`.
-- The staged, isolated implementation passed release-version checks, JavaScript syntax and 284/284 client tests. The clean `d7f9229` worktree then passed the LOCAL QA launcher's 284 client tests, OAuth/native invariants, local-service isolation, updater checks, native-audio recovery, diagnostics, and a Windows Debug build with zero warnings and errors.
-- The running review window is `Vumiro · LOCAL QA · d7f9229` from `Vumiro-Mosaic-QA`, with its separate QA profile. The main checkout contains simultaneous, uncommitted cover-media work and was not used for this review window. Its aggregate client run had three failures in that unfinished cover work; this record does not claim the aggregate checkout is ready.
+- Feature commits: design `37a970f`, plan `f645c9b`, implementation `d7f9229`, update-package compatibility `4e204d6`.
+- The isolated `4e204d6` implementation passed release-version checks, JavaScript syntax and 284/284 client tests. Both Windows package variants built with zero warnings/errors, and `Test-ClientPackages.ps1` validated the legacy-to-complete transition. The clean worktree then passed the LOCAL QA launcher's 284 client tests, OAuth/native invariants, local-service isolation, updater checks, native-audio recovery, diagnostics, and a Windows Debug build with zero warnings and errors.
+- The running review window is `Vumiro · LOCAL QA · 4e204d6` from `Vumiro-Mosaic-QA`, with its separate QA profile. The main checkout contains simultaneous, uncommitted cover-media work and was not used for this review window. Its aggregate client run had three failures in that unfinished cover work at the time of verification; this record does not claim the aggregate checkout is ready.
 - One-to-four and narrow geometry are automated. Live multi-client video, audio-control focus after reparenting, more than four streams, and Linux/device visuals still require human QA. No human acceptance has been recorded.
 
 ## References
