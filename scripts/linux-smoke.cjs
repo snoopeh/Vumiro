@@ -70,6 +70,11 @@ function smokeAuthReloadUrl(value) {
   url.searchParams.set('platform','linux');return url.href;
 }
 
+function smokeFriendCardReady(expectedName) {
+  const card=document.querySelector('#userCardDialog'),editor=document.querySelector('#nicknameDialog'),pencil=document.querySelector('#userCardEditNickname');
+  return card?.open===true&&editor?.open!==true&&document.querySelector('#userCardName')?.textContent===expectedName&&!!pencil&&!pencil.hidden&&!pencil.disabled;
+}
+
 function createSmokeProgress(report,now=Date.now) {
   const started=now();report.progress=[];
   return stage=>{report.stage=stage;report.progress.push({stage,ms:Math.max(0,now()-started)});if(report.progress.length>48)report.progress.shift();};
@@ -222,11 +227,11 @@ function install({ app, session }) {
       await wait(() => !document.querySelector('#addDialog').open && document.querySelector('.friendNameButton')?.textContent === 'Smoke Friend', 'offline contact import');
       check('offline-contact');
       await evaluate(() => document.querySelector('.friendNameButton').click());
-      if (!await evaluate(() => !document.querySelector('#nicknameDialog').open && !document.querySelector('#userCardDialog').open)) throw new Error('Nickname click opened an editor or profile.');
+      await wait(smokeFriendCardReady,'nickname opens inspection without editing','Smoke Friend');
       check('nickname-no-edit');
       window.setMinimumSize(480, 640); window.setContentSize(540, 760);
       await wait(() => innerWidth <= 570, 'narrow viewport');
-      await evaluate(() => document.querySelector('.friendEdit').click());
+      await evaluate(() => document.querySelector('#userCardEditNickname').click());
       await wait(() => {
         const dialog = document.querySelector('#nicknameDialog'), input = document.querySelector('#nickname');
         const rect = dialog.getBoundingClientRect(), style = getComputedStyle(dialog);
@@ -236,8 +241,12 @@ function install({ app, session }) {
       await evaluate(() => { document.querySelector('#nickname').value = 'Renamed Smoke'; document.querySelector('#saveNickname').click(); });
       await wait(() => !document.querySelector('#nicknameDialog').open && document.querySelector('.friendNameButton')?.textContent === 'Renamed Smoke', 'nickname persisted');
       check('nickname-save');
+      // The nickname editor is modal above the inspection card. Close that
+      // original card through its product control, then inspect saved data.
+      await evaluate(() => document.querySelector('#userCardDialog [data-close="userCardDialog"]').click());
+      await wait(()=>!document.querySelector('#userCardDialog').open,'inspection card closes after nickname save');
       await evaluate(() => document.querySelector('#friendsList .friend').click());
-      await wait(() => document.querySelector('#userCardDialog').open, 'friend profile opens');
+      await wait(smokeFriendCardReady,'saved nickname appears in reopened profile','Renamed Smoke');
       // Send real pointer events through Chromium so the dialog backdrop is hit-tested.
       const point = await evaluate(() => { const rect = document.querySelector('#userCardDialog').getBoundingClientRect(); return { x: Math.max(1, rect.left / 2), y: Math.max(1, rect.top / 2) }; });
       await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point });
@@ -265,4 +274,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, createSmokeProgress, withSmokeDeadline, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, smokeFriendCardReady, createSmokeProgress, withSmokeDeadline, install };

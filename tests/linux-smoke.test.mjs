@@ -180,3 +180,14 @@ test('fixture auth reload preserves native signaling and room bootstrap paramete
   assert.throws(()=>normalize('vumiro://app'),/valid wss/,'discarding the native signaling query prevents real lobby initialization');
   for(const invalid of ['https://example.test/auth.html','vumiro://other/auth.html','vumiro://app/call.html'])assert.throws(()=>smokeAuthReloadUrl(invalid),/trusted auth/);
 });
+
+
+test('smoke nickname check expects the inspection card and keeps editing behind its pencil',()=>{
+  const {smokeFriendCardReady}=require('../scripts/linux-smoke.cjs');
+  const elements={'#userCardDialog':{open:true},'#nicknameDialog':{open:false},'#userCardName':{textContent:'Smoke Friend'},'#userCardEditNickname':{hidden:false,disabled:false}};
+  const check=vm.runInNewContext('('+smokeFriendCardReady.toString()+')',{document:{querySelector:selector=>elements[selector]||null}});
+  assert.equal(check('Smoke Friend'),true);
+  elements['#nicknameDialog'].open=true;assert.equal(check('Smoke Friend'),false,'clicking a name must not enter edit mode');
+  elements['#nicknameDialog'].open=false;elements['#userCardName'].textContent='Another person';assert.equal(check('Smoke Friend'),false,'inspect the clicked contact');
+  elements['#userCardName'].textContent='Smoke Friend';elements['#userCardEditNickname'].hidden=true;assert.equal(check('Smoke Friend'),false,'the visible card must offer editing');
+});
