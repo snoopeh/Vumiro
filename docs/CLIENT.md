@@ -1,8 +1,8 @@
-# Vumiro 1.22.2
+# Vumiro 1.22.3
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
 
-Version 1.22.2 adds sender notifications that open their source, a consistent settings menu with unsaved-change confirmation, six accessible interface languages, named friend tags, signed friend nudges, room loading feedback, login motion, stream mosaics and message replies. Chat has a larger resizable pane, a shorter fading thumb and no timed text cooldown. Sign-in is required; successful sign-in opens the lobby after any necessary encrypted-identity recovery. Local profiles and signing identities remain stored on the device.
+Version 1.22.3 adds sender notifications that open their source, a consistent settings menu with unsaved-change confirmation, six accessible interface languages, named friend tags, signed friend nudges, room loading feedback, login motion, stream mosaics and message replies. Chat has a larger resizable pane, a shorter fading thumb and no timed text cooldown. Sign-in is required; successful sign-in opens the lobby after any necessary encrypted-identity recovery. Local profiles and signing identities remain stored on the device.
 
 Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64-v2.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed. The **Vumiro-win-x64.zip** asset is a compatibility bridge for older automatic updaters; after installing it, use Update now again to finish installing the complete package.
 
@@ -78,7 +78,7 @@ Use the **paperclip**, paste an image, or drop a file into the composer (up to 1
 
 On the updated directory, a public handle combines a username and a code, for example `mira#48271`. People can share a username; random five-digit codes identify the exact person. Existing three-digit named codes migrate once on the updated service; numeric legacy tags remain valid. Search `@mira` to choose from matching online users or enter `mira#48271` for an exact match. Copying a tag uses this combined handle. Existing numeric tags and contact codes remain compatible. A username change can change the combined handle; the signing identity stays the same.
 
-The updated directory service was deployed with the 1.22.2 rollout. It assigns named tags to updated clients; legacy clients retain compatibility with their numeric identifiers. The live LOCAL QA reconnect verified a directory-issued named tag.
+The updated directory service was deployed on 2026-11-10. It assigns named tags to updated clients; legacy clients retain compatibility with their numeric identifiers. The live LOCAL QA reconnect verified a directory-issued named tag.
 
 ### Voice & audio
 

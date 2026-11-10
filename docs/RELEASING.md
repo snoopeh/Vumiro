@@ -33,6 +33,8 @@ The command requires a clean `main`, matching Windows/Linux versions, the config
 
 Shipping the source starts GitHub Actions. The hosted release is ready only when the release pipeline succeeds.
 
+If a tagged run fails and needs a source fix, preserve that tag. Commit and verify the fix on `main`, then ship the next patch version. A failed unpublished tag is not a published release; do not move it or force push to reuse its version.
+
 ## What GitHub Actions does
 
 | Trigger | Automated work |
