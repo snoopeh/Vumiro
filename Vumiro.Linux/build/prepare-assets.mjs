@@ -18,6 +18,7 @@ const expectedAssets = [
   'profile-crop.js',
   'cover-editor.js',
   'cover-transfer.js',
+  'settings-drafts.js',
   'peer-profile.js',
   'account-client.js',
   'identity-recovery.js'

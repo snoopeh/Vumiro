@@ -587,9 +587,9 @@ function renderOwnProfile() {
   $('selfName').textContent=profile.name; $('selfUsername').textContent=profile.username?'@'+profile.username:'';$('selfUsername').hidden=!profile.username;
   avatar($('selfAvatar'),profile); avatar($('profileAvatar'),profile); $('ownCode').value=local.ownCode();renderOwnTag();
 }
-function renderProfile() {
+function renderProfile(preserveSettingsDrafts=false) {
   renderOwnProfile(); $('profileName').value=profile.name; $('profileUsername').value=profile.username||'';
-  avatarDraft=profile.avatar||''; $('signaling').value=serviceUrl; renderSettings(); renderBlocked();renderProfileEditor();
+  avatarDraft=profile.avatar||''; if(!preserveSettingsDrafts){$('signaling').value=serviceUrl;renderSettings();} renderBlocked();renderProfileEditor();
 }
 async function shareOwnProfile() {
   const previous=profile; profile=local.profile(); if (!profile) return;
@@ -1121,9 +1121,9 @@ $('profileForm').onsubmit=async event=>{
   if(button)button.disabled=true;profileFeedback('Saving profile…');document.querySelectorAll('[data-close="profileDialog"]').forEach(close=>close.disabled=true);
   try {
     await Promise.all([avatarWork,bannerWork]);
-    const bio=local.validateBio($('profileBio').value),connections=local.validateConnections(Object.keys(profileProviders).filter(key=>$('profileLink-'+key).value.trim()).map(provider=>({provider,url:$('profileLink-'+provider).value.trim()})));profile=await local.updateProfile({name,username,bio,connections,avatar:avatarDraft,banner:bannerDraft,...(coverDraft!==undefined?{coverMedia:coverDraft}:{})}); renderProfile();
-    const imageChanged=oldAvatar!==(profile.avatar||'')||oldBanner!==(profile.banner||'');const message=imageChanged?'Profile picture and cover saved.':'Profile saved.';status(ready?'Profile saved and shared with your online friends.':'Profile saved on this device. It will be shared when you reconnect.');toast(message);profileFeedback('Profile saved.');
-  } catch(error) { profileFeedback(error.message);toast(error.message,'error'); }
+    const bio=local.validateBio($('profileBio').value),connections=local.validateConnections(Object.keys(profileProviders).filter(key=>$('profileLink-'+key).value.trim()).map(provider=>({provider,url:$('profileLink-'+provider).value.trim()})));profile=await local.updateProfile({name,username,bio,connections,avatar:avatarDraft,banner:bannerDraft,...(coverDraft!==undefined?{coverMedia:coverDraft}:{})}); renderProfile(true);
+    const imageChanged=oldAvatar!==(profile.avatar||'')||oldBanner!==(profile.banner||'');const message=imageChanged?'Profile picture and cover saved.':'Profile saved.';status(ready?'Profile saved and shared with your online friends.':'Profile saved on this device. It will be shared when you reconnect.');toast(message);profileFeedback('Profile saved.');return true;
+  } catch(error) { profileFeedback(error.message);toast(error.message,'error');return false; }
   finally { profileSaving=false;if(button)button.disabled=false;document.querySelectorAll('[data-close="profileDialog"]').forEach(close=>close.disabled=false); }
 };
 async function saveAvatar(value,version) {
@@ -1174,19 +1174,29 @@ $('saveAppSounds').onclick=async()=>{
     if(!save('vumiro-app-sound-settings',JSON.stringify(settings)))throw Error('Could not save sound settings.');
     appSounds=settings.enabled;appSoundVolume=settings.volume;
     frame?.contentWindow.postMessage({type:'vumiro-app-sound-settings',settings},location.origin);
-    toast(appSounds?'App sound volume saved at '+appSoundVolume+'%.':'App sounds are off.');
-  }catch(error){toast(error.message,'error');}finally{button.disabled=false;button.textContent=label;}
+    toast(appSounds?'App sound volume saved at '+appSoundVolume+'%.':'App sounds are off.');return true;
+  }catch(error){toast(error.message,'error');return false;}finally{button.disabled=false;button.textContent=label;}
 };
 $('previewAppSound').onclick=()=>playUiCue('request',true,appSoundVolumeDraft);
-$('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.preventDefault();});$('profileDialog').addEventListener('close',()=>{++avatarSelection;++bannerSelection;window.VumiroCoverEditor?.cancel();coverDraft=undefined;window.VumiroCoverMedia?.release($('profileBannerPreview'));avatarWork=Promise.resolve();bannerWork=Promise.resolve();avatarDraft=profile.avatar||'';bannerDraft=profile.banner||'';appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();resetNotificationDraft();});
+$('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.preventDefault();});$('profileDialog').addEventListener('close',()=>{if(document.querySelector('dialog.settingsScreen[open]'))return;++avatarSelection;++bannerSelection;window.VumiroCoverEditor?.cancel();coverDraft=undefined;window.VumiroCoverMedia?.release($('profileBannerPreview'));avatarWork=Promise.resolve();bannerWork=Promise.resolve();avatarDraft=profile.avatar||'';bannerDraft=profile.banner||'';appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();resetNotificationDraft();});
 $('notificationOpen').onclick=openNotifications;
 const notificationPlatformHelp=$('notificationSettings').querySelector('p.help');
 if(notificationPlatformHelp)notificationPlatformHelp.textContent+=linuxHost?' Linux can also show system notifications when supported.':' On Windows, visual alerts flash the taskbar; Notification Center popups are unavailable in this build.';
 resetNotificationDraft();renderNotifications();
-$('saveNotifications').onclick=()=>{if(saveNotificationPreferences())toast('Notification settings saved.');else toast('Could not save notification settings.','error');};
+$('saveNotifications').onclick=()=>{const saved=saveNotificationPreferences();if(saved)toast('Notification settings saved.');else toast('Could not save notification settings.','error');return saved;};
 $('cancelNotifications').onclick=()=>{resetNotificationDraft();toast('Notification changes discarded.');};
-$('saveSignaling').onclick=async()=>{const button=$('saveSignaling'),label=button.textContent;button.disabled=true;button.textContent='Saving…';profileFeedback('Saving connection settings…');try{await new Promise(resolve=>requestAnimationFrame(resolve));const next=normalizeService($('signaling').value.trim());if(!save('st-friends-signaling',next))throw Error('Could not save the connection service on this device.');serviceUrl=next;profileFeedback('');$('signaling').value=serviceUrl;clearPending();connect();toast('Connection settings saved.');}catch(error){profileFeedback(error.message);toast(error.message,'error');}finally{button.disabled=false;button.textContent=label;}};
-$('saveRoomSettings').onclick=async()=>{const button=$('saveRoomSettings'),label=button.textContent,fps=Number($('roomFps').value),mbps=Number($('roomMbps').value);if(!Number.isInteger(fps)||fps<1||fps>120||!Number.isFinite(mbps)||mbps<1||mbps>100){profileFeedback('Choose 1–120 FPS and 1–100 Mbps per participant.');toast('Choose 1–120 FPS and 1–100 Mbps per participant.','error');return;}const next=normalizeSettings({fps,mbps,resolution:$('roomResolution').value,contentHint:$('roomContentHint').value,audio:$('roomAudio').checked,excludeDiscord:$('excludeDiscord').checked});button.disabled=true;button.textContent='Saving…';profileFeedback('Saving stream settings…');try{await new Promise(resolve=>requestAnimationFrame(resolve));if(!save('vumiro-stream-settings',JSON.stringify(next)))throw Error('Could not save stream settings on this device.');settings=next;dispatchEvent(new Event('vumiro-account-data-changed'));frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);profileFeedback('');status(frame?'Stream settings saved and sent to your open room.':'Stream settings saved for your next room.');toast('Stream settings saved.');}catch(error){profileFeedback(error.message);toast(error.message,'error');}finally{button.disabled=false;button.textContent=label;}};
+$('saveSignaling').onclick=async()=>{const button=$('saveSignaling'),label=button.textContent;button.disabled=true;button.textContent='Saving…';profileFeedback('Saving connection settings…');try{await new Promise(resolve=>requestAnimationFrame(resolve));const next=normalizeService($('signaling').value.trim());if(!save('st-friends-signaling',next))throw Error('Could not save the connection service on this device.');serviceUrl=next;profileFeedback('');$('signaling').value=serviceUrl;clearPending();connect();toast('Connection settings saved.');return true;}catch(error){profileFeedback(error.message);toast(error.message,'error');return false;}finally{button.disabled=false;button.textContent=label;}};
+$('saveRoomSettings').onclick=async()=>{const button=$('saveRoomSettings'),label=button.textContent,fps=Number($('roomFps').value),mbps=Number($('roomMbps').value);if(!Number.isInteger(fps)||fps<1||fps>120||!Number.isFinite(mbps)||mbps<1||mbps>100){profileFeedback('Choose 1–120 FPS and 1–100 Mbps per participant.');toast('Choose 1–120 FPS and 1–100 Mbps per participant.','error');return false;}const next=normalizeSettings({fps,mbps,resolution:$('roomResolution').value,contentHint:$('roomContentHint').value,audio:$('roomAudio').checked,excludeDiscord:$('excludeDiscord').checked});button.disabled=true;button.textContent='Saving…';profileFeedback('Saving stream settings…');try{await new Promise(resolve=>requestAnimationFrame(resolve));if(!save('vumiro-stream-settings',JSON.stringify(next)))throw Error('Could not save stream settings on this device.');settings=next;dispatchEvent(new Event('vumiro-account-data-changed'));frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);profileFeedback('');status(frame?'Stream settings saved and sent to your open room.':'Stream settings saved for your next room.');toast('Stream settings saved.');return true;}catch(error){profileFeedback(error.message);toast(error.message,'error');return false;}finally{button.disabled=false;button.textContent=label;}};
+// Adapters compare drafts against live saved values, including image edits.
+const streamDraft=()=>({fps:Number($('roomFps').value),mbps:Number($('roomMbps').value),resolution:$('roomResolution').value,contentHint:$('roomContentHint').value,audio:$('roomAudio').checked,excludeDiscord:$('excludeDiscord').checked});
+const profileIsDirty=()=>!!profile&&($('profileName').value!==profile.name||$('profileUsername').value!==(profile.username||'')||$('profileBio').value!==(profile.bio||'')||avatarDraft!==(profile.avatar||'')||bannerDraft!==(profile.banner||'')||coverDraft!==undefined||Object.keys(profileProviders).some(provider=>$('profileLink-'+provider).value!==(profile.connections?.find(link=>link.provider===provider)?.url||'')));
+window.VumiroSettingsSections=[
+  {dirty:profileIsDirty,save:async()=>{if(!$('profileForm').reportValidity())return false;return $('profileForm').onsubmit({preventDefault(){},submitter:$('profileForm').querySelector('[type=submit]')});},discard:()=>renderProfile(true)},
+  {dirty:()=>JSON.stringify(streamDraft())!==JSON.stringify(settings),save:()=>$('saveRoomSettings').onclick(),discard:renderSettings},
+  {dirty:()=>appSoundsDraft!==appSounds||appSoundVolumeDraft!==appSoundVolume,save:()=>$('saveAppSounds').onclick(),discard:()=>{appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();}},
+  {dirty:()=>Object.entries(notificationSettingIds).some(([kind,suffix])=>$('notification'+suffix+'Visual').checked!==notificationSettings[kind].visual||$('notification'+suffix+'Sound').checked!==notificationSettings[kind].sound),save:()=>$('saveNotifications').onclick(),discard:resetNotificationDraft},
+  {dirty:()=>$('signaling').value.trim()!==serviceUrl,save:()=>$('saveSignaling').onclick(),discard:()=>{$('signaling').value=serviceUrl;}}
+];
 $('roomForm').onsubmit=async event=>{event.preventDefault();$('roomError').textContent='';try{const {room,mode}=await parseRoomInvitation($('roomInvitation').value);await requestJoin(room,mode);$('roomForm').reset();}catch(error){$('roomError').textContent=error.message;}};
 addEventListener('storage',event=>{if(event.key==='vumiro-stream-settings'&&event.newValue){try{settings=normalizeSettings(JSON.parse(event.newValue));renderSettings();frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);}catch{}}});
 addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++generation;peerProfiles?.reset();rejectSocialAcks();clearTimeout(reconnectTimer);clearTimeout(leaveTimer);clearTimeout(requestTimer);clearTimeout(lookupTimer);if(pending)clearTimeout(pending.timer);const previous=socket;socket=null;previous?.close();frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);});
@@ -1208,6 +1218,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   const panels = new Map();
   let currentSection = 'profile';
   let profileDraftInSession = false, settingsTransitions = 0;
+  let exitController = null, exitingSettings = false;
   const titlebar = $('windowTitlebar');
   const titlebarSlot = titlebar ? document.createComment('Desktop title bar home') : null;
   if (titlebarSlot) titlebar.before(titlebarSlot);
@@ -1310,6 +1321,15 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
     layout.append(navigation(dialog, active), body);
     dialog.classList.add('settingsScreen'); dialog.append(layout);
     dialog.addEventListener('close', syncSettingsSession);
+    const close = dialog.close.bind(dialog);
+    dialog.close = (...args) => {
+      if (!exitController || settingsTransitions || exitingSettings) return close(...args);
+      return exitController.requestClose();
+    };
+    dialog.addEventListener('cancel', event => {
+      if (!exitController || settingsTransitions || exitingSettings) return;
+      event.preventDefault(); void exitController.requestClose();
+    });
   }
 
   // Group the existing controls without replacing nodes, event handlers or field IDs.
@@ -1336,6 +1356,15 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   if (heading) heading.after(profilePanel); else profileDialog.prepend(profilePanel);
   shell(profileDialog, 'profile');
   shell(accountDialog, 'account');
+  if (window.VumiroSettingsDrafts) {
+    exitController = window.VumiroSettingsDrafts.create({
+      sections: window.VumiroSettingsSections || [],
+      confirm: window.VumiroSettingsDrafts.confirmExit,
+      close: () => { exitingSettings = true; try { closeSettings(); } finally { exitingSettings = false; } },
+      onError: error => { if ($('status')) $('status').textContent = error.message; }
+    });
+    window.VumiroSettingsExit = exitController;
+  }
   for (const id of ['profileNav', 'shareMyCode']) $(id)?.addEventListener('click', () => selectPanel('profile'), true);
   for (const id of ['settingsNav', 'roomSettings']) $(id)?.addEventListener('click', () => selectPanel('stream'), true);
   $('updatesNav')?.addEventListener('click', () => selectPanel('updates'), true);
