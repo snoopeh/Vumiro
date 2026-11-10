@@ -4,16 +4,22 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const friends=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends-client.js',import.meta.url),'utf8');
 const call=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js',import.meta.url),'utf8');
-function lobby(){let resolve,initialized=0,connected=0;const current={id:'identity-after-account-restore'},account=new Promise(done=>resolve=done),elements=new Map();
-  const app={window:{VumiroAccount:{ready:()=>account,onProfileReady:async()=>{}}},read:()=>null,save(){},normalizeService:v=>v,query:{get:()=>null},location:{origin:'https://app.test'},local:{initialize:async()=>{initialized++;return current;},listBlocked:async()=>[]},seedLocalQaFriends:async()=>{},renderProfile(){},hydrateRequests:async()=>{},reloadFriends:async()=>{},connect(){connected++;},showInvitation(){},serviceState(){},status(){},dialog(){},$:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}};
-  const start=friends.lastIndexOf('(async()=>{try{const savedService=');assert.ok(start>=0);const pending=vm.runInNewContext(friends.slice(start,friends.indexOf('\n',start)),app);
-  return{resolve,pending,app,initialized:()=>initialized,connected:()=>connected};
+function lobby(){let resolve,initialized=0,connected=0,created=0;const current={id:'identity-after-account-restore'},account=new Promise(done=>resolve=done),elements=new Map(),listeners=new Map();
+  const app={profile:null,lobbyInitialized:false,window:{VumiroAccount:{ready:()=>account,onProfileReady:async()=>{}}},read:()=>null,save(){},normalizeService:v=>v,query:{get:()=>null},location:{origin:'https://app.test'},local:{profile:()=>current,createProfile:async()=>{created++;return current;},initialize:async()=>{initialized++;return current;},listBlocked:async()=>[]},seedLocalQaFriends:async()=>{},renderOwnProfile(){},renderProfile(){},hydrateRequests:async()=>{},reloadFriends:async()=>{},connect(){connected++;},showInvitation(){},serviceState(){},status(){},dialog(){},addEventListener:(name,fn)=>listeners.set(name,fn),$:id=>{if(!elements.has(id))elements.set(id,{close(){}});return elements.get(id);}};
+  vm.createContext(app);vm.runInContext(friends.slice(friends.indexOf('async function shareOwnProfile()'),friends.indexOf('function confirmAction(')),app);
+  const form=friends.indexOf("$('setupForm').onsubmit=");vm.runInContext(friends.slice(form,friends.indexOf('\n',form)),app);
+  const start=friends.lastIndexOf('(async()=>{try{const savedService=');assert.ok(start>=0);const pending=vm.runInContext(friends.slice(start,friends.indexOf('\n',start)),app);
+  return{resolve,pending,app,initialized:()=>initialized,connected:()=>connected,created:()=>created,profileEvent:()=>listeners.get('vumiro-profile-changed')(),restoreEvent:()=>listeners.get('vumiro-account-restored')(),submit:()=>app.$('setupForm').onsubmit({preventDefault(){}})};
 }
 test('lobby cannot initialize contacts or connect before account readiness or after a denied entry',async()=>{
   const h=lobby();assert.equal(h.initialized(),0);h.resolve(false);await h.pending;assert.equal(h.initialized(),0);assert.equal(h.connected(),0);
 });
 test('successful account restoration initializes the current identity before connecting the lobby',async()=>{
-  const h=lobby();h.resolve(true);await h.pending;assert.equal(h.initialized(),1);assert.equal(h.app.profile.id,'identity-after-account-restore');assert.equal(h.connected(),1);
+  const h=lobby();h.profileEvent();h.restoreEvent();h.resolve(true);await h.pending;assert.equal(h.initialized(),1);assert.equal(h.app.profile.id,'identity-after-account-restore');assert.equal(h.connected(),1);
+});
+test('profile restore events and obsolete local setup cannot bypass pending or denied account entry',async()=>{
+  const h=lobby();h.profileEvent();h.restoreEvent();await h.submit();await new Promise(resolve=>setImmediate(resolve));assert.equal(h.connected(),0);assert.equal(h.created(),0);
+  h.resolve(false);await h.pending;h.profileEvent();await h.submit();await new Promise(resolve=>setImmediate(resolve));assert.equal(h.connected(),0);assert.equal(h.created(),0);assert.equal(h.app.profile,null);
 });
 function roomEntry({signedIn=false,standalone=false,crossOrigin=false}={}){
   const redirects=[],parentLocation={origin:crossOrigin?'https://other.test':'https://app.test',pathname:'/friends.html',replace:url=>redirects.push(url)};
