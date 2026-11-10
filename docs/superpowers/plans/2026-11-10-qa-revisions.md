@@ -6,11 +6,13 @@
 
 ## Execution
 
-- [ ] Notifications: reproduce hover opening, change regression to click-only, implement and commit.
-- [ ] Settings: trace the separate-dialog transitions, retain a common shell and preserve draft/save behavior; test and commit.
-- [ ] Rooms: reproduce the parent iframe startup gap; show immediate parent feedback, transfer ownership to the child loading surface and preserve cancellation; test and commit.
-- [ ] Account/OAuth: regression-test account gating and provider profile creation, preserve encrypted recovery, verify browser/app focus handoff; implement and commit.
-- [ ] Native window: regression-test native nudge bridge, movement restoration, screen overlay lifetime and native resize edge geometry; implement and commit.
-- [ ] Review the changed boundaries, run the required launcher checks once, inspect the real LOCAL QA window, and update the human QA checklist.
+- [x] Notifications: reproduce hover opening, change regression to click-only, implement and commit.
+- [x] Settings: trace the separate-dialog transitions, retain a common shell and preserve draft/save behavior; test and commit.
+- [x] Rooms: reproduce the parent iframe startup gap; show immediate parent feedback, transfer ownership to the child loading surface and preserve cancellation; test and commit.
+- [x] Account/OAuth: regression-test account gating and provider profile creation, preserve encrypted recovery, implement browser/app focus handoff; implement and commit.
+- [x] Native window: regression-test native nudge bridge, movement restoration, screen overlay lifetime and native resize edge geometry; implement and commit.
+- [x] Review the changed boundaries, run the required launcher checks, inspect the real LOCAL QA window, and update the human QA checklist.
 
 Changes remain local on the current development branch. Human acceptance precedes push and release. Do not use real account credentials in automated tests or bypass encrypted identity recovery.
+
+Human QA still needs actual Google sign-in/focus, native drag feel, two-client delivery, and final acceptance. Automated and native probe results are recorded in `docs/QA-FEEDBACK-CHECKLIST.md`.
