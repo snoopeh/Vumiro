@@ -338,7 +338,12 @@
       const author=message.author.id===identity?.id?(message.author.key===identity.key?message.author:null):await local.validateContact(message.author);
       if(!author||!await local.verify(author,chatSignatureText(message),message.signature)||message.replyTo&&!await local.verify(author,chatReplySignatureText(message),message.replySignature)||epoch!==chatEpoch||peers.get(peer.id)!==peer||!storeChatMessage(message))return false;
       if(!profileCache.has(author.id)){profileCache.set(author.id,{name:author.name,avatar:''});if(profileCache.size>128)profileCache.delete(profileCache.keys().next().value);}
-      chatLine(message.text,author.id,message.timestamp,message);if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');return true;
+      chatLine(message.text,author.id,message.timestamp,message);
+      if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden||document.hasFocus?.()===false)){
+        if(typeof embedded!=='undefined'&&embedded)parentMessage({type:'vumiro-chat-notification',room:chatRoom,id:message.id,text:message.text,sender:{id:author.id,name:author.name,avatar:profileCache.get(author.id)?.avatar||''}});
+        else playCallCue('chat');
+      }
+      return true;
     } catch{return false;}
   }
   function queueChatHistory(peer) { peer.chatHistoryQueue=chatHistory.filter(message=>message.room===chatRoom&&Math.abs(message.timestamp-serverNow())<86400000).slice(-100).map(message=>({message,history:true}));flushChatHistory(peer); }
@@ -1065,6 +1070,7 @@
     else if(event.data?.type==='vumiro-friends-changed') { if(profileRequestId) parentMessage({type:'vumiro-friend-status-query',id:profileRequestId});updateRoomFriends().catch(error=>status(error.message)); }
     else if(event.data?.type==='vumiro-call-leave') leave();
     else if(event.data?.type==='vumiro-call-reconnect') reconnect();
+    else if(event.data?.type==='vumiro-open-chat') { $('chatTab').click();$('chatText').focus(); }
     else if(event.data?.type==='vumiro-stream-settings') applySettings(event.data.settings,false);
     else if(event.data?.type==='vumiro-stream-audio') receiveNativeAudio(event.data);
     else if(event.data?.type==='vumiro-profile') refreshProfile();

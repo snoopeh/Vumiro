@@ -52,6 +52,15 @@ test('same validated event alerts once; visual and sound settings are independen
   assert.equal(app.attention.length,1);
 });
 
+test('desktop alerts identify the sender and carry only a bounded local action ID',()=>{
+  const app=harness();
+  app.api.notifySocial('friend','request-nonce','Kai sent you a friend request.',null,5000,{id:'B'.repeat(43),nickname:'Kai',avatar:''});
+  const payload=app.attention.at(-1)?.notification;
+  assert.ok(payload,'desktop popup payload exists');
+  assert.equal(payload.senderName,'Kai');assert.equal(payload.body,'sent you a friend request.');
+  assert.match(payload.id,/^notification-\d+$/);assert.equal(payload.avatar,'');
+});
+
 test('notification list bounds entries, expires actions, and uses text nodes for peer names',()=>{
   const app=harness();
   for(let n=0;n<75;n++)app.api.notifySocial('friend','nonce-'+n,'<img onerror=alert(1)>',{type:'request',id:'nonce-'+n},5000);
@@ -131,8 +140,8 @@ test('notification controls are accessible and settings have Save and Cancel',()
   assert.match(html,/id="cancelNotifications"/);
 });
 
-test('notification button keeps a compact accessible form at narrow widths',()=>{
+test('notification button always uses only the bell and the full view is a nonmodal panel',()=>{
   assert.match(html,/id="notificationOpen"[^>]*aria-label="Notifications"[^>]*>\s*<svg/);
-  assert.match(html,/class="notificationLabel"/);
-  assert.match(html,/@media\(max-width:700px\)[^{]*\{[^}]*\.notificationLabel\{display:none\}/);
+  assert.doesNotMatch(html,/<span class="notificationLabel">/);
+  assert.match(html,/<aside id="notificationDialog"/);
 });

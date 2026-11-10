@@ -36,7 +36,7 @@ Windows is a .NET Framework 4.8 unpackaged WinForms host. Microsoft's current Wi
 
 The shared client now retains up to 64 notification summaries for the current app session, deduplicates validated events, checks whether actions are still available, and saves per-category visual and sound preferences. Incoming direct room invites use a `room_` nonce prefix and new calls use `call_`; the existing invite signature covers the nonce, so a directory update arriving late cannot change the category. Older unprefixed invites use neutral room-invitation wording. Existing room-activity sound and visual attention remain enabled by default.
 
-On Windows, visual attention currently flashes the taskbar when the app is unfocused; the inbox remains available in the lobby. Windows Notification Center popups and activation are not implemented in this review build. Linux continues to use its existing Electron OS notification path. The separate Windows popup decision remains open for product review.
+The QA feedback increment adds sender-specific in-app cards, a bell-only sliding drawer and bounded native desktop popups when Windows is unfocused. The .NET Framework host uses its own nonactivating popup window; these cards are not retained in Windows Notification Center. Linux uses Electron notifications with the same bounded sender/body and ID-only activation contract. Both adapters restore the app and leave action authority in the current page. Chat notifications include only fresh verified messages, never history replay; user chat text and sender names stay untranslated.
 
 ## Accessibility, privacy, and acceptance
 

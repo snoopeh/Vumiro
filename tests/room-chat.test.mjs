@@ -41,6 +41,16 @@ test('room text composer stays usable without peers and through signaling recove
   const app=harness();app.chatControls();assert.equal(app.$('chatText').disabled,false);assert.equal(app.$('chatSend').disabled,false);assert.equal(app.$('chatAttach').disabled,false);
   app.setChatRoom('room-one');app.joined=false;app.disconnected=true;app.chatControls();assert.equal(app.$('chatText').disabled,false);
 });
+
+test('only fresh verified messages produce sender-specific parent notifications',async()=>{
+  const app=harness(),posts=[];app.setChatRoom('room-one');const sender=peer(app);
+  app.embedded=true;app.parentMessage=value=>posts.push(value);app.document.hasFocus=()=>false;
+  const message=envelope(app);await app.acceptRoomChat(sender,message);
+  assert.equal(posts.length,1);assert.equal(posts[0].type,'vumiro-chat-notification');assert.equal(posts[0].sender.name,'Friend');assert.equal(posts[0].text,message.text);
+  await app.acceptRoomChat(sender,message);assert.equal(posts.length,1);
+  await app.acceptRoomChat(sender,envelope(app,{id:'h'.repeat(32)}),true);assert.equal(posts.length,1);
+  const invalid=envelope(app,{id:'i'.repeat(32)});invalid.text='tampered';await app.acceptRoomChat(sender,invalid);assert.equal(posts.length,1);
+});
 test('sending alone stores a signed message and syncs it when a participant connects',async()=>{
   const app=harness();assert.equal(typeof app.setChatRoom,'function');app.setChatRoom('room-one');
   app.$('chatText').value='Hello future friends';await app.sendRoomChat({preventDefault(){}});

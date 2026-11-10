@@ -11,6 +11,7 @@ namespace Vumiro.Client
     {
         private bool contentFullscreen;
         private bool backdropEnabled;
+        private DesktopNotificationCenter desktopNotifications;
         private readonly CaptionClickTracker captionClicks = new CaptionClickTracker();
         private static readonly Dictionary<string, int> ResizeEdges = new Dictionary<string, int> {
             {"w",10}, {"e",11}, {"n",12}, {"nw",13}, {"ne",14}, {"s",15}, {"sw",16}, {"se",17}
@@ -21,6 +22,8 @@ namespace Vumiro.Client
             FormBorderStyle = FormBorderStyle.None;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             HandleCreated += (s, e) => ApplyWindowAppearance();
+            browser.NavigationStarting += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; };
+            FormClosed += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; };
             Resize += (s, e) => {
                 if (WindowState != FormWindowState.Minimized) lastWindowState = WindowState;
                 ApplyWindowAppearance(); PublishWindowState();
@@ -121,6 +124,23 @@ namespace Vumiro.Client
             if (message == null || !message.TryGetValue("type", out type) || type as string != "window") return false;
             if (message.Count < 2 || message.Count > 3 || !message.TryGetValue("action", out actionValue) || !(actionValue is string)) return true;
             var action = (string)actionValue;
+            if (action == "notify")
+            {
+                object payload; DesktopNotificationData notification;
+                if (message.Count == 3 && message.TryGetValue("notification", out payload) && DesktopNotificationData.TryParse(payload, out notification) && !ContainsFocus)
+                {
+                    if (desktopNotifications == null) desktopNotifications = new DesktopNotificationCenter(this, id => {
+                        if (IsDisposed || browser?.CoreWebView2 == null) return;
+                        RestoreFromTray();
+                        browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "notification-activate", id }));
+                    });
+                    desktopNotifications.Show(notification);
+                    var flash = new FlashInfo { Size = (uint)Marshal.SizeOf(typeof(FlashInfo)), Window = Handle, Flags = 3, Count = 3, Timeout = 0 };
+                    FlashWindowEx(ref flash);
+                }
+                return true;
+            }
+            if (action == "notify-clear" && message.Count == 2) { desktopNotifications?.Dispose(); desktopNotifications = null; return true; }
             if (action == "close") Close();
             else if (action == "minimize") WindowState = FormWindowState.Minimized;
             else if (action == "maximize" && !contentFullscreen) WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
@@ -147,11 +167,6 @@ namespace Vumiro.Client
                 object edgeValue; int hit;
                 if (message.TryGetValue("edge", out edgeValue) && edgeValue is string && ResizeEdges.TryGetValue((string)edgeValue, out hit))
                 { ReleaseCapture(); SendMessage(Handle, 0x00a1, new IntPtr(hit), IntPtr.Zero); }
-            }
-            else if (action == "notify" && !ContainsFocus)
-            {
-                var flash = new FlashInfo { Size = (uint)Marshal.SizeOf(typeof(FlashInfo)), Window = Handle, Flags = 3, Count = 3, Timeout = 0 };
-                FlashWindowEx(ref flash);
             }
             PublishWindowState(); return true;
         }

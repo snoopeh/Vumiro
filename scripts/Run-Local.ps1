@@ -38,6 +38,7 @@ try {
         if (!$SkipTests) {
             Invoke-LocalCheck 'Client regressions' 'node' @('--test', 'tests/*.test.mjs') 'client-tests.log'
             Invoke-LocalCheck 'Native invariants' 'dotnet' @('run', '--project', 'tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj', '-c', 'Release') 'native-tests.log'
+            Invoke-LocalCheck 'Desktop notification payloads' 'dotnet' @('run', '--project', 'tests/NativeNotificationChecks/NativeNotificationChecks.csproj', '-c', 'Release') 'notification-tests.log'
             Invoke-LocalCheck 'Local service isolation' 'dotnet' @('run', '--project', 'tests/LocalQaServiceChecks/LocalQaServiceChecks.csproj', '-c', 'Release') 'local-service-tests.log'
             Invoke-LocalCheck 'Startup updater regressions' 'dotnet' @('run', '--project', 'tests/ClientUpdateChecks/ClientUpdateChecks.csproj', '-c', 'Release') 'updater-tests.log'
             Invoke-LocalCheck 'Native audio recovery regressions' 'dotnet' @('run', '--project', 'tests/NativeAudioSmoke/NativeAudioSmoke.csproj', '-c', 'Release', '--', '--self-test') 'audio-tests.log'

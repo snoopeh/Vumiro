@@ -20,6 +20,7 @@ const expectedAssets = [
   'cover-transfer.js',
   'settings-drafts.js',
   'motion.js',
+  'notification-center.js',
   'peer-profile.js',
   'account-client.js',
   'identity-recovery.js'

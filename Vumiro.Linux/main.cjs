@@ -65,6 +65,8 @@ let permittedCaptureSources = new Map();
 let finishCapturePicker = null;
 let captureRequestBusy = false;
 let cancelOAuth = null;
+const desktopNotifications = new Map();
+const desktopNotificationSeen = new Set();
 const appVersion = app.getVersion() || '1.21.1';
 const DEFAULT_SIGNALING = 'wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling';
 
@@ -72,6 +74,46 @@ const MIME = new Map([
   ['.html', 'text/html; charset=utf-8'],
   ['.js', 'text/javascript; charset=utf-8']
 ]);
+
+function parseNotification(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'avatar,body,category,id,senderName') return null;
+  if (typeof value.id !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(value.id) || !['friend', 'roomInvite', 'call', 'roomActivity', 'message'].includes(value.category)) return null;
+  if (typeof value.senderName !== 'string' || !value.senderName.trim() || value.senderName.length > 80 || typeof value.body !== 'string' || !value.body.trim() || value.body.length > 320) return null;
+  if (typeof value.avatar !== 'string' || value.avatar.length > 32768 || value.avatar && !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value.avatar)) return null;
+  return {id: value.id, category: value.category, senderName: value.senderName, body: value.body, avatar: value.avatar};
+}
+function showDesktopNotification(input) {
+  const data = parseNotification(input);
+  if (!data || !Notification.isSupported() || desktopNotificationSeen.has(data.id)) return;
+  desktopNotificationSeen.add(data.id);
+  if (desktopNotificationSeen.size > 256) desktopNotificationSeen.delete(desktopNotificationSeen.values().next().value);
+  while (desktopNotifications.size >= 3) {
+    const oldest = desktopNotifications.entries().next().value;
+    desktopNotifications.delete(oldest[0]); clearTimeout(oldest[1].timer); oldest[1].notice.close();
+  }
+  // The page controls all sound, independently of visual notification settings.
+  const options = {title: data.senderName, body: data.body, silent: true, timeoutType: 'default'};
+  if (data.avatar.startsWith('data:image/png;base64,')) {
+    const bytes = Buffer.from(data.avatar.slice(22), 'base64');
+    if (bytes.length >= 24 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(16) > 0 && bytes.readUInt32BE(16) <= 512 && bytes.readUInt32BE(20) > 0 && bytes.readUInt32BE(20) <= 512) {
+      const icon = nativeImage.createFromDataURL(data.avatar); if (!icon.isEmpty()) options.icon = icon;
+    }
+  }
+  const notice = new Notification(options), entry = {notice, timer: null};
+  notice.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed() || !validMainFrame(mainWindow.webContents)) return;
+    restoreWindow(); mainWindow.webContents.send('vumiro:message', {type: 'notification-activate', id: data.id}); notice.close();
+  });
+  notice.on('close', () => { clearTimeout(entry.timer); desktopNotifications.delete(data.id); });
+  desktopNotifications.set(data.id, entry);
+  entry.timer = setTimeout(() => { desktopNotifications.delete(data.id); notice.close(); }, data.category === 'call' ? 12000 : 7000);
+  entry.timer.unref?.();
+  notice.show();
+}
+function clearDesktopNotifications() {
+  for (const {notice, timer} of desktopNotifications.values()) { clearTimeout(timer); notice.close(); }
+  desktopNotifications.clear(); desktopNotificationSeen.clear();
+}
 
 function parseAppUrl(value) {
   try {
@@ -475,9 +517,8 @@ function registerIpc() {
       void handleUpdateAction(message.action);
       return;
     }
-    if (message.type === 'window' && keys.join(',') === 'action,type' && message.action === 'notify') {
-      if (Notification.isSupported()) new Notification({ title: 'Vumiro', body: 'You have new activity.' }).show();
-    }
+    if (message.type === 'window' && keys.join(',') === 'action,notification,type' && message.action === 'notify') showDesktopNotification(message.notification);
+    if (message.type === 'window' && keys.join(',') === 'action,type' && message.action === 'notify-clear') clearDesktopNotifications();
   });
 
   ipcMain.on('capture-picker:ready', event => {
@@ -559,6 +600,8 @@ async function createWindows() {
   window.on('leave-full-screen', sendWindowState);
   window.on('maximize', sendWindowState);
   window.on('unmaximize', sendWindowState);
+  window.on('closed', clearDesktopNotifications);
+  window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) clearDesktopNotifications(); });
 
   if (!smoke) {
     splashWindow = new BrowserWindow({

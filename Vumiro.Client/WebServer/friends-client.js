@@ -384,12 +384,12 @@ function playUiCue(kind,force=false,volume=appSoundVolume){
   volume=soundVolume(volume);if((!appSounds&&!force)||volume===0)return;let ctx;
   try{
     const C=window.AudioContext||window.webkitAudioContext;if(!C)return;ctx=new C();
-    const osc=ctx.createOscillator(),gain=ctx.createGain(),tones=kind==='ring'?[523,659,784]:kind==='request'?[700,880]:kind==='room'?[620,784]:[440,330],duration=kind==='ring'?.42:.2;
+    const osc=ctx.createOscillator(),gain=ctx.createGain(),tones=kind==='ring'?[523,659,784]:kind==='request'?[700,880]:kind==='room'?[620,784]:kind==='chat'?[784]:[440,330],duration=kind==='ring'?.42:.2;
     osc.type='sine';tones.forEach((tone,index)=>osc.frequency.setValueAtTime(tone,ctx.currentTime+(kind==='ring'?index*.12:index*.07)));gain.gain.setValueAtTime(.0001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.12*volume/100,ctx.currentTime+.02);gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);osc.connect(gain);gain.connect(ctx.destination);osc.onended=()=>ctx.close().catch(()=>{});osc.start();osc.stop(ctx.currentTime+duration+.01);
     if(ctx.state==='suspended')ctx.resume().catch(()=>ctx.close().catch(()=>{}));
   }catch{ctx?.close().catch(()=>{});}
 }
-const notificationCategories={friend:{label:'Friend requests',cue:'request',visual:true,sound:true},roomInvite:{label:'Room invites and requests',cue:'room',visual:true,sound:true},call:{label:'Incoming calls',cue:'ring',visual:true,sound:true},roomActivity:{label:'Room activity',cue:'room',visual:true,sound:true}};
+const notificationCategories={friend:{label:'Friend requests',cue:'request',visual:true,sound:true},roomInvite:{label:'Room invites and requests',cue:'room',visual:true,sound:true},call:{label:'Incoming calls',cue:'ring',visual:true,sound:true},roomActivity:{label:'Room activity',cue:'room',visual:true,sound:true},message:{label:'Chat messages',cue:'chat',visual:true,sound:true}};
 const notificationSettings={};
 let storedNotificationSettings;
 try{storedNotificationSettings=JSON.parse(localStorage.getItem('vumiro-social-notifications-v1'));}catch{}
@@ -398,8 +398,9 @@ for(const [kind,defaults] of Object.entries(notificationCategories)){
   notificationSettings[kind]={visual:typeof saved?.visual==='boolean'?saved.visual:defaults.visual,sound:typeof saved?.sound==='boolean'?saved.sound:defaults.sound};
 }
 const notificationItems=[],notificationSeen=new Map();
-function clearNotificationSession(){notificationItems.length=0;notificationSeen.clear();renderNotifications();}
-const notificationSettingIds={friend:'Friend',roomInvite:'RoomInvite',call:'Call',roomActivity:'RoomActivity'};
+let notificationCenter=null,notificationSequence=0;
+function clearNotificationSession(){notificationItems.length=0;notificationSeen.clear();notificationCenter?.clear();host?.postMessage({type:'window',action:'notify-clear'});renderNotifications();}
+const notificationSettingIds={friend:'Friend',roomInvite:'RoomInvite',call:'Call',roomActivity:'RoomActivity',message:'Message'};
 function resetNotificationDraft(){
   for(const [kind,suffix] of Object.entries(notificationSettingIds)){
     $('notification'+suffix+'Visual').checked=notificationSettings[kind].visual;
@@ -417,6 +418,7 @@ function saveNotificationPreferences(){
 function notificationAvailable(item){
   if(!item.action||item.expires<=runtimeNow())return false;
   const action=item.action;
+  if(action.type==='chat')return !!frame&&currentRoom===action.room;
   if(action.type==='call')return !!pending&&pending.direction==='incoming'&&pending.nonce===action.id&&pending.expires>runtimeNow()&&!blocked.includes(pending.friend)&&!blocking.has(pending.friend);
   if(action.type==='request')return requests.some(request=>request.id===action.id&&request.direction==='incoming'&&request.expires>(requestNow(request)??Infinity)&&!blocked.includes(request.contact.id)&&!blocking.has(request.contact.id));
   if(action.type==='rooms')return rooms.some(room=>room.room===action.id&&!!friendById(room.owner)&&!blocked.includes(room.owner)&&!blocking.has(room.owner));
@@ -424,6 +426,7 @@ function notificationAvailable(item){
 }
 function notificationAction(item){
   if(!notificationAvailable(item))return;
+  if(item.action.type==='chat'){notificationCenter?.close();returnToRoom();frame.contentWindow.postMessage({type:'vumiro-open-chat'},location.origin);return;}
   if(item.action.type==='call'){
     if(pending?.direction!=='incoming'||pending.nonce!==item.action.id||pending.expires<=runtimeNow())return;
     $('notificationDialog').close();$('acceptInvite').focus();return;
@@ -436,6 +439,7 @@ function notificationAction(item){
   if(item.action.type==='friends'){$('notificationDialog').close();$('friendsNav').click();}
 }
 function renderNotifications(){
+  if(notificationCenter){notificationCenter.sync(notificationItems.map(notificationView));return;}
   const list=$('notificationList');list.replaceChildren();
   for(const item of notificationItems){
     const row=document.createElement('li'),title=document.createElement('strong'),time=document.createElement('small');
@@ -454,18 +458,33 @@ function renderNotifications(){
 }
 function openNotifications(){
   for(const item of notificationItems)item.read=true;
+  if(notificationCenter){renderNotifications();notificationCenter.open();return;}
   renderNotifications();dialog('notificationDialog');
 }
-function notifySocial(category,key,text,action=null,expires=runtimeNow()+86400000){
+function notificationText(item){return item.category==='message'?item.body:(typeof window!=='undefined'?window.VumiroI18n?.translateLiteral(item.body):null)||item.body;}
+function notificationView(item){return {id:item.id,category:item.category,senderName:item.senderName,avatar:item.avatar,text:notificationText(item),available:notificationAvailable(item)};}
+function desktopNotification(item){
+  const send=avatar=>{if(!notificationItems.includes(item)||item.expires<=runtimeNow()||!notificationSettings[item.category].visual||document.hasFocus())return;host?.postMessage({type:'window',action:'notify',notification:{id:item.id,category:item.category,senderName:item.senderName,body:notificationText(item),avatar}});};
+  if(!item.avatar||item.avatar.startsWith('data:image/png;base64,')&&item.avatar.length<=32768){send(item.avatar);return;}
+  if(typeof Image==='undefined'){send('');return;}
+  const image=new Image();let finished=false;
+  const finish=avatar=>{if(finished)return;finished=true;clearTimeout(timer);image.onload=image.onerror=null;send(avatar);};
+  const timer=setTimeout(()=>finish(''),750);
+  image.onerror=()=>finish('');image.onload=()=>{try{const canvas=document.createElement('canvas');canvas.width=canvas.height=48;canvas.getContext('2d').drawImage(image,0,0,48,48);const value=canvas.toDataURL('image/png');finish(value.length<=32768?value:'');}catch{finish('');}};image.src=item.avatar;
+}
+function notifySocial(category,key,text,action=null,expires=runtimeNow()+86400000,sender=null){
   if(!notificationCategories[category]||typeof key!=='string'||!key||key.length>256||typeof text!=='string'||!text||expires<=runtimeNow())return false;
   const now=runtimeNow();for(const [seenKey,at] of notificationSeen)if(now-at>86400000)notificationSeen.delete(seenKey);
   const dedupe=category+':'+key;if(notificationSeen.has(dedupe))return false;
   notificationSeen.set(dedupe,now);while(notificationSeen.size>256)notificationSeen.delete(notificationSeen.keys().next().value);
-  notificationItems.unshift({category,text:text.slice(0,180),action,expires,time:Date.now(),read:false});
+  if(!sender){const id=action?.type==='call'?pending?.friend:action?.type==='request'?requests.find(request=>request.id===action.id)?.contact.id:action?.type==='rooms'?rooms.find(room=>room.room===action.id)?.owner:null;sender=friendById(id)||requests.find(request=>request.contact.id===id)?.contact;}
+  const senderName=String(sender?.nickname||sender?.name||'Vumiro').slice(0,80),avatar=typeof sender?.avatar==='string'&&sender.avatar.length<=32768&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(sender.avatar)?sender.avatar:'';
+  const body=(category!=='message'&&text.startsWith(senderName)?text.slice(senderName.length).replace(/^[:\s]+/,''):text).slice(0,320)||text.slice(0,320);
+  const item={id:'notification-'+(++notificationSequence),category,text:text.slice(0,180),senderName,avatar,body,action,expires,time:Date.now(),read:false};notificationItems.unshift(item);
   if(notificationItems.length>64)notificationItems.length=64;
   renderNotifications();
   if(notificationSettings[category].sound)playUiCue(notificationCategories[category].cue);
-  if(notificationSettings[category].visual&&!document.hasFocus())host?.postMessage({type:'window',action:'notify'});
+  if(notificationSettings[category].visual){if(document.hasFocus())notificationCenter?.popup(notificationView(item));else desktopNotification(item);}
   return true;
 }
 let generation=0,messages=Promise.resolve(),serviceUrl='',requests=[],requestTimer=0,rooms=[],currentRoom='',joined=false,sharing=false,lookupTimer=0,lookupGeneration=0,selectedLookup=null,avatarDraft='',avatarSelection=0,avatarWork=Promise.resolve(),currentAccess=null,confirmation=null;
@@ -883,7 +902,7 @@ async function receiveFriendState(value,active){
     const item=friendRequestItem(request,contact,contact,'pending',value.delivered===true);
     if(saved?.nickname)item.nickname=saved.nickname;
     await storeRequest(item);
-    if(request.to===profile.id){sendFriendReceipt(request.nonce,'pending');if(!saved){notifySocial('friend',request.nonce,contact.name+' sent you a friend request.',{type:'request',id:request.nonce},request.expires);status(contact.name+' sent you a friend request.');}}
+    if(request.to===profile.id){sendFriendReceipt(request.nonce,'pending');if(!saved){notifySocial('friend',request.nonce,contact.name+' sent you a friend request.',{type:'request',id:request.nonce},request.expires,contact);status(contact.name+' sent you a friend request.');}}
     return;
   }
   let accepted=false;
@@ -899,7 +918,7 @@ async function receiveFriendState(value,active){
   try{result=await local.applyFriendResolution({nonce:request.nonce,contact,accepted:acceptedForSave,nickname:saved?.nickname||'',expires:value.expires},()=>active()&&(!acceptedForSave||!blocked.includes(otherId)));}
   catch(error){if(saved){saved.error=error.message;await local.saveRequest(saved);renderRequests();}status(error.message);return;}
   if(!active())return;
-  if(result?.added){selected=otherId;await reloadFriends();notifySocial('friend','accepted:'+request.nonce,contact.name+' is now your friend.',{type:'friends'},runtimeNow()+86400000);}
+  if(result?.added){selected=otherId;await reloadFriends();notifySocial('friend','accepted:'+request.nonce,contact.name+' is now your friend.',{type:'friends'},runtimeNow()+86400000,contact);}
   await removeRequest(request.nonce);
   sendFriendReceipt(request.nonce,'resolved');
   if(value.state==='accepted')status(blockedPeer?'Friend request resolved; the blocked identity was not added.':result?.alreadyProcessed?'Friend request was already resolved.':current?'You are now friends.':'Friend request accepted. You are now friends.');
@@ -916,9 +935,9 @@ async function receiveSocial(m,active){
 if(m.version===2)return;
 if(m.to!==profile.id||!['friend-request','friend-answer','join-request','join-answer'].includes(m.kind)||!/^[A-Za-z0-9_-]{16,64}$/.test(m.nonce||'')||!Number.isSafeInteger(m.expires)||m.expires<=runtimeNow()||m.expires>runtimeNow()+120000||!m.payload||typeof m.payload!=='object'||Array.isArray(m.payload))return;
 const contact=await local.validateContact(m.profile);if(blocked.includes(contact.id)||contact.id!==m.from||!await local.verify(contact,socialText(m),m.signature)||!active()||m.expires<=runtimeNow()||replayed(m))return;const p=m.payload;
-if(m.kind==='friend-request'||m.kind==='join-request'){if(m.kind==='join-request'&&(!friendById(contact.id)||!frame||!joined||currentRoom!==p.room||currentRoom.slice(0,43)!==profile.id))return;if(requests.some(item=>item.direction==='incoming'&&item.contact.id===contact.id&&item.kind===m.kind))return;await storeRequest({id:m.nonce,direction:'incoming',kind:m.kind,contact,nonce:m.nonce,expires:m.expires,room:p.room||''});notifySocial(m.kind==='friend-request'?'friend':'roomInvite',m.nonce,contact.name+(m.kind==='friend-request'?' sent you a friend request.':' wants to join your room.'),{type:'request',id:m.nonce},m.expires);status(contact.name+(m.kind==='friend-request'?' sent you a friend request.':' wants to join your room.'));return;}
+if(m.kind==='friend-request'||m.kind==='join-request'){if(m.kind==='join-request'&&(!friendById(contact.id)||!frame||!joined||currentRoom!==p.room||currentRoom.slice(0,43)!==profile.id))return;if(requests.some(item=>item.direction==='incoming'&&item.contact.id===contact.id&&item.kind===m.kind))return;await storeRequest({id:m.nonce,direction:'incoming',kind:m.kind,contact,nonce:m.nonce,expires:m.expires,room:p.room||''});notifySocial(m.kind==='friend-request'?'friend':'roomInvite',m.nonce,contact.name+(m.kind==='friend-request'?' sent you a friend request.':' wants to join your room.'),{type:'request',id:m.nonce},m.expires,contact);status(contact.name+(m.kind==='friend-request'?' sent you a friend request.':' wants to join your room.'));return;}
 if(typeof p.accepted!=='boolean')return;const request=requests.find(item=>item.direction==='outgoing'&&item.nonce===p.requestNonce&&item.contact.id===contact.id&&item.expires>runtimeNow()&&item.kind===(m.kind==='friend-answer'?'friend-request':'join-request'));if(!request)return;
-if(m.kind==='friend-answer'){if(p.accepted){if(!active()||!requests.includes(request)||request.expires<=runtimeNow()||blocked.includes(contact.id))return;selected=await local.addContact(contact,request.nickname,()=>active()&&requests.includes(request)&&request.expires>runtimeNow()&&!blocked.includes(contact.id));await reloadFriends();notifySocial('friend','accepted:'+request.nonce,contact.name+' is now your friend.',{type:'friends'},runtimeNow()+86400000);}await removeRequest(request.id);status(p.accepted?contact.name+' accepted. You are now friends.':contact.name+' declined the friend request.');}else{if(p.room!==request.room||p.room.slice(0,43)!==contact.id||!friendById(contact.id))return;if(p.accepted&&!await validGrant(contact,profile.id,p.room,p.grant))return;const currentFriends=await local.listFriends();if(!active()||!requests.includes(request)||request.expires<=runtimeNow()||blocked.includes(contact.id)||!currentFriends.some(friend=>friend.id===contact.id))return;await removeRequest(request.id);const stillFriends=await local.listFriends();if(!active()||request.expires<=runtimeNow()||blocked.includes(contact.id)||!stillFriends.some(friend=>friend.id===contact.id))return;if(p.accepted){if(frame||pending){status('Approval received. Finish your current room first.');return;}openRoom(p.room,serviceUrl,friendById(contact.id)?.nickname||contact.name,p.grant);if($('roomDialog').open)$('roomDialog').close();}else status(contact.name+' declined the room request.');}}
+if(m.kind==='friend-answer'){if(p.accepted){if(!active()||!requests.includes(request)||request.expires<=runtimeNow()||blocked.includes(contact.id))return;selected=await local.addContact(contact,request.nickname,()=>active()&&requests.includes(request)&&request.expires>runtimeNow()&&!blocked.includes(contact.id));await reloadFriends();notifySocial('friend','accepted:'+request.nonce,contact.name+' is now your friend.',{type:'friends'},runtimeNow()+86400000,contact);}await removeRequest(request.id);status(p.accepted?contact.name+' accepted. You are now friends.':contact.name+' declined the friend request.');}else{if(p.room!==request.room||p.room.slice(0,43)!==contact.id||!friendById(contact.id))return;if(p.accepted&&!await validGrant(contact,profile.id,p.room,p.grant))return;const currentFriends=await local.listFriends();if(!active()||!requests.includes(request)||request.expires<=runtimeNow()||blocked.includes(contact.id)||!currentFriends.some(friend=>friend.id===contact.id))return;await removeRequest(request.id);const stillFriends=await local.listFriends();if(!active()||request.expires<=runtimeNow()||blocked.includes(contact.id)||!stillFriends.some(friend=>friend.id===contact.id))return;if(p.accepted){if(frame||pending){status('Approval received. Finish your current room first.');return;}openRoom(p.room,serviceUrl,friendById(contact.id)?.nickname||contact.name,p.grant);if($('roomDialog').open)$('roomDialog').close();}else status(contact.name+' declined the room request.');}}
 async function lookup(value,mode='single'){if(validFriendHandle(value.trim().replace(/^@/,'').toLowerCase())&&!namedFriendTagsAvailable)throw Error('Named tags need the updated Vumiro service. Use your friend’s existing tag or contact code for now.');if(value.trim().startsWith('vm1.'))value=(await local.parseContactCode(value)).id;const nonce=crypto.randomUUID();return new Promise((resolve,reject)=>{try{send({type:'lookup',query:value,nonce});}catch(error){reject(error);return;}const timer=setTimeout(()=>{lookups.delete(nonce);reject(Error('Lookup timed out. Reconnect or use your friend’s contact code.'));},8000);lookups.set(nonce,{resolve,reject,timer,mode});});}
 async function refreshContact(value){try{const contact=await local.validateContact(value);rememberDirectoryProfile(value);if(friendById(contact.id))await local.updateContactProfile(contact.id,{name:contact.name,username:contact.username});}catch{}}
 async function receive(m,current,version){const active=()=>socket===current&&generation===version&&!stopped;if(!active())return;
@@ -945,7 +964,7 @@ if(m.type==='social-sent'){settleSocialAck(m.nonce,null,m.to);return;}
 if(m.type==='unavailable'){settleSocialAck(m.nonce,Error('Your friend is unavailable. Ask them to reconnect and retry.'),m.to);if(pending?.direction==='outgoing'&&pending.friend===m.to&&pending.nonce===m.nonce)clearPending('Your friend is unavailable. Try again when you are both online.');const request=requests.find(item=>item.direction==='outgoing'&&item.contact.id===m.to&&item.nonce===m.nonce);if(request){await removeRequest(request.id);status('Your friend is unavailable. Ask them to open Vumiro, then try again.');}return;}
 if(m.type==='error'||m.type==='social-error'){if(m.nonce)settleRoomAlias(m,Error(typeof m.message==='string'?m.message:'The service rejected this invitation.'));if(m.nonce)settleSocialAck(m.nonce,Error(typeof m.message==='string'?m.message:'The service rejected this response.'));else if(m.type==='social-error')rejectSocialAcks(typeof m.message==='string'?m.message:'The service rejected this response.');if(m.code==='username-taken')usernameCollision=true;const text=m.code==='username-taken'?'Your username is saved. Shared usernames need the updated Vumiro service; use your existing tag or contact code for now.':typeof m.message==='string'?m.message:'The service could not complete that request.';status(text);if($('profileDialog').open)profileFeedback(text);if($('addDialog').open)$('addError').textContent=text;const request=requests.find(item=>item.direction==='outgoing'&&item.nonce===m.nonce);if(request)await removeRequest(request.id);return;}
 if(!['invite','answer'].includes(m.type)||!validEnvelope(m))return;const friend=friendById(m.from);if(!friend||(m.type==='answer'&&typeof m.accepted!=='boolean'))return;if(!await local.verify(friend,m.type==='invite'?inviteText(m):answerText(m),m.signature)||!active())return;if(!(await local.listFriends()).some(saved=>saved.id===m.from)||!active()||m.expires<=runtimeNow())return;
-if(m.type==='invite'){if(replayed(m))return;const notificationCategory=m.nonce.startsWith('call_')?'call':'roomInvite',legacyInvite=!m.nonce.startsWith('call_')&&!m.nonce.startsWith('room_');const value={direction:'incoming',friend:friend.id,room:m.room,nonce:m.nonce,expires:m.expires,grant:m.grant,notificationCategory,legacyInvite};if(pending||frame||!await validGrant(friend,profile.id,m.room,m.grant)){await answer(value,false);if(!m.grant)status('Your friend needs the latest Vumiro version to approve room access.');return;}const latestFriends=await local.listFriends();if(!active()||m.expires<=runtimeNow()||blocked.includes(friend.id)||!latestFriends.some(saved=>saved.id===friend.id))return;setPending(value);const description=legacyInvite?' sent a room invitation.':notificationCategory==='roomInvite'?' invited you to their room.':' is calling.';notifySocial(notificationCategory,m.nonce,friend.nickname+description,{type:'call',id:m.nonce},m.expires);status(friend.nickname+description+' Accept to open your shared room.');}else if(pending&&pending.friend===friend.id&&pending.nonce===m.nonce&&pending.room===m.room&&pending.expires===m.expires){if(!m.accepted){clearPending(pending.direction==='incoming'?friend.nickname+' cancelled the call.':friend.nickname+' declined the call.');return;}if(pending.direction!=='outgoing')return;const value=pending;clearPending();if(value.existingRoom){roomInviteResult(value,true,friend.nickname+' accepted your room invitation.');status(friend.nickname+' accepted your room invitation.');return;}openRoom(value.room,serviceUrl,friend.nickname);}}
+if(m.type==='invite'){if(replayed(m))return;const notificationCategory=m.nonce.startsWith('call_')?'call':'roomInvite',legacyInvite=!m.nonce.startsWith('call_')&&!m.nonce.startsWith('room_');const value={direction:'incoming',friend:friend.id,room:m.room,nonce:m.nonce,expires:m.expires,grant:m.grant,notificationCategory,legacyInvite};if(pending||frame||!await validGrant(friend,profile.id,m.room,m.grant)){await answer(value,false);if(!m.grant)status('Your friend needs the latest Vumiro version to approve room access.');return;}const latestFriends=await local.listFriends();if(!active()||m.expires<=runtimeNow()||blocked.includes(friend.id)||!latestFriends.some(saved=>saved.id===friend.id))return;setPending(value);const description=legacyInvite?' sent a room invitation.':notificationCategory==='roomInvite'?' invited you to their room.':' is calling.';notifySocial(notificationCategory,m.nonce,friend.nickname+description,{type:'call',id:m.nonce},m.expires,friend);status(friend.nickname+description+' Accept to open your shared room.');}else if(pending&&pending.friend===friend.id&&pending.nonce===m.nonce&&pending.room===m.room&&pending.expires===m.expires){if(!m.accepted){clearPending(pending.direction==='incoming'?friend.nickname+' cancelled the call.':friend.nickname+' declined the call.');return;}if(pending.direction!=='outgoing')return;const value=pending;clearPending();if(value.existingRoom){roomInviteResult(value,true,friend.nickname+' accepted your room invitation.');status(friend.nickname+' accepted your room invitation.');return;}openRoom(value.room,serviceUrl,friend.nickname);}}
 async function hydrateRequests(){const values=await local.listRequests();requests=values.filter(item=>{const now=requestNow(item);return now===null||item.expires>now;});for(const item of values)if(!requests.includes(item))await local.removeRequest(item.id);renderRequests();}
 function clearLegacyRequests(){const old=requests.filter(item=>item.version!==2);requests=requests.filter(item=>item.version===2);for(const item of old)local.removeRequest(item.id).catch(()=>{});renderRequests();}
 function rejectLookups(){for(const task of lookups.values()){clearTimeout(task.timer);task.reject(Error('The service disconnected. Reconnect and try again.'));}lookups.clear();}
@@ -988,6 +1007,11 @@ function leaveRoom(){if(!frame)return;frame.contentWindow.postMessage({type:'vum
 addEventListener('message',event=>{
   if(!frame||event.source!==frame.contentWindow||event.origin!==location.origin)return;
   const data=event.data;
+  if(data?.type==='vumiro-chat-notification'){
+    if(data.room!==currentRoom||typeof data.id!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(data.id)||typeof data.text!=='string'||!data.text.trim()||data.text.length>2000||!data.sender||!/^[A-Za-z0-9_-]{43}$/.test(data.sender.id||'')||data.sender.id===profile?.id||blocked.includes(data.sender.id)||blocking.has(data.sender.id)||typeof data.sender.name!=='string'||!data.sender.name.trim()||data.sender.name.length>48)return;
+    const sender=friendById(data.sender.id)||{id:data.sender.id,name:data.sender.name,avatar:''};
+    notifySocial('message',currentRoom+':'+data.sender.id+':'+data.id,data.text,{type:'chat',room:currentRoom},runtimeNow()+86400000,sender);return;
+  }
   if(data?.type==='vumiro-room-invite'){handleRoomInvite(data).catch(error=>status(error.message));return;}
   if(data?.type==='vumiro-friend-status-query'||data?.type==='vumiro-add-friend'){
     const sourceFrame=frame,id=data.id;
@@ -1073,6 +1097,10 @@ async function requestJoin(room,mode){
 }
 function showQaNotification(kind){
   if(window.__VUMIRO_LOCAL_QA__!==true)return;
+  if(kind==='desktop'){
+    status('A sample notification will appear in 3 seconds. Minimize Vumiro to test the desktop popup.');
+    setTimeout(()=>notifySocial('message','qa-'+crypto.randomUUID(),'This is your desktop notification preview.',null,runtimeNow()+60000,friends[0]||{name:'Sample friend'}),3000);return;
+  }
   if(kind==='stop'){if(pending?.qa)clearPending('QA call notification test stopped.');return;}
   if(kind==='call'){
     if(pending)clearPending();
@@ -1099,7 +1127,7 @@ $('updatesNav').onclick=()=>{if(!$('profileDialog').open){browseRoom();showProfi
 $('exportDiagnostics').onclick=()=>{try{window.VumiroDiagnostics?.exportLogs();$('diagnosticsStatus').textContent=webViewHost?'Choose where to save your diagnostic ZIP.':'Diagnostic history downloaded.';}catch{$('diagnosticsStatus').textContent='Could not export diagnostics. Try again.';}};
 if(webViewHost)webViewHost.addEventListener('message',event=>{if(event.data?.type==='diagnostics')$('diagnosticsStatus').textContent=event.data.action==='exported'?'Diagnostic ZIP saved. You can share it with the developer.':event.data.action==='cancelled'?'Export cancelled.':'Could not export diagnostics. Try again.';});
 
-if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))host.postMessage({type:'window',action:'drag'});};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;streamAudioReason=typeof state.reason==='string'?state.reason:'';renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','warning','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
+if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))host.postMessage({type:'window',action:'drag'});};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='notification-activate'){const item=notificationItems.find(item=>item.id===state.id);if(item&&notificationAvailable(item))notificationAction(item);else openNotifications();return;}if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;streamAudioReason=typeof state.reason==='string'?state.reason:'';renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','warning','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
 if(host)host.addEventListener('message',event=>{
   if(event.data?.type!=='window-state')return;
   const caption=document.querySelector('[data-window="maximize"]');
@@ -1179,9 +1207,14 @@ $('saveAppSounds').onclick=async()=>{
 };
 $('previewAppSound').onclick=()=>playUiCue('request',true,appSoundVolumeDraft);
 $('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.preventDefault();});$('profileDialog').addEventListener('close',()=>{if(document.querySelector('dialog.settingsScreen[open]'))return;++avatarSelection;++bannerSelection;window.VumiroCoverEditor?.cancel();coverDraft=undefined;window.VumiroCoverMedia?.release($('profileBannerPreview'));avatarWork=Promise.resolve();bannerWork=Promise.resolve();avatarDraft=profile.avatar||'';bannerDraft=profile.banner||'';appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();resetNotificationDraft();});
-$('notificationOpen').onclick=openNotifications;
+const notificationPanel=$('notificationDialog');
+notificationCenter=window.VumiroNotificationCenter?.create({bell:$('notificationOpen'),panel:notificationPanel,list:$('notificationList'),empty:$('notificationEmpty'),onOpen:id=>{const item=notificationItems.find(item=>item.id===id);if(item)notificationAction(item);},onDismiss:id=>{const index=notificationItems.findIndex(item=>item.id===id);if(index>=0)notificationItems.splice(index,1);renderNotifications();}});
+if(notificationCenter)notificationPanel.close=()=>notificationCenter.close();
+else $('notificationOpen').onclick=openNotifications;
+const notificationGrid=$('notificationSettings').querySelector('.notificationOptions');
+if(notificationGrid){const name=document.createElement('span');name.textContent='Chat messages';notificationGrid.append(name);for(const [type,label]of[['Visual','Visual alert for chat messages'],['Sound','Sound for chat messages']]){const row=document.createElement('label'),input=document.createElement('input');row.className='checkLabel';input.type='checkbox';input.id='notificationMessage'+type;row.append(input,document.createTextNode(label));notificationGrid.append(row);}}
 const notificationPlatformHelp=$('notificationSettings').querySelector('p.help');
-if(notificationPlatformHelp)notificationPlatformHelp.textContent+=linuxHost?' Linux can also show system notifications when supported.':' On Windows, visual alerts flash the taskbar; Notification Center popups are unavailable in this build.';
+if(notificationPlatformHelp)notificationPlatformHelp.textContent+=linuxHost?' Linux can also show system notifications when supported.':' On Windows, notifications also appear as desktop popups when Vumiro is in the background.';
 resetNotificationDraft();renderNotifications();
 $('saveNotifications').onclick=()=>{const saved=saveNotificationPreferences();if(saved)toast('Notification settings saved.');else toast('Could not save notification settings.','error');return saved;};
 $('cancelNotifications').onclick=()=>{resetNotificationDraft();toast('Notification changes discarded.');};
