@@ -26,3 +26,11 @@ Human QA still needs actual Google sign-in/focus, native drag feel, two-client d
 - [x] Run the full official launcher and record final QA readiness: 462/462 client tests, all native gates and build passed. Human acceptance and release remain separate.
 
 The full gate caught an old event-feedback expectation that suppressed visible-chat alerts. `acb6d57` aligns both signed and legacy chat sound behavior with the new request; focused checks and the rerun passed.
+
+## Fourth QA pass
+
+- [x] Reproduce the language selector's automatic focus and duplicate outlines; focus the settings heading and retain one keyboard indicator (`2eb1232`).
+- [x] Remove sender cooldown and receiver text time gates; queue signing submissions, preserve newer drafts/replies and failed text, retain room/identity and network bounds (`98e2484`).
+- [x] Give QA samples bounded local destinations; activate avatar/padding as well as text; wait for asynchronous navigation and retain canceled popups/inbox retry (`23e44cd`).
+- [x] Bound the fading thumb to 20–60% of its track over the same native log; package and translate its controller (`b812fbf`).
+- [x] Review and verify native interaction, run the official launcher: 485/485 client tests, all native gates and build pass. Human QA acceptance is pending; nothing pushed or released.

@@ -8,7 +8,11 @@ Keep only a bell in the lobby. Explicit activation toggles a sliding list below 
 
 ## Motion and room entry
 
-Use the approved reveal and sakura masters from the sibling vumiro-motion folder. Play the reveal once per app launch with Skip and reduced-motion handling, then fade black into sign-in. Petals stay behind the form, pause when hidden, and have a visible motion toggle. Room entry displays an actual connecting state and error/retry/cancel controls. Chat retains normal scrolling with a transparent track and a red thumb that fades over 220ms on hover/focus/scroll. On desktop, default chat width is 24% of the room viewport; a pointer and keyboard separator adjusts it up to 30%, preserving the completed ratio. Compact windows retain the stacked layout.
+Use the approved reveal and sakura masters from the sibling vumiro-motion folder. Play the reveal once per app launch with Skip and reduced-motion handling, then fade black into sign-in. Petals stay behind the form, pause when hidden, and have a visible motion toggle. Room entry displays an actual connecting state and error/retry/cancel controls. Chat retains one native scroll range with a transparent track and a red thumb that fades over 220ms on hover/focus/scroll. The overlay thumb follows the native range, clamped to 20–60% of the track; no overflow hides it. Native styling remains the fallback. On desktop, default chat width is 24% of the room viewport; a pointer and keyboard separator adjusts it up to 30%, preserving the completed ratio. Compact windows retain the stacked layout.
+
+## Chat delivery
+
+Text messages have no sender or receiver time cooldown. Snapshot each accepted submission and serialize signatures without overwriting a newer draft or reply. Recheck room epoch and signing identity before publishing; preserve failed text visibly. Keep message-size, bounded pending work, history and network backpressure limits. Metadata/file throttles remain independent. Peers running older clients retain their own receiver limits until updated.
 
 ## Identity and languages
 
@@ -16,7 +20,7 @@ Keep directory-issued nickname#code as the authoritative identifier. A numeric-o
 
 ## Settings exit
 
-Track drafts against saved baselines across settings destinations. Escape, the close control and Back ask Save changes, Discard changes or Keep editing when drafts differ. Failed saving keeps settings open and preserves the draft. Successful saves advance only their own baseline. Closing clean settings remains immediate. Operational microphone/call controls retain their immediate behavior.
+Track drafts against saved baselines across settings destinations. Escape, the close control and Back ask Save changes, Discard changes or Keep editing when drafts differ. Failed saving keeps settings open and preserves the draft. Successful saves advance only their own baseline. Closing clean settings remains immediate. Operational microphone/call controls retain their immediate behavior. Initially focus the settings heading; show only one language focus indicator when keyboard navigation calls for it.
 
 ## Friend nudge
 
@@ -37,3 +41,4 @@ Exercise draft save failures, discard and clean exits; sender attribution, popup
 - Chromium scrollbar styling: https://developer.chrome.com/docs/css-ui/scrollbar-styling
 - HTML popovers and the top layer: https://html.spec.whatwg.org/dev/popover.html
 - WAI-ARIA window splitter: https://www.w3.org/WAI/ARIA/apg/patterns/windowsplitter/
+- WAI-ARIA dialog initial focus: https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/
