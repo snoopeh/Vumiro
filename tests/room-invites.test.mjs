@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends-client.js',import.meta.url),'utf8');
+const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends-client.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const ownId='A'.repeat(43),friendId='B'.repeat(43),otherId='C'.repeat(43),room=ownId+'_'+'a'.repeat(48),otherRoom=friendId+'_'+'b'.repeat(48);
 const token='Abc_456-xy12';
 function section(start,end){const a=source.indexOf(start),b=source.indexOf(end,a);assert.ok(a>=0&&b>a,`Missing ${start}`);return source.slice(a,b);}
