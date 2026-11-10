@@ -504,7 +504,7 @@
     const signature=await local.sign(text);
     if(joined && socket===connection && generation===thisGeneration && nonce===roomNonce && revision===roomFriendsRevision) { send({type:'room-friends',...(authenticationVersion===2?{version:2,blockedIds}:{}),friends,revision,signature});if(authenticationVersion===2 && ownsRoom() && ownerBlocks!==blockedIds.join(',')) await updatePolicy(null,'',null); }
   }
-  function passwordEntry() { if(password) return Promise.resolve(password);$('passwordPrompt').hidden=false;$('guestPassword').focus();return new Promise(resolve=>{passwordResolve=resolve;}); }
+  function passwordEntry() { if(password) return Promise.resolve(password);globalThis.VumiroRoomConnection?.set('password');$('passwordPrompt').hidden=false;$('guestPassword').focus();return new Promise(resolve=>{passwordResolve=resolve;}); }
   async function authenticateRoom(message,connection,thisGeneration) {
     const room=roomValue($('room').value),owner=ownsRoom(),challengeStarted=Date.now();
     if(message.id!==identity.id || message.room!==room || !/^[A-Za-z0-9_-]{43}$/.test(message.nonce || '')) throw Error('Invalid room identity challenge.');
@@ -840,6 +840,7 @@
   }
   function releaseRoomResources() {
     generation++;++microphoneEpoch;joined=false;joining=false;disconnected=false;
+    safeCleanup(()=>globalThis.VumiroRoomConnection?.set('idle'));
     const captures=new Set([screen,microphone,...changingMicrophones]);
     screen=null;microphone=null;micChanging=false;micSuppressed=true;changingMicrophones.clear();
     // Stop local capture first, before any socket, peer, UI or audio cleanup.
@@ -956,7 +957,8 @@
   }
   function openSocket() {
     const thisGeneration=generation; roomNonce=''; roomFriendsRevision=0; joining=true;updateControls();
-    let connection; try { connection=new WebSocket(signalUrl()); } catch(error) { joining=false;status(error.message);updateControls();return; }
+    globalThis.VumiroRoomConnection?.set(disconnected?'reconnecting':'joining');
+    let connection; try { connection=new WebSocket(signalUrl()); } catch(error) { joining=false;status(error.message);globalThis.VumiroRoomConnection?.set('error',error.message);updateControls();return; }
     socket=connection;
     connection.onmessage=async event=>{
       if(generation!==thisGeneration || socket!==connection || typeof event.data!=='string' || event.data.length>65536) return;
@@ -968,6 +970,7 @@
         } else if(message.type==='welcome') {
           if(message.id!==identity.id) throw Error('Room identity does not match your local profile.');
           selfId=message.id;joined=true;joining=false;retry=0;disconnected=false;$('passwordPrompt').hidden=true;$('passwordError').textContent='';if(message.policy) displayPolicy(message.policy,message.policyRevision);if(ownsRoom()) parentMessage({type:'vumiro-room-policy',room:roomValue($('room').value),mode:roomMode,name:roomName});chatLine('Joined the room. Chat is sent directly to connected participants.');
+          globalThis.VumiroRoomConnection?.set('connected');
           if(!localTile) localTile=tile($('name').value.trim() || 'Guest',true);
           const profile=ownProfile();if(profile) { cacheProfile(identity.id,profile);showProfile(localTile,profile,true); }
           if(screen) { localTile.video.srcObject=new MediaStream(screen.getVideoTracks());localTile.show(true);play(localTile.video); }
@@ -978,25 +981,27 @@
         else if(message.type==='peer-left') { const existed=peers.has(message.id);removePeer(message.id);if(existed)playCallCue('leave');status('A participant left · '+(peers.size+1)+' in the room.'); }
         else if(message.type==='room-policy' && joined) { displayPolicy(message.policy,message.policyRevision);if(policyAck?.revision===message.policyRevision) policyAck.resolve();roomState(); }
         else if(message.type==='signal' && joined) receiveSignal(message);
-        else if(message.type==='error') { if(policyAck) policyAck.reject(Error(message.message || 'Room access was rejected.'));status(message.message || 'Signaling service rejected a request.'); }
-      } catch(error) { status('Signaling error: '+error.message); }
+        else if(message.type==='error') { if(policyAck) policyAck.reject(Error(message.message || 'Room access was rejected.'));status(message.message || 'Signaling service rejected a request.');if(!joined)globalThis.VumiroRoomConnection?.set('error',message.message || 'Room access was rejected.'); }
+      } catch(error) { if(generation!==thisGeneration||socket!==connection)return;status('Signaling error: '+error.message);if(!joined)globalThis.VumiroRoomConnection?.set('error',error.message); }
     };
-    connection.onerror=()=>{diagnostic('signaling-state',{state:'failed'});if(generation===thisGeneration) status('Cannot reach the signaling service. Check its address and that it is running.'); };
+    connection.onerror=()=>{diagnostic('signaling-state',{state:'failed'});if(generation===thisGeneration&&socket===connection) { const message='Cannot reach the signaling service. Check its address and that it is running.';status(message);if(!joined)globalThis.VumiroRoomConnection?.set('error',message); } };
     connection.onclose=event=>{diagnostic('signaling-state',{state:'closed',code:event.code});
       if(generation!==thisGeneration || socket!==connection) return;
       socket=null;joined=false;joining=false;disconnected=true;if(policyAck) policyAck.reject(Error('Connection interrupted before room access was confirmed.'));clearPeers();updateControls();chatLine('Room connection lost. Reconnect is available.');
       if(passwordResolve) { passwordResolve('');passwordResolve=null; }if(serverPolicy.mode==='private' && !ownsRoom() && [1008,4003].includes(event.code)) { password='';$('passwordPrompt').hidden=false;$('passwordError').textContent=event.reason || 'Check your room password and try again.'; }
-      if([1008,4001,4003,4008].includes(event.code)) { status(event.reason || 'Room unavailable or full. Try another room.');return; }
+      if([1008,4001,4003,4008].includes(event.code)) { const message=event.reason || 'Room unavailable or full. Try another room.';status(message);globalThis.VumiroRoomConnection?.set(!$('passwordPrompt').hidden?'password':'error',message);return; }
       const seconds=Math.min(10,2**retry++);status(event.code===4004 ? 'Waiting for the room owner. Trying again in '+seconds+' seconds…' : 'Signaling disconnected. Rejoining in '+seconds+' seconds…');
+      globalThis.VumiroRoomConnection?.set('reconnecting',event.code===4004?'Waiting for the room owner. Trying again in '+seconds+' seconds…':'Connection interrupted. Rejoining in '+seconds+' seconds…');
       reconnectTimer=setTimeout(()=>{ if(generation===thisGeneration) openSocket(); },seconds*1000);
     };
   }
   async function join() {
     if(joined || joining) return;
     const joinGeneration=generation;
-    try { await identityReady; } catch(error) { if(generation===joinGeneration)status(error.message); return; }
+    globalThis.VumiroRoomConnection?.set(disconnected?'reconnecting':'joining');
+    try { await identityReady; } catch(error) { if(generation===joinGeneration){status(error.message);globalThis.VumiroRoomConnection?.set('error',error.message);} return; }
     if(generation!==joinGeneration || joined || joining)return;
-    if(!identity) { status('Create a local profile from Friends before joining a room.'); return; }
+    if(!identity) { status('Create a local profile from Friends before joining a room.');globalThis.VumiroRoomConnection?.set('error','Create a local profile from Friends before joining a room.'); return; }
     let raw=$('room').value.trim();
     try {
       const pasted=new URL(raw); raw=pasted.searchParams.get('room') || '';
@@ -1004,10 +1009,10 @@
       if(pasted.searchParams.get('signaling')) $('signaling').value=canonicalSignalInput(pasted.searchParams.get('signaling'));
       else if(['http:','https:'].includes(pasted.protocol)) $('signaling').value=canonicalSignalInput((pasted.protocol==='https:'?'wss:':'ws:')+'//'+pasted.host+'/call-signaling');
     } catch { /* plain room code */ }
-    if(!validRoom(raw)) { status('Use a new private-room invitation. Older anonymous room links are no longer supported.');return; }
+    if(!validRoom(raw)) { status('Use a new private-room invitation. Older anonymous room links are no longer supported.');globalThis.VumiroRoomConnection?.set('error','This invitation is invalid. Ask for a new room invitation.');return; }
     if(raw!==grantRoom) roomGrant=null;grantRoom=raw;
     $('room').value=raw;
-    try { const normalized=signalUrl();normalized.searchParams.delete('room');normalized.searchParams.delete('name');normalized.searchParams.delete('id');$('signaling').value=normalized.href; } catch(error) { status(error.message);return; }
+    try { const normalized=signalUrl();normalized.searchParams.delete('room');normalized.searchParams.delete('name');normalized.searchParams.delete('id');$('signaling').value=normalized.href; } catch(error) { status(error.message);globalThis.VumiroRoomConnection?.set('error',error.message);return; }
     setChatRoom($('signaling').value+'|'+raw);clearTimeout(reconnectTimer);generation++;save('call-name',$('name').value.trim());save('call-signaling',$('signaling').value.trim());
     const url=new URL(location.href);url.searchParams.set('room',raw);if(roomGrant) url.searchParams.set('grant',JSON.stringify(roomGrant));else url.searchParams.delete('grant');history.replaceState(null,'',url);status('Joining room…');openSocket();
   }
@@ -1025,6 +1030,7 @@
   $('signaling').value=canonicalSignalInput(querySignal || savedSignal || (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/call-signaling');
   if(!querySignal&&savedSignal&&savedSignal!==$('signaling').value)save('call-signaling',$('signaling').value);
   $('join').onclick=join;$('reconnect').onclick=reconnect;$('leave').onclick=leave;$('share').onclick=share;$('stopShare').onclick=stopShare;$('mic').onclick=enableMic;
+  globalThis.VumiroRoomConnection=window.VumiroMotion?.connection({overlay:$('roomConnection'),title:$('connectionTitle'),detail:$('connectionDetail'),retry:$('connectionRetry'),cancel:$('connectionCancel'),onRetry:reconnect,onCancel:leave,content:[document.querySelector('main'),document.querySelector('.call-dock')],returnFocus:$('join')});
   $('mute').onclick=()=>{ if(microphone) { micMuted=!micMuted;gateMicrophone(micSuppressed); } };
   /* Embedded calls use the app's full-page audio settings without leaving the room. */
   function openAudioSettings() {
@@ -1150,7 +1156,7 @@
   bindChatMediaInputs($('chatText'));
   addEventListener('storage',event=>{ if(event.key===settingsKey) { try { applySettings(JSON.parse(event.newValue),false); } catch { /* Ignore malformed settings. */ } } });
   addEventListener('vumiro-profile-changed',refreshProfile);
-  $('passwordForm').onsubmit=event=>{ event.preventDefault();const value=$('guestPassword').value;if(value.length<6 || value.length>128) { $('passwordError').textContent='Enter a password of 6–128 characters.';return; }password=value;$('guestPassword').value='';$('passwordError').textContent='';$('passwordPrompt').hidden=true;if(passwordResolve) { const resolve=passwordResolve;passwordResolve=null;resolve(value); }else reconnect(); };
+  $('passwordForm').onsubmit=event=>{ event.preventDefault();const value=$('guestPassword').value;if(value.length<6 || value.length>128) { $('passwordError').textContent='Enter a password of 6–128 characters.';return; }password=value;$('guestPassword').value='';$('passwordError').textContent='';$('passwordPrompt').hidden=true;globalThis.VumiroRoomConnection?.set('joining');if(passwordResolve) { const resolve=passwordResolve;passwordResolve=null;resolve(value); }else reconnect(); };
   function policyFields() { const mode=$('policyVisibility').value;$('policyPasswordLabel').hidden=mode!=='private';$('policyHelp').textContent=mode==='private'?'Anyone with the password can join. Changing the password disconnects guests.':mode==='public'?'People with a profile can discover and join this room.':'Only mutual friends can discover and join this room.'; }
   $('roomPolicyOpen').onclick=()=>{ if(!ownsRoom()) return;$('policyName').value=roomName;$('policyVisibility').value=roomMode;$('policyPassword').value='';$('policyError').textContent='';$('roomPolicyDialog').hidden=false;$('streamSettings').hidden=true;policyFields();$('policyName').focus(); };
   $('roomPolicyClose').onclick=()=>{$('roomPolicyDialog').hidden=true;$('roomPolicyOpen').focus();};$('policyVisibility').onchange=policyFields;

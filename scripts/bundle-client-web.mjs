@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 // Installed v1/v2 updaters accept an exact file set. Keep small source modules
 // during development, but fold them into existing entries in release staging.
 export const bundles = {
-  'local-profile.js': ['profile-cover.js', 'profile-crop.js', 'cover-editor.js', 'cover-transfer.js', 'settings-drafts.js']
+  'local-profile.js': ['profile-cover.js', 'profile-crop.js', 'cover-editor.js', 'cover-transfer.js', 'settings-drafts.js', 'motion.js']
 };
 export async function bundleClientWeb(webRoot) {
   const pending = [];
