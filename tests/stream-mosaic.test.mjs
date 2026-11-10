@@ -85,6 +85,28 @@ test('mosaic moves existing tiles between video grid and compact participant str
   layout.update(entries, 'two');
   assert.deepEqual(grid.children, [original, three]);
   assert.deepEqual(strip.children, [one]);
+  // After the last screen stops, idle participants fill the scene in stable order.
+  entries[1].tile.sharing = false;
+  entries[2].tile.sharing = false;
+  // Stale portrait metadata from a stopped screen must not size an avatar card.
+  entries[0].tile.video = {videoWidth: 100, videoHeight: 400};
+  layout.update(entries, 'two');
+  assert.deepEqual(grid.children, [one, two, three]);
+  assert.deepEqual(strip.children, []);
+  assert.equal(grid.hidden, false);
+  assert.equal(strip.hidden, true);
+  const idlePlan = mosaic().plan([16 / 9, 16 / 9, 16 / 9], 1000, 640);
+  assert.equal(grid.style.values['--mosaic-columns'], String(idlePlan.columns));
+  assert.equal(grid.style.values['--mosaic-row-height'], idlePlan.rowHeight + 'px');
+  // Restarting a screen returns the same idle nodes to the strip, without replacing media.
+  entries[2].tile.sharing = true;
+  layout.update(entries, 'three');
+  assert.deepEqual(grid.children, [three]);
+  assert.deepEqual(strip.children, [one, two]);
+  // An empty room hides both containers instead of retaining the previous gallery.
+  layout.update([], '');
+  assert.equal(grid.hidden, true);
+  assert.equal(strip.hidden, true);
   layout.dispose();
 });
 
@@ -133,4 +155,12 @@ test('each tile exposes a keyboard select control with pressed state', () => {
   tile.selectButton.onclick({stopPropagation(){}});
   assert.equal(sandbox.focusedId, 'self');
   assert.equal(sandbox.manualFocus, true);
+  const stage = tile.element.children.find(child => child.className === 'stage');
+  let fullscreenRequests = 0;
+  stage.requestFullscreen = () => { fullscreenRequests++; return Promise.resolve(); };
+  stage.ondblclick({preventDefault(){}});
+  assert.equal(fullscreenRequests, 0, 'an idle avatar cannot fullscreen an empty video stage');
+  tile.show(true);
+  stage.ondblclick({preventDefault(){}});
+  assert.equal(fullscreenRequests, 1, 'sharing restores fullscreen for the same tile');
 });
