@@ -23,24 +23,40 @@ export function validateOptions({ repo, tag, sha, draftCheck, assetsDir }) {
   if (draftCheck && !assetsDir) fail('--draft-check requires --assets-dir to verify all seven built files.');
 }
 
-function validateAsset(asset, repo, tag) {
+function validateAsset(asset, repo, tag, draftCheck) {
   if (!Number.isSafeInteger(asset.size) || asset.size <= 0) fail(`${asset.name}: size must be a positive integer.`);
   if (!hex(asset)) fail(`${asset.name}: GitHub SHA256 digest is missing or invalid.`);
   if (asset.state !== 'uploaded') fail(`${asset.name}: asset is not uploaded.`);
-  if (asset.browser_download_url !== canonicalUrl(repo, tag, asset.name)) fail(`${asset.name}: download URL is not canonical.`);
+  let downloadTag=tag;
+  if (asset.browser_download_url !== canonicalUrl(repo, tag, asset.name)) {
+    // GitHub drafts can retain a generated placeholder until publication. These
+    // browser URLs are validated but private downloads still use API asset IDs.
+    const prefix=`https://github.com/${repo}/releases/download/`,suffix=`/${asset.name}`,url=asset.browser_download_url;
+    if (!draftCheck || typeof url!=='string' || !url.startsWith(prefix) || !url.endsWith(suffix)) fail(`${asset.name}: download URL is not canonical.`);
+    downloadTag=url.slice(prefix.length,-suffix.length);
+    if (!/^untagged-[0-9a-f]{20,64}$/.test(downloadTag)) fail(`${asset.name}: download URL is not canonical.`);
+  }
   if (asset.name === 'Vumiro-win-x64-v2.zip' && asset.size > WINDOWS_LIMIT) fail(`${asset.name}: exceeds the 16 MiB updater limit.`);
+  return downloadTag;
 }
 
 export function validateReleaseMetadata(release, { repo, tag, draftCheck = false }) {
   if (!TAG.test(tag ?? '') || release?.tag_name !== tag) fail('Release tag does not match the requested stable tag.');
   if (draftCheck) {
     if (release.draft !== true || release.prerelease !== false) fail('Release must be a stable draft during --draft-check.');
+    if (!Number.isSafeInteger(release.id) || release.id <= 0) fail('Draft release ID is missing or invalid.');
   } else if (release.draft !== false || release.prerelease !== false || !release.published_at || !Number.isFinite(Date.parse(release.published_at))) fail('Release must be published, stable, and not a draft.');
   if (!Array.isArray(release.assets) || release.assets.length !== REQUIRED_ASSETS.length) fail('Release must contain exactly the seven required assets.');
   const assets = Object.create(null);
+  const assetIds = new Set();
+  let draftDownloadTag=null;
   for (const asset of release.assets) {
     if (!asset || !REQUIRED_ASSETS.includes(asset.name) || assets[asset.name]) fail('Release has an unexpected or duplicate asset.');
-    validateAsset(asset, repo, tag); assets[asset.name] = asset;
+    if (draftCheck && (!Number.isSafeInteger(asset.id) || asset.id <= 0 || assetIds.has(asset.id))) fail(`${asset.name}: draft asset ID is missing, invalid, or duplicated.`);
+    assetIds.add(asset.id);
+    const downloadTag=validateAsset(asset, repo, tag, draftCheck);
+    if (draftCheck && draftDownloadTag!==null && draftDownloadTag!==downloadTag) fail('Draft asset download URLs must use the same consistent release segment.');
+    draftDownloadTag=downloadTag;assets[asset.name] = asset;
   }
   return assets;
 }
@@ -170,8 +186,33 @@ export async function verifyRelease(options, dependencies = {}) {
   };
   if (!await check('inputs', () => { validateOptions(options); return { valid: true }; })) return finish();
   const read = client(dependencies), api = `https://api.github.com/repos/${options.repo}`;
+  let draftEnumeration;
+  const enumerateDrafts = () => draftEnumeration ??= (async () => {
+    const token = dependencies.token === undefined ? process.env.GITHUB_TOKEN : dependencies.token;
+    if (typeof token !== 'string' || !token.trim()) fail('Draft verification requires an authenticated GitHub token with repository push access.');
+    const releases = [];
+    for (let page = 1; page <= 5; page++) {
+      const entries = await read(`${api}/releases?per_page=100&page=${page}`, { json: true });
+      if (!Array.isArray(entries) || entries.length > 100 || entries.some(entry => !entry || typeof entry !== 'object' || typeof entry.tag_name !== 'string')) fail('Release list is not a valid page of at most 100 release entries.');
+      releases.push(...entries);
+      if (entries.length < 100) return { releases, pages: page };
+    }
+    fail('Cannot prove draft lookup or version order: release enumeration reached the five-page pagination bound.');
+  })();
   const assets = await check('release-metadata', async () => {
-    const release = await read(`${api}/releases/tags/${options.tag}`, { json: true });
+    let release;
+    if (options.draftCheck) {
+      // The by-tag endpoint returns published releases. Authenticated listing
+      // exposes drafts to users with push access; fetch the exact discovered ID.
+      const { releases } = await enumerateDrafts();
+      const matches = releases.filter(candidate => candidate.tag_name === options.tag);
+      if (matches.length !== 1) fail(matches.length ? 'Draft lookup found duplicate releases for the requested tag.' : 'Draft release was not found; check the tag and token repository push access.');
+      const id = matches[0].id;
+      if (!Number.isSafeInteger(id) || id <= 0) fail('Draft release ID is missing or invalid.');
+      release = await read(`${api}/releases/${id}`, { json: true });
+      if (release?.id !== id) fail('Draft release identity changed after enumeration.');
+      report.releaseId = id;
+    } else release = await read(`${api}/releases/tags/${options.tag}`, { json: true });
     const result = validateReleaseMetadata(release, options);
     report.releaseUrl = `https://github.com/${options.repo}/releases/tag/${options.tag}`;
     report.assets = REQUIRED_ASSETS.map(name => ({ name, size: result[name].size, sha256: hex(result[name]), url: result[name].browser_download_url }));
@@ -186,21 +227,15 @@ export async function verifyRelease(options, dependencies = {}) {
   });
   if (options.draftCheck) await check('draft-version-order', async () => {
     let publishedStableReleases = 0, newestPublishedTag = null;
-    // Release creation order can differ from version order after failed draft reruns.
-    // A full final page cannot prove that a newer version is absent beyond this bound.
-    for (let page = 1; page <= 5; page++) {
-      const entries = await read(`${api}/releases?per_page=100&page=${page}`, { json: true });
-      if (!Array.isArray(entries) || entries.length > 100) fail('Release list is not a valid page of at most 100 entries.');
-      for (const release of entries) {
+    const { releases, pages } = await enumerateDrafts();
+    for (const release of releases) {
         if (!release || release.draft !== false || release.prerelease !== false || !TAG.test(release.tag_name ?? '')) continue;
         if (!release.published_at || !Number.isFinite(Date.parse(release.published_at))) fail(`${release.tag_name}: published release metadata has an invalid publication time.`);
         publishedStableReleases++;
         if (!newestPublishedTag || compareVersions(release.tag_name, newestPublishedTag) > 0) newestPublishedTag = release.tag_name;
         if (compareVersions(release.tag_name, options.tag) > 0) fail(`Cannot promote ${options.tag}: newer stable release ${release.tag_name} is already published.`);
-      }
-      if (entries.length < 100) return { pages: page, publishedStableReleases, newestPublishedTag };
     }
-    fail('Cannot prove draft version order: release enumeration reached the five-page pagination bound.');
+    return { pages, publishedStableReleases, newestPublishedTag };
   });
   // Four attempts, 5/10/15 second waits. Only stale/missing feed visibility is retried.
   if (!options.draftCheck) await check('updater-feeds', async () => {

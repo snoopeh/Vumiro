@@ -35,6 +35,8 @@ Shipping the source starts GitHub Actions. The hosted release is ready only when
 
 If a tagged run fails and needs a source fix, preserve that tag. Commit and verify the fix on `main`, then ship the next patch version. A failed unpublished tag is not a published release; do not move it or force push to reuse its version.
 
+For a verification-tool defect after every build/package job passes, the existing draft can be recovered without rebuilding the product. Retain the immutable tag and all seven original CI artifacts, commit and test the verifier repair, and run its full draft gate against those artifacts and the original tag SHA. Promote that same draft only after every check passes, then rerun the failed publication/report jobs to verify public downloads and updater discovery. Preserve the pre-promotion report and verifier revision in the release record. This path does not waive package, hash, manifest or source checks.
+
 ## What GitHub Actions does
 
 | Trigger | Automated work |
