@@ -101,6 +101,7 @@
   if(!roomAccountAllowed())return;
   const $ = id => document.getElementById(id), query = new URLSearchParams(location.search), linuxPlatform=query.get('platform')==='linux'||window.vumiroDesktop?.platform==='linux';
   window.VumiroChatPane?.create({layout:document.querySelector('.room-layout'),handle:$('chatResize'),storage:localStorage});
+  window.VumiroChatScrollbar?.create({log:$('chatLog'),shell:$('chatScrollShell'),track:$('chatScrollTrack'),thumb:$('chatScrollThumb')});
   const clock=window.VumiroServerClock,serverNow=()=>clock?.now()??Date.now();
   const embedded = query.get('embedded') === '1' && parent !== window;
   const canonicalRoomHost='vumiro-rooms.vumiro-signaling.workers.dev';

@@ -10,6 +10,7 @@ const licenseDir = path.join(projectDir, 'resources', 'legal');
 const expectedAssets = [
   'call-client.js',
   'chat-pane.js',
+  'chat-scrollbar.js',
   'call.html',
   'friends-client.js',
   'friends.html',

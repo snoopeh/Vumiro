@@ -1676,7 +1676,9 @@
     "Chat and people width": "Chat and people width",
     "Signing you in…": "Signing you in…",
     "Opening your lobby.": "Opening your lobby.",
-    "Finish or cancel the open dialog before opening this notification.": "Finish or cancel the open dialog before opening this notification."
+    "Finish or cancel the open dialog before opening this notification.": "Finish or cancel the open dialog before opening this notification.",
+    "Scroll messages": "Scroll messages",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "Messages are still being signed. Your draft is ready to send when they finish."
   },
   "es": {
     "Welcome to Vumiro": "Bienvenido a Vumiro",
@@ -3352,7 +3354,9 @@
     "Chat and people width": "Ancho del chat y participantes",
     "Signing you in…": "Iniciando sesión…",
     "Opening your lobby.": "Abriendo tu sala principal.",
-    "Finish or cancel the open dialog before opening this notification.": "Completa o cancela el diálogo abierto antes de abrir esta notificación."
+    "Finish or cancel the open dialog before opening this notification.": "Completa o cancela el diálogo abierto antes de abrir esta notificación.",
+    "Scroll messages": "Desplazar mensajes",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "Los mensajes aún se están firmando. Tu borrador estará listo para enviar cuando terminen."
   },
   "pt-BR": {
     "Welcome to Vumiro": "Bem-vindo ao Vumiro",
@@ -5028,7 +5032,9 @@
     "Chat and people width": "Largura do chat e participantes",
     "Signing you in…": "Entrando na sua conta…",
     "Opening your lobby.": "Abrindo seu lobby.",
-    "Finish or cancel the open dialog before opening this notification.": "Conclua ou cancele a janela aberta antes de abrir esta notificação."
+    "Finish or cancel the open dialog before opening this notification.": "Conclua ou cancele a janela aberta antes de abrir esta notificação.",
+    "Scroll messages": "Rolar mensagens",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "As mensagens ainda estão sendo assinadas. Seu rascunho estará pronto para enviar quando terminarem."
   },
   "ja": {
     "Welcome to Vumiro": "Vumiroへようこそ",
@@ -6704,7 +6710,9 @@
     "Chat and people width": "チャットと参加者の幅",
     "Signing you in…": "サインイン中…",
     "Opening your lobby.": "ロビーを開いています。",
-    "Finish or cancel the open dialog before opening this notification.": "この通知を開く前に、開いているダイアログを完了するかキャンセルしてください。"
+    "Finish or cancel the open dialog before opening this notification.": "この通知を開く前に、開いているダイアログを完了するかキャンセルしてください。",
+    "Scroll messages": "メッセージをスクロール",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "メッセージの署名処理中です。完了後に下書きを送信できます。"
   },
   "zh-CN": {
     "Welcome to Vumiro": "欢迎使用Vumiro",
@@ -8380,7 +8388,9 @@
     "Chat and people width": "聊天和成员面板宽度",
     "Signing you in…": "正在登录…",
     "Opening your lobby.": "正在打开大厅。",
-    "Finish or cancel the open dialog before opening this notification.": "请先完成或取消当前对话框，再打开此通知。"
+    "Finish or cancel the open dialog before opening this notification.": "请先完成或取消当前对话框，再打开此通知。",
+    "Scroll messages": "滚动消息",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "消息仍在签名中。完成后即可发送草稿。"
   },
   "ru": {
     "Welcome to Vumiro": "Добро пожаловать в Vumiro",
@@ -10056,7 +10066,9 @@
     "Chat and people width": "Ширина чата и списка участников",
     "Signing you in…": "Вход в аккаунт…",
     "Opening your lobby.": "Открываем главное меню.",
-    "Finish or cancel the open dialog before opening this notification.": "Завершите или отмените действие в открытом окне, прежде чем открывать это уведомление."
+    "Finish or cancel the open dialog before opening this notification.": "Завершите или отмените действие в открытом окне, прежде чем открывать это уведомление.",
+    "Scroll messages": "Прокрутить сообщения",
+    "Messages are still being signed. Your draft is ready to send when they finish.": "Сообщения ещё подписываются. После завершения можно будет отправить черновик."
   }
 };
   const locales = Object.freeze([
