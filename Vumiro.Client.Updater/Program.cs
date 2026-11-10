@@ -59,7 +59,7 @@ internal static class Program
                 try
                 {
                     ClientUpdateInstaller.EnsureNoOtherInstances(install, Process.GetCurrentProcess().Id);
-                    Start(Path.Combine(install, "Vumiro.exe"), install);
+                    Start(Path.Combine(install, "Vumiro.exe"), install, true);
                 }
                 catch (Exception restartError) { WriteLog(log, "Application restart skipped: " + restartError.Message); }
             return 1;
@@ -71,8 +71,10 @@ internal static class Program
         if (log == null) return;
         try { log.WriteLine(DateTime.UtcNow.ToString("o") + " " + message); } catch { }
     }
-    private static void Start(string executable, string directory)
+    private static void Start(string executable, string directory, bool recovering = false)
     {
-        Process.Start(new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = true });
+        var start = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false };
+        if (recovering) start.EnvironmentVariables["VUMIRO_SKIP_STARTUP_UPDATE"] = "1";
+        Process.Start(start);
     }
 }

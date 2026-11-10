@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="480" viewBox="0 0 300 240" role="img" aria-labelledby="title description">
+  <title id="title">Vumiro blade V icon</title>
+  <desc id="description">Smooth vector recreation of the supplied Vumiro logo. All artwork is editable paths; the background is transparent.</desc>
+  <defs>
+    <linearGradient id="left-red" gradientUnits="userSpaceOnUse" x1="431" y1="147" x2="491" y2="248">
+      <stop offset="0" stop-color="#FF233B"/><stop offset="0.5" stop-color="#F71B35"/><stop offset="1" stop-color="#B81028"/>
+    </linearGradient>
+    <linearGradient id="lower-red" gradientUnits="userSpaceOnUse" x1="491" y1="247" x2="527" y2="289">
+      <stop offset="0" stop-color="#8E1120"/><stop offset="0.6" stop-color="#CF142B"/><stop offset="1" stop-color="#EF1C34"/>
+    </linearGradient>
+    <linearGradient id="sweep-red" gradientUnits="userSpaceOnUse" x1="536" y1="124" x2="473" y2="298">
+      <stop offset="0" stop-color="#FF253E"/><stop offset="0.58" stop-color="#FF203A"/><stop offset="1" stop-color="#EB1931"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(-375 -92)">
+  <g id="blade-v">
+    <path id="left-blade" fill="url(#left-red)" d="M395 136 C419 139 443 144 466 150 L505 222 L464.5 253 Z"/>
+    <path id="lower-blade" fill="url(#lower-red)" d="M472 265 C499 245 531 226 564 212 L501 315 Z"/>
+    <path id="sweeping-blade" fill="url(#sweep-red)" d="M401 317 C434 273 491 228 546 170 C579 135.2 619 114 656 107 C615.89 117.86 594.06 158.13 576 192 L612 182 C532.11 208.92 458.65 255.28 401 317 Z"/>
+  </g>
+
+  </g>
+</svg>

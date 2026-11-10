@@ -8,6 +8,10 @@ const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 const USERNAME_PATTERN = /^[a-z0-9_.-]{3,24}$/;
 const MAX_BYTES = 16 * 1024;
 const TAG_ALLOCATION_HOUR = 3600000;
+const ROOM_ALIAS_TTL = 86400000;
+const ROOM_ALIAS_TOKEN = /^[A-Za-z0-9_-]{12}$/;
+const ROOM_ALIAS_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
+const CAPABILITIES = {roomAliases:1};
 const encoder = new TextEncoder();
 
 function encoded(bytes) {
@@ -40,11 +44,30 @@ function parsedTag(query) {
   const digits=query.replace(/^#/, '').replace(/[ -]/g, '');
   return /^\d{10}$/.test(digits) ? digits : '';
 }
+function handleBase(name,username) {
+  if(username)return username;
+  const slug=name.normalize('NFKD').toLowerCase().replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_.-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24);
+  return (slug||'person').padEnd(3,'_');
+}
+function parsedHandle(query) {
+  const match=/^@?([a-z0-9_.-]{3,24})#(\d{3,10})$/i.exec(query);
+  return match ? {base:match[1].toLowerCase(),code:match[2]} : null;
+}
 function randomTag() {
   // Rejection sampling avoids biased decimal digits; UNIQUE enforces allocation.
   const parts=[];
   while(parts.length<2) { const value=crypto.getRandomValues(new Uint32Array(1))[0];if(value<4294900000)parts.push(String(value%100000).padStart(5,'0')); }
   return parts.join('');
+}
+function randomDiscriminator() {
+  for (;;) {
+    const value=crypto.getRandomValues(new Uint32Array(1))[0];
+    if(value<4294900000)return String(value%100000).padStart(5,'0');
+  }
+}
+function randomRoomCode() {
+  const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)),byte=>alphabet[byte&31]).join('');
 }
 async function allocationBucket(request,now=Date.now()) {
   // worker.js passes the original edge request directly to this DO. Trust only
@@ -55,7 +78,7 @@ async function allocationBucket(request,now=Date.now()) {
   const digest=await crypto.subtle.digest('SHA-256',encoder.encode(`vumiro-friend-tag-budget-v1\n${hour}\n${ip.toLowerCase()}`));
   return {key:encoded(digest),hour};
 }
-function publicProfile(session) { return {id: session.id, name: session.name, username: session.username || '', key: session.key, socialVersion: session.socialVersion === 2 ? 2 : 1, ...(session.friendTag ? {friendTag:session.friendTag} : {})}; }
+function publicProfile(session) { return {id: session.id, name: session.name, username: session.username || '', key: session.key, socialVersion: session.socialVersion === 2 ? 2 : 1, ...(session.friendTag ? {friendTag:session.friendTag} : {}), ...(session.friendHandle ? {friendHandle:session.friendHandle} : {})}; }
 function ids(value, self) { return Array.isArray(value) && value.length <= 128 && value.every(id => typeof id === 'string' && FRIEND_ID_PATTERN.test(id) && id !== self) && new Set(value).size === value.length; }
 function blocked(a, b) { return (a.blocked || []).includes(b.id) || (b.blocked || []).includes(a.id); }
 function mutual(a, b) { return a.watch.includes(b.id) && b.watch.includes(a.id) && !blocked(a, b); }
@@ -106,8 +129,16 @@ export class FriendDirectory extends DurableObject {
     // A signed transition can move a tag once. Remembering that move prevents a
     // replay from replacing the stable destination tag after the old key returns.
     sql.exec('CREATE TABLE IF NOT EXISTS friend_tag_moves (from_id TEXT PRIMARY KEY, to_id TEXT NOT NULL)');
+    // Named handles are an additive directory feature. Legacy numbers keep
+    // resolving for existing clients and saved contact codes.
+    sql.exec('CREATE TABLE IF NOT EXISTS friend_handles (identity_id TEXT PRIMARY KEY, handle_base TEXT NOT NULL, discriminator TEXT NOT NULL, UNIQUE(handle_base,discriminator))');
+    sql.exec('CREATE TABLE IF NOT EXISTS friend_handle_moves (from_id TEXT PRIMARY KEY, to_id TEXT NOT NULL)');
     sql.exec('CREATE TABLE IF NOT EXISTS friend_tag_allocations (bucket TEXT PRIMARY KEY, expires INTEGER NOT NULL, count INTEGER NOT NULL)');
     sql.exec('CREATE INDEX IF NOT EXISTS friend_tag_allocations_expiry ON friend_tag_allocations(expires)');
+    // Discovery only. Never persist passwords, admissions, profiles or grants.
+    // One expiring mapping per identity bounds allocation even across reconnects.
+    sql.exec('CREATE TABLE IF NOT EXISTS room_aliases (owner_id TEXT PRIMARY KEY, room TEXT NOT NULL, token TEXT NOT NULL UNIQUE, code TEXT NOT NULL UNIQUE, expires INTEGER NOT NULL)');
+    sql.exec('CREATE INDEX IF NOT EXISTS room_aliases_expiry ON room_aliases(expires)');
     sql.exec(`CREATE TABLE IF NOT EXISTS friend_requests (
       nonce TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL,
       expires INTEGER NOT NULL, retain_until INTEGER NOT NULL, state TEXT NOT NULL,
@@ -158,13 +189,50 @@ export class FriendDirectory extends DurableObject {
     });
     return tag ? formattedTag(tag) : session.friendTag;
   }
+  assignFriendHandle(id,base) {
+    let handle='';
+    this.ctx.storage.transactionSync(()=>{
+      const current=this.rows('SELECT handle_base,discriminator FROM friend_handles WHERE identity_id=?',id)[0];
+      // Upgrade the original three-digit QA handles exactly once. Reconnects
+      // and renames preserve every already-assigned five-digit discriminator.
+      let code=current?.discriminator?.length===3 ? null : current?.discriminator;
+      if(current?.handle_base===base&&code){handle=`${base}#${code}`;return;}
+      if(!code || this.rows('SELECT identity_id FROM friend_handles WHERE handle_base=? AND discriminator=?',base,code).length) {
+        code=null;
+        for(let attempt=0;attempt<64;attempt++) {
+          const candidate=randomDiscriminator();
+          if(!this.rows('SELECT identity_id FROM friend_handles WHERE handle_base=? AND discriminator=?',base,candidate).length){code=candidate;break;}
+        }
+        if(!code)throw new Error('Friend handle allocation is temporarily unavailable.');
+      }
+      // One row per verified identity bounds storage even when names change.
+      this.ctx.storage.sql.exec('INSERT INTO friend_handles(identity_id,handle_base,discriminator) VALUES(?,?,?) ON CONFLICT(identity_id) DO UPDATE SET handle_base=excluded.handle_base,discriminator=excluded.discriminator',id,base,code);
+      handle=`${base}#${code}`;
+    });
+    return handle;
+  }
+  transitionFriendHandle(session,transition) {
+    if(!transition || this.owner(transition.fromId))return;
+    this.ctx.storage.transactionSync(()=>{
+      if(this.rows('SELECT to_id FROM friend_handle_moves WHERE from_id=?',transition.fromId).length)return;
+      const source=this.rows('SELECT identity_id FROM friend_handles WHERE identity_id=?',transition.fromId)[0];
+      if(source) {
+        this.ctx.storage.sql.exec('DELETE FROM friend_handles WHERE identity_id=?',session.id);
+        this.ctx.storage.sql.exec('UPDATE friend_handles SET identity_id=? WHERE identity_id=?',session.id,transition.fromId);
+      }
+      // Consume the proof even if an older client had not announced a named
+      // handle. Replaying it must never steal a later allocation by the old key.
+      this.ctx.storage.sql.exec('INSERT INTO friend_handle_moves(from_id,to_id) VALUES(?,?)',transition.fromId,session.id);
+    });
+  }
   pruneFriendRows(now=Date.now()) {
     this.ctx.storage.sql.exec('DELETE FROM friend_requests WHERE retain_until<=?',now);
     this.ctx.storage.sql.exec('DELETE FROM friend_tag_allocations WHERE expires<=?',now);
+    this.ctx.storage.sql.exec('DELETE FROM room_aliases WHERE expires<=?',now);
   }
   async syncFriendAlarm() {
     const current=await this.ctx.storage.getAlarm();
-    const rows=this.rows('SELECT MIN(at) AS at FROM (SELECT MIN(retain_until) AS at FROM friend_requests UNION ALL SELECT MIN(expires) AS at FROM friend_tag_allocations)');
+    const rows=this.rows('SELECT MIN(at) AS at FROM (SELECT MIN(retain_until) AS at FROM friend_requests UNION ALL SELECT MIN(expires) AS at FROM friend_tag_allocations UNION ALL SELECT MIN(expires) AS at FROM room_aliases)');
     const next=rows[0]?.at == null ? null : Number(rows[0].at);
     if(next===null) { if(current!==null) await this.ctx.storage.deleteAlarm(); }
     else if(current!==next) await this.ctx.storage.setAlarm(next);
@@ -296,6 +364,54 @@ export class FriendDirectory extends DurableObject {
     ws.serializeAttachment(session); return true;
   }
   error(ws, code, message, nonce) { this.send(ws, {type: 'social-error', code, message, ...(typeof nonce === 'string' && NONCE_PATTERN.test(nonce) ? {nonce} : {})}); }
+  aliasOwner(session,row) {
+    const socket=row&&this.owner(row.owner_id),owner=socket&&read(socket);
+    if(!owner||owner.room!==row.room||row.expires<=Date.now()||blocked(session,owner))return null;
+    if(owner.id!==session.id&&!['public','private'].includes(owner.roomMode)&&!mutual(session,owner))return null;
+    return owner;
+  }
+  async roomAlias(ws,session,message) {
+    if(!onlyFields(message,['type','nonce'],['room'])||typeof message.nonce!=='string'||!NONCE_PATTERN.test(message.nonce)||message.room!==undefined&&(typeof message.room!=='string'||!ROOM_PATTERN.test(message.room))) {
+      this.error(ws,'invalid-room-alias','Request a room invitation without passwords or admission data.',message.nonce);return;
+    }
+    const room=message.room||session.room;
+    if(!room||!ROOM_PATTERN.test(room)) {this.error(ws,'room-unavailable','Create a room before inviting people.',message.nonce);return;}
+    let row=this.rows('SELECT * FROM room_aliases WHERE owner_id=?',room.slice(0,43))[0];
+    if(room.slice(0,43)!==session.id) {
+      if(!row||row.room!==room||!this.aliasOwner(session,row)){this.error(ws,'room-unavailable','This room invitation is not available.',message.nonce);return;}
+    } else {
+      if(session.room!==room) {this.error(ws,'room-unavailable','Only your current room can create an invitation.',message.nonce);return;}
+      try {
+        this.ctx.storage.transactionSync(()=>{
+          this.ctx.storage.sql.exec('DELETE FROM room_aliases WHERE expires<=?',Date.now());
+          row=this.rows('SELECT * FROM room_aliases WHERE owner_id=?',session.id)[0];
+          if(row?.room===room)return;
+          this.ctx.storage.sql.exec('DELETE FROM room_aliases WHERE owner_id=?',session.id);
+          for(let attempt=0;attempt<32;attempt++) {
+            const token=encoded(crypto.getRandomValues(new Uint8Array(9))),code=randomRoomCode();
+            this.ctx.storage.sql.exec('INSERT OR IGNORE INTO room_aliases(owner_id,room,token,code,expires) VALUES(?,?,?,?,?)',session.id,room,token,code,Date.now()+ROOM_ALIAS_TTL);
+            row=this.rows('SELECT * FROM room_aliases WHERE owner_id=?',session.id)[0];
+            if(row)return;
+          }
+          throw new Error('Room invitation allocation is temporarily unavailable.');
+        });
+      } catch(error) {this.error(ws,'room-unavailable',error.message,message.nonce);return;}
+    }
+    this.send(ws,{type:'room-alias-result',nonce:message.nonce,room:row.room,token:row.token,code:row.code.slice(0,4)+'-'+row.code.slice(4),expires:Number(row.expires)});
+    await this.syncFriendAlarm();
+  }
+  resolveRoomAlias(ws,session,message) {
+    const value=typeof message.value==='string'?message.value.trim():'';
+    const code=value.toUpperCase().replace(/[ -]/g,'');
+    if(!onlyFields(message,['type','value','nonce'])||typeof message.nonce!=='string'||!NONCE_PATTERN.test(message.nonce)||value.length>32||!ROOM_ALIAS_TOKEN.test(value)&&!ROOM_ALIAS_CODE.test(code)) {
+      this.error(ws,'invalid-room-alias','Enter a valid room invitation or room code.',message.nonce);return;
+    }
+    const row=ROOM_ALIAS_TOKEN.test(value)?this.rows('SELECT * FROM room_aliases WHERE token=?',value)[0]:this.rows('SELECT * FROM room_aliases WHERE code=?',code)[0];
+    const owner=this.aliasOwner(session,row);
+    // Discovery grants no admission. CallRoom still checks signed identity,
+    // friendship, owner blocks and the current private-room password proof.
+    this.send(ws,{type:'room-resolve-result',nonce:message.nonce,room:owner?row.room:null,...(owner?{owner:owner.id,mode:owner.roomMode||'legacy',name:owner.name||'Vumiro'}:{})});
+  }
   rooms() {
     // Deserialize each bounded attachment once per push, rather than once per
     // pair of friends. A failed send publishes a fresh departure snapshot;
@@ -396,7 +512,7 @@ export class FriendDirectory extends DurableObject {
       return;
     }
     if (this.owner(session.id) !== ws) return;
-    if (['watch', 'profile-announce', 'lookup', 'room-state'].includes(message?.type)) {
+    if (['watch', 'profile-announce', 'lookup', 'room-state', 'room-alias', 'room-resolve'].includes(message?.type)) {
       if (!budget(session, 'controlRate', 24, 10000, now)) { this.error(ws, 'rate-limit', 'Wait before sending more directory updates.', message.nonce); this.save(ws, session); return; }
       if (!this.save(ws, session)) return;
     }
@@ -404,6 +520,8 @@ export class FriendDirectory extends DurableObject {
     if (message?.type === 'friend-received') { await this.receiveFriendReceipt(ws,session,message); return; }
     if (message?.type === 'friend-cancel') { await this.cancelFriendRequest(ws,session,message); return; }
     if (message?.type === 'lookup') { this.lookup(ws, session, message); return; }
+    if (message?.type === 'room-alias') { await this.roomAlias(ws,session,message);return; }
+    if (message?.type === 'room-resolve') { this.resolveRoomAlias(ws,session,message);return; }
     if (message?.type === 'social') { await this.social(ws, session, message); return; }
     if (message?.type === 'profile-signal') { await this.relayProfile(ws, session, message); return; }
     if (message?.type === 'room-state') {
@@ -413,7 +531,11 @@ export class FriendDirectory extends DurableObject {
         this.error(ws, 'invalid-room', 'Only your own protected room can be published.'); return;
       }
       session.room = message.room; session.live = message.live; session.roomMode=message.mode||'legacy';
-      if (this.save(ws, session)) this.rooms(); return;
+      if (this.save(ws, session)) {
+        this.ctx.storage.sql.exec('DELETE FROM room_aliases WHERE owner_id=? AND room<>?',session.id,message.room||'');
+        this.rooms();
+      }
+      return;
     }
     if (onlyFields(message, ['type', 'ids']) && message.type === 'watch') {
       if (!ids(message.ids, session.id) || message.ids.length + (session.blocked || []).length > 192) {
@@ -479,15 +601,14 @@ export class FriendDirectory extends DurableObject {
       typeof username !== 'string' || username !== '' && !USERNAME_PATTERN.test(username) || message.socialVersion!==undefined && message.socialVersion!==2 || !ids(blocks, session.id) || blocks.length + session.watch.length > 192) {
       this.error(ws, 'invalid-profile', 'Use a name up to 48 characters, an optional lowercase username and valid block list.'); return;
     }
-    if (username && this.authenticated().some(other => other !== ws && read(other).username === username)) {
-      this.error(ws, 'username-taken', 'That username is in use online. Choose another or use contact codes.'); return;
-    }
     if(!await validIdentityTransition(transition,session)){this.error(ws,'invalid-transition','The signed identity transition is invalid.');return;}
     session=read(ws);if(!session?.auth||session.departed||this.owner(session.id)!==ws)return;
     session.friendTag=this.transitionFriendTag(session,transition);
+    this.transitionFriendHandle(session,transition);
+    session.friendHandle=this.assignFriendHandle(session.id,handleBase(message.name,username));
     session.name = message.name; session.username = username; session.socialVersion=message.socialVersion===2?2:1; session.blocked = blocks;session.transition=transition;
     if (!this.save(ws, session)) return;
-    this.send(ws, {type: 'profile-ready', profile: publicProfile(session), socialVersion:2, serverTime:Date.now()});
+    this.send(ws, {type: 'profile-ready', profile: publicProfile(session), namedFriendTagsVersion:1, capabilities:CAPABILITIES, socialVersion:2, serverTime:Date.now()});
     this.presence(session.id);
     this.sendIdentityTransitions(session);
     for (const id of session.watch) this.send(ws, this.presenceEvent(session, id, this.owner(id)));
@@ -498,8 +619,9 @@ export class FriendDirectory extends DurableObject {
       this.error(ws, 'invalid-lookup', 'Enter a friend number, username or contact code.', message.nonce); return;
     }
     let query = message.query.trim(), id = '';
-    const friendTag=parsedTag(query);
+    const friendTag=parsedTag(query),friendHandle=parsedHandle(query);
     if(friendTag) id=this.rows('SELECT identity_id FROM friend_tags WHERE tag=?',friendTag)[0]?.identity_id || '';
+    else if(friendHandle) id=this.rows('SELECT identity_id FROM friend_handles WHERE handle_base=? AND discriminator=?',friendHandle.base,friendHandle.code)[0]?.identity_id || '';
     else if (query.startsWith('stfriend1.')) {
       try {
         const bytes = decoded(query.slice(10), 1500), contact = bytes && JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(bytes));
@@ -510,16 +632,16 @@ export class FriendDirectory extends DurableObject {
     const online = this.authenticated();
     const target = online.find(other => {
       const value = read(other);
-      return value.name && !blocked(session, value) && (id ? value.id === id : !friendTag && USERNAME_PATTERN.test(query) && value.username === query);
+      return value.name && !blocked(session, value) && (id ? value.id === id : !friendTag && !friendHandle && USERNAME_PATTERN.test(query) && value.username === query);
     });
-    // Exact tags/codes/usernames retain their single-profile response. Other
+    // Exact handles/tags/codes retain their single-profile response. Other
     // text is a bounded online prefix search over username and display name.
-    if (!id && !friendTag && query.length >= 1) {
+    if (!id && !friendTag && !friendHandle && query.length >= 1) {
       const prefix=query.replace(/^@/,'').normalize('NFKC').toLocaleLowerCase();
       const matches=[],seen=new Set();
       for(const other of online){
         const value=read(other),username=String(value.username||'').normalize('NFKC').toLocaleLowerCase(),name=String(value.name||'').normalize('NFKC').toLocaleLowerCase();
-        if(!value.name||blocked(session,value)||seen.has(value.id)||!(username.startsWith(prefix)||name.startsWith(prefix)))continue;
+        if(!value.name||blocked(session,value)||seen.has(value.id)||!(username.startsWith(prefix)||name.startsWith(prefix)||String(value.friendHandle||'').startsWith(prefix)))continue;
         seen.add(value.id);matches.push(publicProfile(value));if(matches.length===21)break;
       }
       this.send(ws,{type:'lookup-result',nonce:message.nonce,profile:matches.length===1?matches[0]:null,profiles:matches.slice(0,20),truncated:matches.length>20});return;
@@ -651,7 +773,7 @@ export class FriendDirectory extends DurableObject {
         try { previous.close(4001, 'Identity connected from another session.'); } catch { /* already closed */ }
       }
     }
-    if (this.send(ws, {type: 'ready', id: current.id, friendTag:current.friendTag, socialVersion:2, serverTime:Date.now()})) { this.presence(current.id); this.rooms(); }
+    if (this.send(ws, {type: 'ready', id: current.id, friendTag:current.friendTag, namedFriendTagsVersion:1, capabilities:CAPABILITIES, socialVersion:2, serverTime:Date.now()})) { this.presence(current.id); this.rooms(); }
     await this.syncFriendAlarm();
   }
 

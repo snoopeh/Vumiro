@@ -1,9 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs>
-    <linearGradient id="left" x1="0" x2=".8" y2="1"><stop stop-color="#ff675f"/><stop offset="1" stop-color="#d70e25"/></linearGradient>
-    <linearGradient id="right" x1=".9" x2=".2" y2="1"><stop stop-color="#ff5958"/><stop offset=".6" stop-color="#e11d2e"/><stop offset="1" stop-color="#b4081a"/></linearGradient>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Vumiro</title>
+  <defs xmlns="http://www.w3.org/2000/svg">
+    <linearGradient id="left-red" gradientUnits="userSpaceOnUse" x1="431" y1="147" x2="491" y2="248">
+      <stop offset="0" stop-color="#FF233B" /><stop offset="0.5" stop-color="#F71B35" /><stop offset="1" stop-color="#B81028" />
+    </linearGradient>
+    <linearGradient id="lower-red" gradientUnits="userSpaceOnUse" x1="491" y1="247" x2="527" y2="289">
+      <stop offset="0" stop-color="#8E1120" /><stop offset="0.6" stop-color="#CF142B" /><stop offset="1" stop-color="#EF1C34" />
+    </linearGradient>
+    <linearGradient id="sweep-red" gradientUnits="userSpaceOnUse" x1="536" y1="124" x2="473" y2="298">
+      <stop offset="0" stop-color="#FF253E" /><stop offset="0.58" stop-color="#FF203A" /><stop offset="1" stop-color="#EB1931" />
+    </linearGradient>
   </defs>
+
   <rect x="8" y="8" width="240" height="240" rx="53" fill="#0b0b0c" stroke="#28282a" stroke-width="2"/>
-  <path d="M32 62C29 56 32 52 38 52H79C94 52 102 59 109 70L166 167L151 190C137 207 110 204 97 185Z" fill="url(#left)"/>
-  <path d="M112 147L162 68C169 57 178 52 191 52H225C232 52 235 57 230 65L157 185C145 205 122 210 105 197L88 176C99 180 104 160 112 147Z" fill="url(#right)"/>
+  <g transform="translate(23 44) scale(.8) translate(-395 -107)"><g xmlns="http://www.w3.org/2000/svg" id="blade-v">
+    <path id="left-blade" fill="url(#left-red)" d="M395 136 C419 139 443 144 466 150 L505 222 L464.5 253 Z" />
+    <path id="lower-blade" fill="url(#lower-red)" d="M472 265 C499 245 531 226 564 212 L501 315 Z" />
+    <path id="sweeping-blade" fill="url(#sweep-red)" d="M401 317 C434 273 491 228 546 170 C579 135.2 619 114 656 107 C615.89 117.86 594.06 158.13 576 192 L612 182 C532.11 208.92 458.65 255.28 401 317 Z" />
+  </g>
+
+  </g>
 </svg>

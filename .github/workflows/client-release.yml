@@ -27,6 +27,9 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
       - run: dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
+      - run: dotnet run --project tests/ClientUpdateChecks/ClientUpdateChecks.csproj -c Release
+      - run: dotnet run --project tests/NativeAudioSmoke/NativeAudioSmoke.csproj -c Release -- --self-test
+      - run: dotnet run --project tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj -c Release
       - name: Build and verify versions, manifests, checksums and packaged source
         shell: pwsh
         run: |

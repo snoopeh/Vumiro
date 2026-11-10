@@ -1,10 +1,11 @@
-param([switch]$SkipTests)
+param([switch]$SkipTests, [switch]$LocalService)
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 $output = Join-Path $root 'dist/local-qa'
 $logs = Join-Path $output 'logs'
 $web = Join-Path $root 'Vumiro.Client/WebServer'
 $executable = Join-Path $output 'Vumiro.exe'
+$qaService = if ($LocalService) { 'ws://127.0.0.1:8787/call-signaling' } else { $null }
 
 function Invoke-LocalCheck([string]$name, [string]$command, [string[]]$arguments, [string]$logName) {
     $log = Join-Path $logs $logName
@@ -21,6 +22,14 @@ try {
         if (!(Get-Command $command -ErrorAction SilentlyContinue)) { throw "$command is required. See docs/LOCAL-DEVELOPMENT.md." }
     }
     New-Item -ItemType Directory -Path $logs -Force | Out-Null
+    if ($LocalService) {
+        try {
+            $serviceResponse = Invoke-WebRequest -Uri 'http://127.0.0.1:8787/friends.html' -UseBasicParsing -TimeoutSec 3
+            if ($serviceResponse.StatusCode -ne 200) { throw 'Unexpected service response.' }
+        } catch {
+            throw 'Local signaling is unavailable at 127.0.0.1:8787. Start the local Worker first; see docs/LOCAL-DEVELOPMENT.md, then rerun with -LocalService.'
+        }
+    }
     Push-Location $root
     try {
         foreach ($file in (Get-ChildItem -LiteralPath $web -Filter '*.js' -File)) {
@@ -28,7 +37,11 @@ try {
         }
         if (!$SkipTests) {
             Invoke-LocalCheck 'Client regressions' 'node' @('--test', 'tests/*.test.mjs') 'client-tests.log'
-            Invoke-LocalCheck 'Native invariants' 'dotnet' @('run', '--project', 'tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj', '-c', 'Release', '--nologo') 'native-tests.log'
+            Invoke-LocalCheck 'Native invariants' 'dotnet' @('run', '--project', 'tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj', '-c', 'Release') 'native-tests.log'
+            Invoke-LocalCheck 'Local service isolation' 'dotnet' @('run', '--project', 'tests/LocalQaServiceChecks/LocalQaServiceChecks.csproj', '-c', 'Release') 'local-service-tests.log'
+            Invoke-LocalCheck 'Startup updater regressions' 'dotnet' @('run', '--project', 'tests/ClientUpdateChecks/ClientUpdateChecks.csproj', '-c', 'Release') 'updater-tests.log'
+            Invoke-LocalCheck 'Native audio recovery regressions' 'dotnet' @('run', '--project', 'tests/NativeAudioSmoke/NativeAudioSmoke.csproj', '-c', 'Release', '--', '--self-test') 'audio-tests.log'
+            Invoke-LocalCheck 'Diagnostic retention and export' 'dotnet' @('run', '--project', 'tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj', '-c', 'Release') 'diagnostics-tests.log'
         }
         # Stop only this checkout's QA executable. Installed copies use other paths.
         foreach ($process in (Get-Process -Name Vumiro -ErrorAction SilentlyContinue)) {
@@ -65,10 +78,12 @@ try {
         $start.EnvironmentVariables['VUMIRO_DEV_WEB_ROOT'] = $web
         $start.EnvironmentVariables['VUMIRO_DEV_DATA_ROOT'] = $data
         $start.EnvironmentVariables['VUMIRO_DEV_LABEL'] = $label
+        $start.EnvironmentVariables.Remove('VUMIRO_DEV_SIGNALING_URL')
+        if ($LocalService) { $start.EnvironmentVariables['VUMIRO_DEV_SIGNALING_URL'] = $qaService }
         $start.EnvironmentVariables['WEBVIEW2_USER_DATA_FOLDER'] = Join-Path $data 'ClientBrowser'
         $app = [Diagnostics.Process]::Start($start)
         $receipt = Join-Path $output 'launch.json'
-        @{ processId = $app.Id; source = $root; label = $label; webRoot = $web; dataRoot = $data; executable = $executable } |
+        @{ processId = $app.Id; source = $root; label = $label; webRoot = $web; dataRoot = $data; executable = $executable; signalingOverride = $qaService } |
             ConvertTo-Json | Set-Content -LiteralPath $receipt -Encoding UTF8
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
         $ready = $false
@@ -88,6 +103,7 @@ try {
         Write-Host "LOCAL QA ready: $label (PID $($app.Id))"
         Write-Host 'Web edits: click Reload UI in the app. Native edits: rerun Local QA.cmd.'
         Write-Host "Isolated profile: $data"
+        if ($LocalService) { Write-Host "Local signaling override: $qaService (local peers only)" }
         Write-Host "Logs: $logs"
         Write-Host 'No version bump, Git push, release tag or publication was performed.'
     } finally { Pop-Location }

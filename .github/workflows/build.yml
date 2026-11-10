@@ -46,6 +46,9 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-
       - run: dotnet build Vumiro.sln -c Release --nologo
       - run: dotnet run --project tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj -c Release
+      - run: dotnet run --project tests/ClientUpdateChecks/ClientUpdateChecks.csproj -c Release
+      - run: dotnet run --project tests/NativeAudioSmoke/NativeAudioSmoke.csproj -c Release -- --self-test
+      - run: dotnet run --project tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj -c Release
       - name: Native check summary
         shell: pwsh
         run: Add-Content $env:GITHUB_STEP_SUMMARY 'Windows Release build and native invariants passed. Distribution archives are built only when releasing.'

@@ -24,6 +24,26 @@ This still checks JavaScript syntax, builds and verifies startup. Usually Reload
 
 Logs are in `dist/local-qa/logs`; `dist/local-qa/launch.json` identifies the executable, process, source and profile. The matching `local-qa-status.json` in the isolated data folder records native interface startup. These files help diagnose startup; they do not prove every product flow works.
 
+## Review local signaling changes
+
+For changes to friend tags, discovery or room signaling, start the local Worker in a separate terminal:
+
+```powershell
+cd cloudflare
+npm run prepare-assets
+npx wrangler dev --config wrangler.storage.jsonc --ip 127.0.0.1 --port 8787 --local --persist-to ../dist/local-qa/worker-state
+```
+
+Then launch the native app from the repository root:
+
+```powershell
+./scripts/Run-Local.ps1 -LocalService
+```
+
+The launcher checks the local listener before building or closing an existing QA window. This session shows **LOCAL SERVICE** beside its LOCAL QA badge and routes discovery and room signaling to `127.0.0.1:8787`. Local peers must use that same Worker; they cannot discover installed users through it. Its Durable Object state stays in the local persistence folder. Account sign-in is unavailable on this isolated signaling Worker.
+
+The override applies before page scripts on every native document, including navigation through sign-in, and takes precedence over the QA profile's saved service. It does not replace that saved preference. Launch again without `-LocalService` to use the saved or normal service. Only an explicit LOCAL QA session accepts the development override, restricted to loopback WebSocket URLs at `/call-signaling`. Release builds ignore it. The launch receipt records the active `signalingOverride`.
+
 ## Working agreement
 
 1. Implement one small change and run its relevant checks.

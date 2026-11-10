@@ -65,15 +65,17 @@ class Stream {
   getAudioTracks(){return this.tracks.filter(track=>track.kind==='audio');}
   getVideoTracks(){return this.tracks.filter(track=>track.kind==='video');}
 }
-function harness({getUserMedia,frames=[]}={}){
+function harness({getUserMedia,frames=[],resumeError}={}){
   const elements=new Map(),events=new Map(),timers=new Map(),saved=[],streams=[],contexts=[],recorders=[],urls=new Set();let timerId=0,captures=0;
   const document={head:new Element('head'),body:new Element('body'),activeElement:new Element('button'),createElement:tag=>new Element(tag),getElementById:id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);},querySelectorAll:()=>frames};
   const navigator={mediaDevices:{getSupportedConstraints:()=>({echoCancellation:true,noiseSuppression:true,autoGainControl:true}),enumerateDevices:async()=>[{kind:'audioinput',deviceId:'mic-a',label:'USB microphone'},{kind:'audioinput',deviceId:'mic-b',label:'Headset'},{kind:'audiooutput',deviceId:'speaker-a',label:'Headphones'}],addEventListener(){},getUserMedia:async constraints=>{++captures;if(getUserMedia)return getUserMedia(constraints);const stream=new Stream([new Track(constraints.audio?.deviceId?.exact||'default')]);streams.push(stream);return stream;}}};
   class Context {
-    constructor(){contexts.push(this);}
-    async resume(){}
+    constructor(options){this.options=options;this.sources=[];this.gains=[];this.destinations=[];contexts.push(this);}
+    async resume(){if(resumeError)throw Error(resumeError);}
     async close(){this.closed=true;}
-    createMediaStreamSource(){return {connect(){}};}
+    createMediaStreamSource(stream){const node={stream,connect(target){this.target=target;},disconnect(){this.disconnected=true;}};this.sources.push(node);return node;}
+    createGain(){const node={gain:{value:1},connect(target){this.target=target;},disconnect(){this.disconnected=true;}};this.gains.push(node);return node;}
+    createMediaStreamDestination(){const node={stream:new Stream([new Track('boost')]),disconnect(){this.disconnected=true;}};this.destinations.push(node);return node;}
     createAnalyser(){return {fftSize:512,getFloatTimeDomainData(data){data.fill(.1);}};}
   }
   class Recorder {
@@ -131,6 +133,39 @@ test('master volume composes with peer levels and nested isolation preserves dea
   level=0;app.api.refreshPlayback();assert.equal(a.muted,true);assert.equal(b.muted,false);assert.equal(gates.at(-1),false);
 });
 
+test('boost amplifies quiet received audio without changing the selected speaker or the other voice stream',async()=>{
+  const app=harness(),screen=new Element('audio'),voice=new Element('audio');let screenLevel=1;
+  const original=new Stream([new Track('screen')]);screen.srcObject=original;voice.srcObject=new Stream([new Track('voice')]);
+  await app.api.update({outputId:'speaker-a'});await app.api.registerPlayback(screen,()=>screenLevel);await app.api.registerPlayback(voice);
+  assert.equal(app.contexts.length,0,'ordinary playback needs no extra audio graph');
+  screenLevel=4;app.api.refreshPlayback();await tick();
+  assert.equal(app.contexts.length,1);const context=app.contexts[0];
+  assert.equal(context.options?.sampleRate,undefined,'use the hardware default rate');
+  assert.equal(context.sources[0].stream,original);assert.equal(context.gains[0].gain.value,4);
+  assert.equal(screen.srcObject,context.destinations[0].stream);assert.equal(screen.sinkId,'speaker-a');assert.equal(screen.volume,1);
+  assert.equal(voice.srcObject.getAudioTracks()[0].id,'voice');assert.equal(voice.volume,1);
+  await app.api.update({masterVolume:50});assert.equal(context.gains[0].gain.value,2);assert.equal(voice.volume,.5);
+  app.api.setDeafened(true);assert.equal(screen.muted,true);app.api.setDeafened(false);assert.equal(screen.muted,false);
+  screenLevel=0;app.api.refreshPlayback();assert.equal(screen.muted,true);
+  app.api.forgetPlayback(screen);assert.equal(context.sources[0].disconnected,true);assert.equal(context.destinations[0].stream.getTracks()[0].stopped,true);assert.equal(context.closed,true);assert.equal(original.getTracks()[0].stopped,undefined);
+});
+
+test('a boost engine failure preserves normal audio and reports the failure once',async()=>{
+  const app=harness({resumeError:'Audio device unavailable'}),audio=new Element('audio'),reports=[];
+  audio.srcObject=new Stream([new Track('remote')]);const original=audio.srcObject;
+  app.api.registerRoom({report:message=>reports.push(message)});await app.api.registerPlayback(audio,()=>4);await tick();
+  assert.equal(audio.srcObject,original);assert.equal(audio.volume,1);assert.equal(audio.muted,false);assert.match(reports[0],/boost.*Audio device unavailable/i);
+  app.api.refreshPlayback();await tick();assert.equal(reports.length,1);assert.equal(app.contexts[0].closed,true);
+});
+
+test('replacing a boosted remote track disposes the old graph without stopping the incoming track',async()=>{
+  const app=harness(),audio=new Element('audio');audio.srcObject=new Stream([new Track('old')]);
+  await app.api.registerPlayback(audio,()=>3);await tick();const old=app.contexts[0];
+  const replacement=new Stream([new Track('new')]);audio.srcObject=replacement;await app.api.registerPlayback(audio,()=>2);await tick();
+  assert.equal(old.sources[0].disconnected,true);assert.equal(old.destinations[0].stream.getTracks()[0].stopped,true);assert.equal(replacement.getTracks()[0].stopped,undefined);
+  app.api.dispose();assert.equal(audio.muted,true);assert.equal(audio.srcObject,null);assert.ok(app.contexts.every(context=>context.closed));
+});
+
 test('speaker routing failure restores old sinks and never persists a failed selection',async()=>{
   const app=harness(),audio=new Element('audio');await app.api.registerPlayback(audio);audio.rejectSink=id=>id==='unavailable';
   await assert.rejects(app.api.update({outputId:'unavailable'}),/Speaker unavailable/);assert.equal(audio.sinkId,'');assert.equal(app.api.snapshot().outputId,'');assert.equal(app.saved.length,0);
@@ -173,7 +208,8 @@ test('cross-origin frames cannot receive local audio settings or test control',a
 });
 
 async function callHarness(options={}){
-  const app=harness(options),sockets=[],connections=[],ownId='a'.repeat(43),peerId='b'.repeat(43),room=ownId+'_'+'c'.repeat(48);
+  const app=harness(options),diagnostics=[],sockets=[],connections=[],ownId='a'.repeat(43),peerId='b'.repeat(43),room=ownId+'_'+'c'.repeat(48);
+  app.sandbox.VumiroDiagnostics={record:(event,details)=>diagnostics.push({event,details})};
   class Socket {static OPEN=1;constructor(){this.readyState=1;sockets.push(this);}send(){}close(){}}
   class Connection {
     constructor(){this.connectionState='connected';this.transceivers=[];connections.push(this);}
@@ -184,8 +220,43 @@ async function callHarness(options={}){
   }
   Object.assign(app.sandbox,{location:new URL('/call.html?autojoin=1&room='+room+'&mode=public&signaling='+encodeURIComponent('wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling'),'https://vumiro.local'),VumiroLocalProfile:{initialize:async()=>({id:ownId,key:'public-key',name:'Host'}),profile:()=>({name:'Host'}),listFriends:async()=>[],listBlocked:async()=>[],sign:async()=>''},RTCPeerConnection:Connection,WebSocket:Socket,parent:{},history:{replaceState(){}}});
   vm.runInContext(callSource,app.sandbox);await tick();assert.equal(sockets.length,1);await sockets[0].onmessage({data:JSON.stringify({type:'welcome',id:ownId,peers:[{id:peerId,name:'Guest'}],policy:{mode:'public'}})});
-  return {...app,connection:connections[0]};
+  return {...app,connection:connections[0],diagnostics};
 }
+
+test('failed screen capture records the error class and audio configuration without private error text',async()=>{
+  const app=await callHarness();app.sandbox.navigator.mediaDevices.getDisplayMedia=async()=>{throw Object.assign(Error('private device path'),{name:'NotReadableError'});};
+  await app.element('share').onclick();const failed=app.diagnostics.find(row=>row.event==='capture-error');assert.ok(failed);assert.equal(failed.details.name,'NotReadableError');
+  assert.equal(app.diagnostics.find(row=>row.event==='capture-requested').details.audio,true);assert.doesNotMatch(JSON.stringify(app.diagnostics),/private device path|bbbbbbbb|cccccccc/);
+});
+
+test('peer failures record transport states without identities or session descriptions',async()=>{
+  const app=await callHarness();app.connection.connectionState='failed';app.connection.iceConnectionState='disconnected';app.connection.signalingState='stable';app.connection.onconnectionstatechange();
+  const failed=app.diagnostics.find(row=>row.event==='peer-state');assert.ok(failed);assert.equal(failed.details.connectionState,'failed');assert.equal(failed.details.iceConnectionState,'disconnected');assert.equal(failed.details.signalingState,'stable');
+  assert.doesNotMatch(JSON.stringify(failed),/bbbbbbbb|cccccccc|sdp|candidate/);
+});
+
+test('unsupported Discord exclusion remains visible with an explanation',async()=>{
+  const app=await callHarness();assert.equal(app.element('settingExcludeDiscordLabel').hidden,false);assert.equal(app.element('settingExcludeDiscord').disabled,true);
+  assert.equal(app.element('excludeDiscordHelp').hidden,false);assert.match(app.element('roomAudioCapability').textContent,/Windows|Linux|native/i);
+});
+
+test('native audio graph accepts the hardware rate instead of requiring a 48 kHz output device',async()=>{
+  let options;const destination={stream:new Stream([new Track('native-output')])};
+  class DeviceContext {constructor(value){options=value;this.state='running';this.sampleRate=44100;}createMediaStreamDestination(){return destination;}}
+  const start=callSource.indexOf('  async function ensureNativeAudioGraph()'),end=callSource.indexOf('  function stopNativeAudioCapture',start);
+  const context={window:{AudioContext:DeviceContext},audioContext:null,audioDestination:null,nativeAudioTrack:null};vm.createContext(context);
+  vm.runInContext(callSource.slice(start,end),context);await context.ensureNativeAudioGraph();
+  assert.equal(options.sampleRate,undefined);assert.equal(context.audioContext.sampleRate,44100);assert.equal(context.nativeAudioTrack,destination.stream.getAudioTracks()[0]);
+});
+
+test('participant Screen and Voice controls independently reach 400 percent',async()=>{
+  const app=await callHarness(),nodes=descendants(app.element('tiles')),sliders=nodes.filter(node=>node.tagName==='input'&&node.attributes['aria-label']?.includes('volume for Guest'));
+  assert.equal(sliders.length,2);for(const slider of sliders)assert.equal(slider.max,'400');
+  app.connection.ontrack({track:new Track('screen'),transceiver:app.connection.transceivers[1],receiver:{}});
+  app.connection.ontrack({track:new Track('voice'),transceiver:app.connection.transceivers[2],receiver:{}});await tick();
+  sliders[0].value='350';sliders[0].oninput();await tick();assert.equal(sliders[0].value,'350');assert.equal(sliders[1].value,'100');
+  assert.equal(app.contexts[0].gains[0].gain.value,3.5);
+});
 
 test('call microphone switching preserves user mute and deafen restores previous state',async()=>{
   const app=await callHarness();await app.element('mic').onclick();const first=app.streams[0].getAudioTracks()[0];assert.equal(first.enabled,true);

@@ -33,11 +33,11 @@ test('idle stage and participant header use the same centered avatar image after
 test('room chat formats a small safe Markdown subset using text nodes and HTTPS links',()=>{
   class Element { constructor(tag,text=''){this.tagName=tag;this.textContent=text;this.children=[];this.attributes={};} append(...children){this.children.push(...children);} }
   const target=new Element('div'),sandbox={URL,localStorage:{getItem:()=>null},addEventListener(){},document:{createElement:tag=>new Element(tag),createTextNode:text=>new Element('#text',text)}};vm.createContext(sandbox);
-  vm.runInContext(functionAt('renderChatText','  function playCallCue('),sandbox);
+  vm.runInContext(functionAt('renderChatText','  let callSoundsEnabled=')+functionAt('publicChatUrl','  function chatRasterType('),sandbox);
   sandbox.renderChatText(target,'**bold** *italic* `code`\nhttps://example.com <img src=x>');
-  assert.deepEqual(target.children.map(node=>node.tagName),['strong','#text','em','#text','code','br','a','#text']);
+  assert.deepEqual(target.children.map(node=>node.tagName),['strong','#text','em','#text','code','br','a','#text','div']);
   assert.equal(target.children[0].textContent,'bold');assert.equal(target.children[2].textContent,'italic');assert.equal(target.children[4].textContent,'code');
-  assert.equal(target.children[6].href,'https://example.com/');assert.equal(target.children[6].rel,'noopener noreferrer');assert.equal(target.children.at(-1).textContent,' <img src=x>');
+  assert.equal(target.children[6].href,'https://example.com/');assert.equal(target.children[6].rel,'noopener noreferrer');assert.equal(target.children[7].textContent,' <img src=x>');assert.equal(target.children.at(-1).className,'chat-link-card');
 });
 
 function profileHarness({legacy=false}={}) {
@@ -54,6 +54,14 @@ test('room metadata retains validated profile card fields within the existing 64
   assert.equal(profile.avatar,photo);assert.equal(profile.banner,banner);assert.equal(profile.bio,input.bio);assert.equal(profile.connections[0].url,input.connections[0].url);
   assert.equal(Object.hasOwn(profile,'friendTag'),false,'peer cannot assert a directory friend number');
   assert.ok(new TextEncoder().encode(JSON.stringify({type:'profile',profile})).length<=65536);
+});
+
+test('room cards use a directory-issued named handle without a redundant username line',()=>{
+  const elements=new Map(),context={$:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);},profileRequestId:'friend-id',profileRequestTimer:0,profileAddBusy:false,clearTimeout(){}};
+  vm.createContext(context);vm.runInContext(functionAt('friendStatus',"  $('profileClose')"),context);
+  context.friendStatus({id:'friend-id',status:'friend',friendTag:'#12345-67890',friendHandle:'mira#123'});
+  assert.equal(elements.get('profileTag').textContent,'mira#123');assert.equal(elements.get('profileTag').hidden,false);assert.equal(elements.get('profileUsername').hidden,true);
+  context.friendStatus({id:'friend-id',status:'friend',friendTag:'#12345-67890',friendHandle:'<unsafe>#123'});assert.equal(elements.get('profileTag').textContent,'#12345-67890');
 });
 
 test('room profile metadata rejects unsafe connections, remote banners and oversized biographies',()=>{

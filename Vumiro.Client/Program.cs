@@ -26,16 +26,25 @@ namespace Vumiro.Client
             using (var instance = DesktopInstance.Acquire())
             {
                 if (instance == null) return;
+                ClientDiagnostics.Current.Start();
+                AppDomain.CurrentDomain.UnhandledException += (s, e) => {
+                    var error = e.ExceptionObject as Exception;
+                    if (error != null) ClientDiagnostics.Current.RecordException("unhandled-error", error);
+                };
+                TaskScheduler.UnobservedTaskException += (s, e) => ClientDiagnostics.Current.EnqueueException("host-error", e.Exception);
                 var window = new ClientWindow();
                 instance.Listen(window);
                 Application.Run(window);
+                // A failing disk must not prevent exit or hold up the updater helper.
+                try { Task.Run(() => ClientDiagnostics.Current.End()).Wait(TimeSpan.FromSeconds(5)); }
+                catch (AggregateException) { /* Shutdown diagnostics are best effort. */ }
             }
         }
     }
 
     internal sealed partial class ClientWindow : Form
     {
-        private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
+        private readonly WebView2 browser = new WebView2 { Dock = DockStyle.Fill, Enabled = false, DefaultBackgroundColor = Color.FromArgb(11, 11, 12) };
         private readonly StartupLoading loading = new StartupLoading { Dock = DockStyle.Fill, Text = "Opening Vumiro…" };
         private NotifyIcon trayIcon;
         private ContextMenuStrip trayMenu;
@@ -55,6 +64,7 @@ namespace Vumiro.Client
         internal ClientWindow()
         {
             updates = new ClientUpdates(this, state => {
+                if (startupOverlayActive && !loading.IsDisposed) loading.Text = updates.StatusText;
                 if (!IsDisposed && browser.CoreWebView2 != null) browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(state));
             });
             Text = ClientRuntime.Current.IsLocalQa ? "Vumiro · " + ClientRuntime.Current.Label : "Vumiro";
@@ -134,6 +144,10 @@ namespace Vumiro.Client
                 var environment = await CoreWebView2Environment.CreateAsync(null, profile);
                 if (IsDisposed) return;
                 await browser.EnsureCoreWebView2Async(environment);
+                Version webviewVersion;
+                if (Version.TryParse(environment.BrowserVersionString.Split(' ')[0], out webviewVersion))
+                    ClientDiagnostics.Current.Enqueue("runtime", new Dictionary<string, object> { { "webviewMajor", webviewVersion.Major }, { "webviewBuild", webviewVersion.Build } });
+                browser.CoreWebView2.ProcessFailed += (s, e) => ClientDiagnostics.Current.Enqueue("webview-failed", new Dictionary<string, object> { { "code", (int)e.ProcessFailedKind } });
                 browser.CoreWebView2.SetVirtualHostNameToFolderMapping(new Uri(Origin).Host, ClientRuntime.Current.WebRoot, CoreWebView2HostResourceAccessKind.DenyCors);
                 await EnableLocalQaToolsAsync();
                 browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -159,6 +173,7 @@ namespace Vumiro.Client
                         if (HandleWindowMessage(message)) return;
                         if (HandleLocalQaMessage(message)) return;
                         if (source.AbsolutePath != "/friends.html") return;
+                        if (HandleDiagnosticsMessage(message)) return;
                         if (HandleStreamAudioMessage(message)) return;
                         object type, action;
                         if (message != null && message.Count == 2 && message.TryGetValue("type", out type) && type as string == "updates" && message.TryGetValue("action", out action) && action is string)
@@ -176,10 +191,12 @@ namespace Vumiro.Client
                     }
                     else
                     {
+                        await updates.StartAsync();
+                        if (IsDisposed) return;
+                        browser.Enabled = true;
                         DismissStartupOverlay();
                         PublishWindowState();
                         WriteLocalQaStatus("ready");
-                        await updates.HandleAsync("check");
                     }
                 };
                 var signaling = DefaultSignaling;
@@ -203,6 +220,7 @@ namespace Vumiro.Client
             }
             catch (Exception error)
             {
+                ClientDiagnostics.Current.EnqueueException("startup-error", error);
                 WriteLocalQaStatus("error", error.Message);
                 if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }

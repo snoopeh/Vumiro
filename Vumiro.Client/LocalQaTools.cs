@@ -12,6 +12,14 @@ namespace Vumiro.Client
         {
             if (!ClientRuntime.Current.IsLocalQa) return;
             await browser.CoreWebView2.CallDevToolsProtocolMethodAsync("Network.setCacheDisabled", "{\"cacheDisabled\":true}");
+            var service = Environment.GetEnvironmentVariable("VUMIRO_DEV_SIGNALING_URL");
+            Uri localService;
+            var hasLocalService = Uri.TryCreate(service, UriKind.Absolute, out localService) && localService.IsLoopback &&
+                (localService.Scheme == "ws" || localService.Scheme == "wss") && localService.UserInfo.Length == 0 &&
+                localService.AbsolutePath == "/call-signaling" && localService.Query.Length == 0 && localService.Fragment.Length == 0;
+            if (hasLocalService)
+                await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
+                    "Object.defineProperty(window, '__VUMIRO_LOCAL_QA_SIGNALING__', {value:" + json.Serialize(localService.AbsoluteUri) + ", writable: false, configurable: false});");
             await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 window.__VUMIRO_LOCAL_QA__ = true;
                 if (window === window.top) addEventListener('DOMContentLoaded', () => {
@@ -19,7 +27,7 @@ namespace Vumiro.Client
                     if (!bar) return;
                     const tools = document.createElement('span'); tools.id = 'localQaBadge';
                     tools.style.cssText = 'display:flex;align-items:center;gap:10px;margin-left:auto;padding:0 12px;font:11px system-ui;color:#f5c66b';
-                    const label = document.createElement('span'); label.textContent = " + json.Serialize(ClientRuntime.Current.Label) + @";
+                    const label = document.createElement('span'); label.textContent = " + json.Serialize(ClientRuntime.Current.Label + (hasLocalService ? " · LOCAL SERVICE" : "")) + @";
                     const reload = document.createElement('button'); reload.type = 'button'; reload.textContent = 'Reload UI';
                     reload.title = 'Load current source files. This ends any room in this QA window.';
                     reload.style.cssText = 'font:inherit;padding:3px 8px;border:1px solid #675127;border-radius:4px;background:#332918;color:#f5c66b';

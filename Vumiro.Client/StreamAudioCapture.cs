@@ -33,6 +33,7 @@ namespace Vumiro.Client
         private Thread worker;
         private Action<float[]> onSamples;
         private Action<string> onError;
+        private Action<string> onWarning;
         private bool started;
         private bool disposed;
         private int errorSent;
@@ -51,7 +52,7 @@ namespace Vumiro.Client
             }
         }
 
-        internal void Start(bool excludeDiscord, Action<float[]> sampleCallback, Action<string> errorCallback)
+        internal void Start(bool excludeDiscord, Action<float[]> sampleCallback, Action<string> errorCallback, Action<string> warningCallback = null)
         {
             if (sampleCallback == null) throw new ArgumentNullException("sampleCallback");
             lock (gate)
@@ -62,6 +63,7 @@ namespace Vumiro.Client
                 started = true;
                 onSamples = sampleCallback;
                 onError = errorCallback;
+                onWarning = warningCallback;
                 worker = new Thread(() => Run(excludeDiscord)) { IsBackground = true, Name = "Vumiro system audio mixer" };
                 worker.SetApartmentState(ApartmentState.MTA);
                 try { worker.Start(); }
@@ -94,6 +96,7 @@ namespace Vumiro.Client
             var clock = Stopwatch.StartNew();
             long nextEnumeration = 0;
             long nextMix = 0;
+            var enumerationFailed = false;
             try
             {
                 while (!stopEvent.WaitOne(0))
@@ -101,30 +104,33 @@ namespace Vumiro.Client
                     var now = clock.ElapsedMilliseconds;
                     if (now >= nextEnumeration)
                     {
-                        var desired = EnumerateEligibleProcesses(excludeDiscord);
-                        if (desired.Count > MaximumSources)
+                        HashSet<int> desired;
+                        if (TryEnumerateProcesses(() => EnumerateEligibleProcesses(excludeDiscord), SignalWarning, ref enumerationFailed, out desired))
                         {
-                            SignalError("Too many active audio applications to capture safely.");
-                            Stop();
-                            break;
-                        }
-                        foreach (var pid in sources.Keys.Where(pid => !desired.Contains(pid)).ToArray())
-                        {
-                            sources[pid].Stop();
-                            sources.Remove(pid);
-                        }
-                        foreach (var pid in desired)
-                        {
-                            if (sources.ContainsKey(pid)) continue;
-                            if (sources.Count >= MaximumSources)
+                            if (desired.Count > MaximumSources)
                             {
                                 SignalError("Too many active audio applications to capture safely.");
                                 Stop();
                                 break;
                             }
-                            var source = new ProcessCaptureSource(pid, SignalError);
-                            sources.Add(pid, source);
-                            source.Start();
+                            foreach (var pid in sources.Keys.Where(pid => !desired.Contains(pid)).ToArray())
+                            {
+                                sources[pid].Stop();
+                                sources.Remove(pid);
+                            }
+                            foreach (var pid in desired)
+                            {
+                                if (sources.ContainsKey(pid)) continue;
+                                if (sources.Count >= MaximumSources)
+                                {
+                                    SignalError("Too many active audio applications to capture safely.");
+                                    Stop();
+                                    break;
+                                }
+                                var source = new ProcessCaptureSource(pid, SignalWarning);
+                                sources.Add(pid, source);
+                                source.Start();
+                            }
                         }
                         nextEnumeration = now + 1000;
                     }
@@ -164,6 +170,53 @@ namespace Vumiro.Client
             try { onError?.Invoke(message); }
             catch { }
             Stop();
+        }
+
+        private void SignalWarning(string message)
+        {
+            Trace.TraceWarning(message);
+            try { onWarning?.Invoke(message); }
+            catch { }
+        }
+
+        // An unavailable endpoint is not an empty session list. Leave the
+        // current sources alone until a complete enumeration succeeds again.
+        internal static bool TryEnumerateProcesses(Func<HashSet<int>> enumerate, Action<string> reportWarning, ref bool failed, out HashSet<int> desired)
+        {
+            try
+            {
+                desired = enumerate();
+                failed = false;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                desired = null;
+                if (!failed)
+                    reportWarning("Audio device discovery is reconnecting (0x" + ex.HResult.ToString("X8") + "): " + ex.Message);
+                failed = true;
+                return false;
+            }
+        }
+
+        // A device can disappear while a process keeps running (USB/Bluetooth,
+        // driver reconfiguration). Retry only that source; the mixer and the
+        // remaining applications must keep delivering audio.
+        internal static void RunSourceWithRecovery(Func<bool> shouldStop, Action captureOnce, Action<string> reportWarning, Action<int> wait)
+        {
+            var failures = 0;
+            while (!shouldStop())
+            {
+                try { captureOnce(); return; }
+                catch (Exception ex)
+                {
+                    if (shouldStop()) return;
+                    if (failures == 0)
+                        reportWarning("Audio capture is reconnecting (0x" + ex.HResult.ToString("X8") + "): " + ex.Message);
+                    failures = Math.Min(failures + 1, 5);
+                    wait(failures * 1000);
+                }
+            }
         }
 
         private static HashSet<int> EnumerateEligibleProcesses(bool excludeDiscord)
@@ -217,17 +270,17 @@ namespace Vumiro.Client
         private sealed class ProcessCaptureSource
         {
             private readonly int processId;
-            private readonly Action<string> onError;
+            private readonly Action<string> onWarning;
             private readonly FloatRingBuffer ring = new FloatRingBuffer(OutputRate * OutputChannels / 5);
             private readonly float[] packetSamples = new float[OutputRate * OutputChannels];
             private readonly short[] packetPcm = new short[OutputRate * OutputChannels];
             private Thread thread;
             private volatile bool stop;
 
-            internal ProcessCaptureSource(int processId, Action<string> onError)
+            internal ProcessCaptureSource(int processId, Action<string> onWarning)
             {
                 this.processId = processId;
-                this.onError = onError;
+                this.onWarning = onWarning;
             }
 
             internal void Start()
@@ -248,6 +301,18 @@ namespace Vumiro.Client
             }
 
             private void CaptureLoop()
+            {
+                RunSourceWithRecovery(
+                    () => stop || !IsProcessRunning(processId),
+                    CaptureOnce,
+                    warning => onWarning("Process " + processId + ": " + warning),
+                    delay => {
+                        for (var elapsed = 0; elapsed < delay && !stop; elapsed += 100)
+                            Thread.Sleep(Math.Min(100, delay - elapsed));
+                    });
+            }
+
+            private void CaptureOnce()
             {
                 IAudioClient audioClient = null;
                 IAudioCaptureClient captureClient = null;
@@ -285,11 +350,6 @@ namespace Vumiro.Client
                         }
                     }
                     finally { Marshal.FreeHGlobal(formatPtr); }
-                }
-                catch (Exception ex)
-                {
-                    if (!stop && IsProcessRunning(processId))
-                        onError("Could not safely capture audio for process " + processId + ": " + ex.Message);
                 }
                 finally
                 {

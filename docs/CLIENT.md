@@ -24,7 +24,7 @@ Version1.21.8 streamlines the sidebar: Friends and Rooms stay prominent, and the
 
 ## Your profile and friends
 
-Create a display name, then open the bottom **Profile and account** menu and choose **Edit profile** to set an optional username and picture. Selecting or removing a picture saves it immediately. Display-name and username edits save with the profile form. Usernames remain online lookup handles for device identities.
+Create a display name, then open the bottom **Profile and account** menu and choose **Edit profile** to set an optional username and picture. Picture, cover, name, username, bio and link edits stay as drafts until **Save profile**. Dismissing the editor discards those changes. Rejected images and successful saves show toast feedback. Usernames remain public lookup names for device identities.
 
 ## Vumiro account
 
@@ -56,7 +56,7 @@ Create a room and choose who may join:
 
 The owner can change access from inside the room. Signed policy changes update admission and remove participants who no longer qualify. Blocking remains effective in every mode. The owner must remain connected, and a room holds at most eight people. Existing older rooms retain their original owner-approval behavior until recreated with a current client.
 
-Choose **Invite** to display the complete selectable room link and copy it. Use Public or Private when inviting people who are not mutual friends; share a private room's password separately. Each received stream has independent **Screen** and **Voice** playback sliders, including in fullscreen. Set a slider to zero to mute that track.
+Choose **Invite** to send an invitation directly to an online friend, copy a short room link, or share an eight-character room code. Short links carry only an opaque token and codes expire after 24 hours or when the owner closes/changes the room. Passwords and identity-bound admission proofs stay outside both. The updated service is required; older standalone room clients retain selectable legacy links. Use Public or Private when inviting people who are not mutual friends; share a private room's password separately. Each received stream has independent **Screen** and **Voice** playback sliders, including in fullscreen. Set a slider to zero to mute that track.
 
 Mutual friends see rooms under **Rooms → Friends' rooms**. Discovery refreshes on connection, room/presence changes, opening Rooms and reconnecting; it does not poll on a timer. Friends may request entry or use an invitation. Password rooms also require the password, even when the owner accepts a request.
 
@@ -64,9 +64,23 @@ The room uses a large focused stage with participant thumbnails, a **Chat/People
 
 Chat is live and direct P2P, with bounded local history while the room is open. There is no cloud message history or delivery to disconnected participants. **Reconnect** retries the room without discarding an existing usable capture; leaving the room or quitting Vumiro stops capture. Closing the window keeps the room connected in the system tray.
 
+### Room chat and files
+
+You can write and send messages while alone in a joined room or while its connection recovers. Updated clients synchronize up to 100 signed text messages from the current room, less than 24 hours old, when someone connects. History stays in memory and clears when you leave or switch rooms. At least one participant retaining the history must remain; the service does not store chat. Older clients receive live text but do not provide authenticated history.
+
+The toolbar supports **bold**, *italic*, inline code and safe HTTPS links. The emoji button opens an offline searchable picker with categories and recent choices. Enter sends; Shift+Enter adds a line break. Text remains limited to 2,000 characters.
+
+Use the **paperclip**, paste an image, or drop a file into the composer (up to 10 MiB per file). You can stage files while alone; they are offered when participants connect while you remain in the room. Recipients choose **Receive**, then **Download**; PNG/JPEG/WebP/GIF files also show a preview, preserving GIF animation. Up to three outgoing files and 20 MiB of local/received files are retained in memory; leaving clears them. Transfer needs a working direct connection. HTTPS links show hostname/path cards; direct image/GIF links and YouTube links offer an explicit **Load preview** button. External images never load automatically. Generic website metadata/OpenGraph thumbnails are not fetched.
+
+### Named friend tags
+
+On the updated directory, a public handle combines a username and a code, for example `mira#48271`. People can share a username; random five-digit codes identify the exact person. Existing three-digit named codes migrate once on the updated service; numeric legacy tags remain valid. Search `@mira` to choose from matching online users or enter `mira#48271` for an exact match. Copying a tag uses this combined handle. Existing numeric tags and contact codes remain compatible. A username change can change the combined handle; the signing identity stays the same.
+
+The local implementation requires the updated directory service. Until that service is deployed, production connections retain their legacy numeric tags. LOCAL QA can use the isolated localhost service to review named tags without changing production.
+
 ### Voice & audio
 
-Open **Voice & audio** from the profile menu before joining, or from the call controls. Choose your microphone and speaker/headphones, adjust master playback, and enable supported echo cancellation, noise suppression and automatic microphone level. These hardware preferences stay on this device and do not join account sync. Existing Screen and Voice volume sliders for each participant remain independent and combine with master playback volume.
+Open **Voice & audio** from the profile menu before joining, or from the call controls. Choose your microphone and speaker/headphones, adjust master playback, and enable supported echo cancellation, noise suppression and automatic microphone level. These hardware preferences stay on this device and do not join account sync. Each participant has independent **Screen** and **Voice** sliders from 0% to 400%, combined with master playback volume. 100% preserves the original level; higher settings amplify quiet audio and can distort loud sources. Boost keeps your selected speaker and deafen settings. If the audio engine cannot amplify, playback continues at up to 100% with an explanation.
 
 Opening the panel does not start capture. **Enable mic meter** explicitly starts a local input-level check; **Record & play test** records a short local sample and plays it through the selected speaker. During that recording/replay, outgoing room microphone and incoming room playback pause. Stop or close the panel to release test tracks and restore the previous room state. **Test speaker** plays a short tone without enabling the microphone. If output selection is unavailable, use your operating-system sound settings.
 
@@ -76,11 +90,23 @@ Opening the panel does not start capture. **Enable mic meter** explicitly starts
 
 Turn on **Include screen audio** to share application sound alongside your screen. On supported Windows versions (build 20348 and newer, including Windows 11), Vumiro captures audio natively instead of depending on the screen picker's optional audio track. **Exclude Discord from stream audio** defaults on: you still hear the Discord desktop app locally, but viewers do not hear its voices repeated through your stream. Vumiro's own playback is excluded to avoid feeding room audio back to participants. These settings do not mute your microphone.
 
-You can switch stream audio or Discord exclusion while sharing. Stopping your share or leaving the room stops the native capture. Older Windows versions use the browser picker's available audio option and do not offer native Discord filtering. Linux system-audio capture remains unavailable in this release.
+You can switch stream audio or Discord exclusion while sharing. Stopping your share or leaving the room stops the native capture. The Discord exclusion setting stays visible on unsupported devices, disabled with an explanation: it requires Windows build 20348 or newer. Older Windows versions use the browser picker's available audio option, which cannot filter Discord. Linux system-audio capture remains unavailable in this release.
+
+If an application's audio device becomes unavailable, native capture retries that source while the other application audio continues. A warning includes the process and Windows error code. A fatal audio failure stops system audio while leaving screen video and microphone available. Audio graphs use the output device's default sample rate. Hardware-specific browser or driver crashes may still need investigation on the affected device.
+
+### Exporting stream diagnostics
+
+After a failed share, open **Updates → Stream diagnostics → Export diagnostic logs**. Windows saves a ZIP with up to 24 hours of technical events and the previous session's completion status, including app/Windows/WebView versions, capture configuration, audio error codes, renderer failures and connection-state changes. Logs stay under `%LOCALAPPDATA%\ScreenTask\Diagnostics` (LOCAL QA uses its isolated profile). Missing a clean session end can mean a crash, forced termination or power loss; it does not by itself establish the cause.
+
+Windows history is limited to 8 MiB and 32 files; busy history may cover less than 24 hours. Linux/browser export provides a smaller local JSON history of up to 256 events over 24 hours. Logs contain no captured audio/video, chat, credentials, room/peer identities, device names or network addresses, and are not uploaded automatically. Share the export with the developer when reporting the failure and note approximately when it happened. A completely frozen or terminated operating system may prevent the final event from reaching disk.
+
+### App sounds
+
+Open **App sounds** in Settings to toggle event cues and adjust their independent volume from 0–300%. Preview uses the draft volume; Save applies it to the app and current room. Defaults are louder than earlier builds. This setting does not change voice, microphone or screen playback volume.
 
 ## Settings and updates
 
-Open **Settings** outside the room or the room's **Stream settings**. FPS, resolution ceiling, bitrate per participant, text/motion preference and screen audio synchronize and persist on the device. Settings apply to active capture where the browser supports them. Screen audio must have been selected when capture started. Actual FPS depends on capture hardware, CPU and each peer connection.
+Open **Settings** outside the room or the room's **Stream settings**. FPS, resolution ceiling, bitrate per participant, text/motion preference and screen audio synchronize and persist on the device. Choose **Save stream settings** to confirm room-quality edits; dismissing the panel discards unsaved edits. Saved settings apply to active capture where the browser supports them. Screen audio must have been selected when capture started. Actual FPS depends on capture hardware, CPU and each peer connection.
 
 The compact dark title bar supports dragging, double-click maximize/restore, window controls and edge resize.
 

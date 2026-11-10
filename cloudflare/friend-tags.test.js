@@ -147,7 +147,7 @@ test('tag lookup accepts familiar formatting and keeps offline and blocked ident
   for(const query of [tag,tag.slice(1),tag.replace(/[#-]/g,''),` ${tag.replace('-',' ')} `]) {
     const result=await lookup(app,aw,query);
     assert.equal(result.profile.id,b.id);assert.equal(result.profile.friendTag,tag);
-    assert.deepEqual(Object.keys(result.profile).sort(),['friendTag','id','key','name','socialVersion','username']);
+    assert.deepEqual(Object.keys(result.profile).sort(),['friendHandle','friendTag','id','key','name','socialVersion','username']);
   }
   assert.equal((await lookup(app,aw,'@bob.person')).profile.id,b.id);
   assert.equal((await lookup(app,aw,b.id)).profile.id,b.id);
@@ -170,7 +170,7 @@ test('online username and display-name prefix discovery is bounded and deduplica
   for(let n=0;n<23;n++){const ws=await authenticate(app,await identity());await announce(app,ws,n<2?'Mira '+n:'Search Person '+n,{username:'search'+String(n).padStart(2,'0')});people.push(ws);}
   const byName=await lookup(app,requester,'mIrA');assert.deepEqual(byName.profiles.map(item=>item.name),['Mira 0','Mira 1']);assert.equal(byName.truncated,false);
   const byUsername=await lookup(app,requester,'@search');assert.equal(byUsername.profiles.length,20);assert.equal(byUsername.truncated,true);assert.equal(new Set(byUsername.profiles.map(item=>item.id)).size,20);
-  assert.ok(byUsername.profiles.every(item=>Object.keys(item).sort().join(',')==='friendTag,id,key,name,socialVersion,username'));
+  assert.ok(byUsername.profiles.every(item=>Object.keys(item).sort().join(',')==='friendHandle,friendTag,id,key,name,socialVersion,username'));
 });
 
 test('friend number lookups retain the existing authenticated control-message budget',async t=>{
@@ -213,4 +213,207 @@ test('request pruning leaves number assignments intact and profile announcements
   await app.directory.alarm();
   assert.equal(app.directory.assignFriendTag(owner.id),tag);
   assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM friend_requests').get().n,0);
+});
+
+test('shared usernames receive distinct persistent named handles and exact lookups disambiguate them',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
+  assert.equal(aw.messages.find(message=>message.type==='ready').namedFriendTagsVersion,1);
+  await announce(app,aw,'Mira',{username:'mira'});await announce(app,bw,'Another Mira',{username:'mira'});
+  const ar=aw.messages.findLast(message=>message.type==='profile-ready'),br=bw.messages.findLast(message=>message.type==='profile-ready');
+  assert.equal(ar.namedFriendTagsVersion,1);assert.match(ar.profile.friendHandle,/^mira#\d{5}$/);assert.match(br.profile.friendHandle,/^mira#\d{5}$/);
+  assert.notEqual(ar.profile.friendHandle,br.profile.friendHandle);
+  const found=await lookup(app,aw,'@mira');assert.deepEqual(found.profiles.map(profile=>profile.id),[a.id,b.id]);assert.equal(found.profile,null);
+  for(const query of [br.profile.friendHandle,`@${br.profile.friendHandle.toUpperCase()}`])assert.equal((await lookup(app,aw,query)).profile.id,b.id);
+  await announce(app,bw,'Renamed display',{username:'mira'});assert.equal(bw.deserializeAttachment().friendHandle,br.profile.friendHandle);
+  app.directory=new FriendDirectory(app.ctx,{});
+  const reconnected=await authenticate(app,b);await announce(app,reconnected,'Another Mira',{username:'mira'});
+  assert.equal(reconnected.deserializeAttachment().friendHandle,br.profile.friendHandle);
+  assert.equal(reconnected.deserializeAttachment().friendTag,br.profile.friendTag);
+});
+
+test('named handles use safe display-name fallbacks and rename without stealing occupied handles',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
+  await announce(app,aw,'Mira Person');await announce(app,bw,'Other',{username:'target'});
+  assert.match(aw.deserializeAttachment().friendHandle,/^mira-person#\d{5}$/);
+  const target=bw.deserializeAttachment().friendHandle;
+  await announce(app,aw,'Mira Person',{username:'target'});
+  assert.match(aw.deserializeAttachment().friendHandle,/^target#\d{5}$/);assert.notEqual(aw.deserializeAttachment().friendHandle,target);
+  assert.equal((await lookup(app,bw,'mira-person#000')).profile,null);
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM friend_handles').get().n,2);
+  await announce(app,aw,'😀');assert.match(aw.deserializeAttachment().friendHandle,/^person#\d{5}$/);
+  await announce(app,aw,'X');assert.match(aw.deserializeAttachment().friendHandle,/^x__#\d{5}$/);
+  await announce(app,aw,'X',{friendHandle:'target#000'});assert.equal(aw.messages.at(-1).code,'invalid-profile');
+});
+
+test('named handle namespaces allocate random five-digit codes even with legacy three-digit allocations',t=>{
+  const app=fixture(t),insert=app.sqlite.prepare('INSERT INTO friend_handles(identity_id,handle_base,discriminator) VALUES(?,?,?)');
+  for(let n=0;n<1000;n++)insert.run(`identity-${n}`,'popular',String(n).padStart(3,'0'));
+  t.mock.method(crypto,'getRandomValues',array=>{array[0]=73429;return array;});
+  assert.equal(app.directory.assignFriendHandle('a'.repeat(43),'popular'),'popular#73429');
+  assert.equal(app.directory.assignFriendHandle('a'.repeat(43),'popular'),'popular#73429');
+});
+
+test('named handles retry collisions, migrate legacy allocations once and retain the stable five-digit code',t=>{
+  const app=fixture(t),insert=app.sqlite.prepare('INSERT INTO friend_handles(identity_id,handle_base,discriminator) VALUES(?,?,?)');
+  insert.run('existing','mira','73429');insert.run('legacy','mira','003');
+  const values=[73429,29041,73429,90125];
+  t.mock.method(crypto,'getRandomValues',array=>{array[0]=values.shift();return array;});
+  assert.equal(app.directory.assignFriendHandle('legacy','mira'),'mira#29041');
+  app.directory=new FriendDirectory(app.ctx,{});
+  assert.equal(app.directory.assignFriendHandle('legacy','mira'),'mira#29041');
+  assert.equal(app.directory.assignFriendHandle('new','mira'),'mira#90125');
+  assert.equal(app.directory.assignFriendHandle('legacy','renamed'),'renamed#29041');
+  assert.equal(values.length,0);
+});
+
+test('failed five-digit migration rolls back without deleting the original handle',t=>{
+  const app=fixture(t);
+  app.sqlite.prepare('INSERT INTO friend_handles VALUES(?,?,?)').run('existing','mira','73429');
+  app.sqlite.prepare('INSERT INTO friend_handles VALUES(?,?,?)').run('legacy','mira','003');
+  t.mock.method(crypto,'getRandomValues',array=>{array[0]=73429;return array;});
+  assert.throws(()=>app.directory.assignFriendHandle('legacy','mira'),/temporarily unavailable/);
+  assert.equal(app.sqlite.prepare('SELECT discriminator FROM friend_handles WHERE identity_id=?').get('legacy').discriminator,'003');
+});
+
+const nonce='room_alias_nonce_123456';
+async function command(app,ws,value){await app.directory.webSocketMessage(ws,JSON.stringify(value));return ws.messages.at(-1);}
+async function publish(app,ws,mode='public'){
+  const room=ws.deserializeAttachment().id+'_'+'a'.repeat(48);
+  await command(app,ws,{type:'room-state',room,live:false,mode});return room;
+}
+
+test('room aliases are opaque, owner-bounded, persist across hibernation and omit admission secrets',async t=>{
+  const app=fixture(t),owner=await identity(),ws=await authenticate(app,owner);await announce(app,ws);
+  assert.equal(ws.messages.find(message=>message.type==='ready').capabilities.roomAliases,1);
+  const room=await publish(app,ws,'private'),first=await command(app,ws,{type:'room-alias',nonce});
+  assert.equal(first.type,'room-alias-result');assert.equal(first.room,room);assert.equal(first.nonce,nonce);
+  assert.match(first.token,/^[A-Za-z0-9_-]{12}$/);assert.match(first.code,/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+  assert.ok(Math.abs(first.expires-Date.now()-86400000)<100);
+  assert.deepEqual(Object.keys(first).sort(),['code','expires','nonce','room','token','type']);
+  app.directory=new FriendDirectory(app.ctx,{});
+  assert.deepEqual(await command(app,ws,{type:'room-alias',nonce}),first);
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,1);
+});
+
+test('room alias resolution enforces online owner, friendship and blocks while private rooms still require admission',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
+  await announce(app,aw,'Alice');await announce(app,bw,'Bob');const room=await publish(app,aw);
+  const alias=await command(app,aw,{type:'room-alias',nonce});
+  for(const value of [alias.token,alias.code,alias.code.toLowerCase(),alias.code.replace('-','')]){
+    const resolved=await command(app,bw,{type:'room-resolve',value,nonce});assert.equal(resolved.room,room);assert.equal(resolved.owner,a.id);assert.equal(resolved.mode,'public');
+    assert.deepEqual(Object.keys(resolved).sort(),['mode','name','nonce','owner','room','type']);
+  }
+  await publish(app,aw,'friends');assert.equal((await command(app,bw,{type:'room-resolve',value:alias.token,nonce})).room,null);
+  await command(app,aw,{type:'watch',ids:[b.id]});await command(app,bw,{type:'watch',ids:[a.id]});
+  assert.equal((await command(app,bw,{type:'room-resolve',value:alias.token,nonce})).room,room);
+  await publish(app,aw,'private');assert.equal((await command(app,bw,{type:'room-resolve',value:alias.token,nonce})).mode,'private');
+  await announce(app,aw,'Alice',{blockedIds:[b.id]});assert.equal((await command(app,bw,{type:'room-resolve',value:alias.token,nonce})).room,null);
+  await announce(app,aw,'Alice');await announce(app,bw,'Bob',{blockedIds:[a.id]});assert.equal((await command(app,bw,{type:'room-resolve',value:alias.token,nonce})).room,null);
+  app.directory.depart(aw);assert.equal((await command(app,bw,{type:'room-resolve',value:alias.code,nonce})).room,null);
+});
+
+test('aliases expire, room changes revoke old codes and non-owners cannot create mappings',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);await announce(app,aw);await announce(app,bw);
+  assert.equal((await command(app,bw,{type:'room-alias',nonce})).code,'room-unavailable');
+  const room=await publish(app,aw),first=await command(app,aw,{type:'room-alias',nonce});
+  await command(app,aw,{type:'room-state',room:null,live:false});
+  assert.equal((await command(app,bw,{type:'room-resolve',value:first.token,nonce})).room,null);
+  await publish(app,aw);const second=await command(app,aw,{type:'room-alias',nonce});assert.notEqual(second.token,first.token);
+  let now=second.expires+1;t.mock.method(Date,'now',()=>now);
+  assert.equal((await command(app,bw,{type:'room-resolve',value:second.code,nonce})).room,null);
+  await app.directory.alarm();assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,0);
+  const third=await command(app,aw,{type:'room-alias',nonce});assert.notEqual(third.code,second.code);assert.equal(third.room,room);
+});
+
+test('room alias mutations reject secret fields and preserve the directory control-message limit',async t=>{
+  const app=fixture(t),ws=await authenticate(app,await identity());await announce(app,ws);await publish(app,ws);
+  assert.equal((await command(app,ws,{type:'room-alias',nonce,password:'secret'})).code,'invalid-room-alias');
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,0);
+  assert.equal((await command(app,ws,{type:'room-resolve',value:'bad',nonce})).code,'invalid-room-alias');
+  for(let n=0;n<20;n++)await command(app,ws,{type:'room-alias',nonce});
+  assert.equal((await command(app,ws,{type:'room-alias',nonce})).code,'rate-limit');
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,1);
+});
+
+test('only hosts allocate aliases while guests may fetch an existing alias under the current discovery policy',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);await announce(app,aw);await announce(app,bw);
+  const room=await publish(app,aw);
+  assert.equal((await command(app,bw,{type:'room-alias',room,nonce})).code,'room-unavailable');
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,0);
+  const alias=await command(app,aw,{type:'room-alias',nonce});
+  assert.equal((await command(app,bw,{type:'room-alias',room,nonce})).token,alias.token);
+  await publish(app,aw,'friends');
+  assert.equal((await command(app,bw,{type:'room-alias',room,nonce})).code,'room-unavailable');
+  await command(app,aw,{type:'watch',ids:[b.id]});await command(app,bw,{type:'watch',ids:[a.id]});
+  assert.equal((await command(app,bw,{type:'room-alias',room,nonce})).code,alias.code);
+  const attempt=b.id+'_'+'b'.repeat(48);
+  assert.equal((await command(app,bw,{type:'room-alias',room:attempt,nonce})).code,'room-unavailable');
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,1);
+});
+
+test('alias uniqueness retries collisions and expiry is scheduled even without pending friend requests',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);await announce(app,aw);await announce(app,bw);
+  await publish(app,aw);await publish(app,bw);
+  let fills=[1,1,1,1,2,2];t.mock.method(crypto,'getRandomValues',array=>array.fill(fills.shift()));
+  const first=await command(app,aw,{type:'room-alias',nonce});
+  const second=await command(app,bw,{type:'room-alias',nonce});
+  assert.notEqual(first.token,second.token);assert.notEqual(first.code,second.code);assert.equal(fills.length,0);
+  app.sqlite.prepare('DELETE FROM friend_tag_allocations').run();await app.directory.syncFriendAlarm();
+  assert.equal(await app.ctx.storage.getAlarm(),Math.min(first.expires,second.expires));
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,2);
+});
+
+test('alias protocol rejects array coercion for room identifiers and request nonces',async t=>{
+  const app=fixture(t),ws=await authenticate(app,await identity());await announce(app,ws);const room=await publish(app,ws);
+  for(const message of [{type:'room-alias',room:[room],nonce},{type:'room-alias',nonce:[nonce]},{type:'room-resolve',value:'ABCD-EFGH',nonce:[nonce]}]){
+    assert.equal((await command(app,ws,message)).code,'invalid-room-alias');
+  }
+  assert.equal(app.sqlite.prepare('SELECT COUNT(*) AS n FROM room_aliases').get().n,0);
+});
+
+test('short links redirect with only the opaque token, remove extra URL data and disable caching/referrers',async()=>{
+  const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
+    .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
+    .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
+    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
+  const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
+  const request=new Request('https://vumiro.example/r/Abc_456-xy12?password=secret&grant=stuff');
+  const response=await worker.fetch(request,{});
+  assert.equal(response.status,302);
+  assert.equal(response.headers.get('Location'),'https://vumiro.example/friends.html?roomInvite=Abc_456-xy12');
+  assert.equal(response.headers.get('Cache-Control'),'no-store');assert.equal(response.headers.get('Referrer-Policy'),'no-referrer');
+  assert.equal((await worker.fetch(new Request('https://vumiro.example/r/short'),{})).status,404);
+  assert.equal((await worker.fetch(new Request('https://vumiro.example/r/Abc_456-xy12',{method:'POST'}),{})).status,405);
+});
+
+test('named handles preserve offline and blocked lookup privacy',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
+  await announce(app,aw,'Alice');await announce(app,bw,'Bob',{username:'bob'});
+  const handle=bw.deserializeAttachment().friendHandle;
+  await announce(app,bw,'Bob',{username:'bob',blockedIds:[a.id]});assert.equal((await lookup(app,aw,handle)).profile,null);
+  await announce(app,bw,'Bob',{username:'bob'});await announce(app,aw,'Alice',{blockedIds:[b.id]});assert.equal((await lookup(app,aw,handle)).profile,null);
+  await announce(app,aw,'Alice');app.directory.depart(bw);assert.equal((await lookup(app,aw,handle)).profile,null);
+});
+
+test('signed migration moves a named handle once and replay cannot steal a returned identity handle',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b);
+  await announce(app,aw,'Mira',{username:'mira'});await announce(app,bw,'Mira',{username:'mira'});
+  const handle=aw.deserializeAttachment().friendHandle,targetHandle=bw.deserializeAttachment().friendHandle,proof=await transition(a,b);
+  await announce(app,bw,'Mira',{username:'mira',transition:proof});assert.equal(bw.deserializeAttachment().friendHandle,targetHandle);
+  app.directory.depart(aw);await announce(app,bw,'Mira',{username:'mira',transition:proof});assert.equal(bw.deserializeAttachment().friendHandle,handle);
+  const returned=await authenticate(app,a);await announce(app,returned,'Mira',{username:'mira'});
+  const replacement=returned.deserializeAttachment().friendHandle;assert.notEqual(replacement,handle);app.directory.depart(returned);
+  await announce(app,bw,'Mira',{username:'mira',transition:proof});assert.equal(bw.deserializeAttachment().friendHandle,handle);
+  assert.equal(app.sqlite.prepare('SELECT discriminator FROM friend_handles WHERE identity_id=?').get(a.id).discriminator,replacement.split('#')[1]);
+  proof.signature=encode(new Uint8Array(64));await announce(app,bw,'Mira',{username:'mira',transition:proof});assert.equal(bw.messages.at(-1).code,'invalid-transition');
+});
+
+test('migration before a source has a named handle still consumes its one-time handle transfer',async t=>{
+  const app=fixture(t),a=await identity(),b=await identity(),aw=await authenticate(app,a),bw=await authenticate(app,b),proof=await transition(a,b);
+  app.directory.depart(aw);await announce(app,bw,'Mira',{username:'mira',transition:proof});
+  const returned=await authenticate(app,a);await announce(app,returned,'Mira',{username:'mira'});
+  const replacement=returned.deserializeAttachment().friendHandle;app.directory.depart(returned);
+  await announce(app,bw,'Mira',{username:'mira',transition:proof});
+  assert.notEqual(bw.deserializeAttachment().friendHandle,replacement);
+  assert.equal(app.sqlite.prepare('SELECT discriminator FROM friend_handles WHERE identity_id=?').get(a.id).discriminator,replacement.split('#')[1]);
 });

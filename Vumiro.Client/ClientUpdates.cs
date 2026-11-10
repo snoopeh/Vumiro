@@ -27,11 +27,15 @@ namespace Vumiro.Client
         private const long PackageLimit = 16L * 1024 * 1024;
         private readonly ClientWindow owner;
         private readonly Action<object> emit;
+        private readonly Func<Task<Release>> checkRelease;
+        private readonly Func<Release, Task> installRelease;
         private readonly Version current = Assembly.GetExecutingAssembly().GetName().Version;
         private bool busy;
+        private Task startupUpdate;
         private Release latest;
         private string message = "Check GitHub for updates.";
         private int progress;
+        internal string StatusText { get { return message + (progress > 0 && message.StartsWith("Downloading", StringComparison.Ordinal) ? " " + progress + "%" : ""); } }
 
         private static bool CompletePackageInstalled()
         {
@@ -65,7 +69,33 @@ namespace Vumiro.Client
             internal Asset Package;
         }
 
-        internal ClientUpdates(ClientWindow owner, Action<object> emit) { this.owner = owner; this.emit = emit; }
+        internal ClientUpdates(ClientWindow owner, Action<object> emit) : this(owner, emit, CheckAsync, null) { }
+
+        internal ClientUpdates(ClientWindow owner, Action<object> emit, Func<Task<Release>> checkRelease, Func<Release, Task> installRelease)
+        {
+            this.owner = owner; this.emit = emit;
+            this.checkRelease = checkRelease;
+            this.installRelease = installRelease ?? InstallAsync;
+        }
+
+        internal Task StartAsync()
+        {
+            // Navigation also fires while account startup redirects to sign-in.
+            // Every navigation must wait for the same complete startup update.
+            if (startupUpdate == null) startupUpdate = StartCoreAsync();
+            return startupUpdate;
+        }
+
+        private async Task StartCoreAsync()
+        {
+            if (Environment.GetEnvironmentVariable("VUMIRO_SKIP_STARTUP_UPDATE") == "1")
+            {
+                Environment.SetEnvironmentVariable("VUMIRO_SKIP_STARTUP_UPDATE", null);
+                message = "Automatic update paused after recovery. You can retry the update in Settings.";
+                State(); return;
+            }
+            await HandleAsync("install");
+        }
 
         private void State()
         {
@@ -89,7 +119,7 @@ namespace Vumiro.Client
             {
                 if (action == "check")
                 {
-                    latest = await CheckAsync();
+                    latest = await checkRelease();
                     message = latest == null ? "No published client update is available yet." : latest.Version > current ?
                         "Vumiro " + latest.Version.ToString(3) + " is available." : Available(latest) ?
                         "Finish installing Vumiro " + current.ToString(3) + " to enable all features." : "You're up to date.";
@@ -97,9 +127,9 @@ namespace Vumiro.Client
                 else
                 {
                     // Recheck metadata immediately before downloading; never trust a URL supplied by the web view.
-                    latest = await CheckAsync();
+                    latest = await checkRelease();
                     if (!Available(latest)) { message = "You're up to date."; return; }
-                    await InstallAsync(latest);
+                    await installRelease(latest);
                 }
             }
             catch (Exception error)
@@ -109,10 +139,10 @@ namespace Vumiro.Client
             finally { busy = false; State(); }
         }
 
-        private static HttpClient Client()
+        private static HttpClient Client(TimeSpan? timeout = null)
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromMinutes(5) };
+            var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = timeout ?? TimeSpan.FromMinutes(5) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("Vumiro-Client/1.16");
             http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             return http;
@@ -121,17 +151,18 @@ namespace Vumiro.Client
         private static async Task<Release> CheckAsync()
         {
             var found = new List<Release>();
-            using (var http = Client())
+            using (var http = Client(TimeSpan.FromSeconds(20)))
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20)))
             {
                 // Dedicated client tags keep the legacy app's newer release dates out of this channel.
                 for (var page = 1; page <= 5; page++)
                 {
-                    using (var response = await http.GetAsync("https://api.github.com/repos/snoopeh/Vumiro/releases?per_page=100&page=" + page, HttpCompletionOption.ResponseHeadersRead))
+                    using (var response = await http.GetAsync("https://api.github.com/repos/snoopeh/Vumiro/releases?per_page=100&page=" + page, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
                     {
                         if ((int)response.StatusCode == 403 || (int)response.StatusCode == 429)
                             throw new IOException("GitHub's request limit was reached. Try again later.");
                         response.EnsureSuccessStatusCode();
-                        var json = await ReadBoundedAsync(response, 4 * 1024 * 1024);
+                        var json = await ReadBoundedAsync(response, 4 * 1024 * 1024, timeout.Token);
                         var items = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 }.Deserialize<List<Release>>(json);
                         if (items == null) throw new InvalidDataException("GitHub returned invalid release metadata.");
                         foreach (var release in items)
@@ -154,14 +185,17 @@ namespace Vumiro.Client
             return found.OrderByDescending(r => r.Version).FirstOrDefault();
         }
 
-        private static async Task<string> ReadBoundedAsync(HttpResponseMessage response, int limit)
+        private static async Task<string> ReadBoundedAsync(HttpResponseMessage response, int limit, CancellationToken cancellationToken)
         {
             if (response.Content.Headers.ContentLength > limit) throw new InvalidDataException("Update metadata is too large.");
+            // net48 network streams may ignore cancellation after starting a
+            // read. Closing the response also aborts an already pending read.
+            using (cancellationToken.Register(response.Dispose))
             using (var input = await response.Content.ReadAsStreamAsync())
             using (var output = new MemoryStream())
             {
                 var buffer = new byte[16384]; int count;
-                while ((count = await input.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                while ((count = await input.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) > 0)
                 {
                     if (output.Length + count > limit) throw new InvalidDataException("Update metadata is too large.");
                     output.Write(buffer, 0, count);
@@ -173,11 +207,13 @@ namespace Vumiro.Client
         private async Task DownloadAsync(Asset asset, string destination)
         {
             using (var http = Client())
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5)))
             {
                 var url = new Uri(asset.browser_download_url);
                 for (var redirects = 0; redirects <= 5; redirects++)
                 {
-                    using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                    using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token))
+                    using (timeout.Token.Register(response.Dispose))
                     {
                         if ((int)response.StatusCode >= 300 && (int)response.StatusCode < 400)
                         {
@@ -197,11 +233,11 @@ namespace Vumiro.Client
                         using (var hash = SHA256.Create())
                         {
                             var buffer = new byte[81920]; long received = 0; int count; int previous = -1;
-                            while ((count = await input.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                            while ((count = await input.ReadAsync(buffer, 0, buffer.Length, timeout.Token)) > 0)
                             {
                                 received += count;
                                 if (received > asset.size || received > PackageLimit) throw new InvalidDataException("Update exceeds its declared size.");
-                                hash.TransformBlock(buffer, 0, count, buffer, 0); await output.WriteAsync(buffer, 0, count);
+                                hash.TransformBlock(buffer, 0, count, buffer, 0); await output.WriteAsync(buffer, 0, count, timeout.Token);
                                 progress = (int)(received * 100 / asset.size);
                                 if (progress != previous) { previous = progress; State(); }
                             }

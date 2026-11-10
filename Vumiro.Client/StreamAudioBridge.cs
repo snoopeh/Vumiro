@@ -27,7 +27,9 @@ namespace Vumiro.Client
             var action = (string)actionValue;
             if (action == "state" && message.Count == 2)
             {
-                PublishStreamAudio(new { type = "stream-audio", action = "state", supported = StreamAudioCapture.IsSupported, sampleRate = 48000, channels = 2 });
+                var supported = StreamAudioCapture.IsSupported;
+                ClientDiagnostics.Current.Enqueue("native-audio-state", new Dictionary<string, object> { { "supported", supported } });
+                PublishStreamAudio(new { type = "stream-audio", action = "state", supported, reason = supported ? null : "Excluding Discord requires Windows 11 or Windows build 20348 or newer. Use the sharing picker's audio option on this Windows version.", sampleRate = 48000, channels = 2 });
                 return true;
             }
             if (!message.TryGetValue("id", out idValue) || !(idValue is string) || !Regex.IsMatch((string)idValue, "^[A-Za-z0-9_-]{16,64}$")) return true;
@@ -46,11 +48,13 @@ namespace Vumiro.Client
                 lock (streamAudioGate) { streamAudioId = id; streamAudioCapture = capture; streamAudioSequence = 0; }
                 try
                 {
-                    capture.Start((bool)excluded, samples => QueueStreamAudio(id, capture, samples), error => OnStreamAudioError(id, capture, error));
+                    capture.Start((bool)excluded, samples => QueueStreamAudio(id, capture, samples), error => OnStreamAudioError(id, capture, error), warning => OnStreamAudioError(id, capture, warning, false));
+                    ClientDiagnostics.Current.Enqueue("native-audio-started", new Dictionary<string, object> { { "excludeDiscord", (bool)excluded }, { "sampleRate", 48000 }, { "channels", 2 } });
                     PublishStreamAudio(new { type = "stream-audio", action = "started", id, sampleRate = 48000, channels = 2 });
                 }
                 catch (Exception error)
                 {
+                    ClientDiagnostics.Current.EnqueueException("native-audio-error", error);
                     StopStreamAudio();
                     PublishStreamAudio(new { type = "stream-audio", action = "error", id, message = "Could not start stream audio: " + error.Message });
                 }
@@ -143,14 +147,18 @@ namespace Vumiro.Client
             }
         }
 
-        private void OnStreamAudioError(string id, StreamAudioCapture capture, string error)
+        private void OnStreamAudioError(string id, StreamAudioCapture capture, string error, bool fatal = true)
         {
+            var diagnostic = new Dictionary<string, object> { { "fatal", fatal } };
+            var code = Regex.Match(error ?? "", "0x([0-9a-fA-F]{8})");
+            if (code.Success) diagnostic["hresult"] = unchecked((int)Convert.ToUInt32(code.Groups[1].Value, 16));
+            ClientDiagnostics.Current.Enqueue(fatal ? "native-audio-error" : "native-audio-warning", diagnostic);
             try
             {
                 BeginInvoke((Action)(() => {
                     lock (streamAudioGate) { if (streamAudioId != id || streamAudioCapture != capture) return; }
-                    StopStreamAudio();
-                    PublishStreamAudio(new { type = "stream-audio", action = "error", id, message = error });
+                    if (fatal) StopStreamAudio();
+                    PublishStreamAudio(new { type = "stream-audio", action = fatal ? "error" : "warning", id, message = error });
                 }));
             }
             catch (InvalidOperationException) { /* The window is shutting down. */ }

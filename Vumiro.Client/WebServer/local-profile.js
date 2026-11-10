@@ -449,6 +449,55 @@
   window.VumiroLocalProfile = {initialize, createProfile, updateName, updateProfile, ownCode, parseContactCode, validateContact, listFriends, addFriend, addContact, applyFriendResolution, importContact: addContact, updateContactProfile, renameFriend, removeFriend, listBlocked, blockContact, unblockContact, accountSnapshot, applyAccountSnapshot, listRequests, saveRequest, removeRequest, sign, verify, prepareIdentityMigration, commitIdentityMigration, installRecoveredIdentity, applyIdentityTransition, identityTransition, transitionText, profile: publicProfile, validateAvatar: cleanAvatar, validateBio: cleanBio, validateBanner: cleanBanner, validateConnections: cleanConnections};
 })();
 
+/* Local diagnostics: bounded technical events only; never account or media content. */
+(() => {
+  'use strict';
+  const key='vumiro-diagnostics', day=86400000;
+  const events=new Set(['page-ready','page-error','promise-rejection','page-unload','capture-requested','capture-started','capture-ended','capture-stopped','capture-error','native-audio-state','native-audio-started','native-audio-warning','native-audio-error','audio-context-state','peer-state','signaling-state','stream-health','playback-boost-error']);
+  const numeric=new Set(['code','width','height','frameRate','sampleRate','channels','audioTracks','videoTracks','peers','frames','bytes','sequence','processId']);
+  const flags=new Set(['supported','audio','excludeDiscord']);
+  const names=new Set(['Error','TypeError','RangeError','SyntaxError','ReferenceError','NotAllowedError','NotFoundError','NotReadableError','NotSupportedError','AbortError','InvalidStateError','OverconstrainedError','SecurityError','OperationError','NetworkError','UnknownError']);
+  const states=new Set(['new','checking','connecting','connected','disconnected','failed','closed','completed','stable','have-local-offer','have-remote-offer','have-local-pranswer','have-remote-pranswer','running','suspended','interrupted','live','ended','open','closing']);
+  let rows=[],minute=-1,count=0;
+  function details(value={}) {
+    const clean={};if(!value||typeof value!=='object')return clean;
+    for(const [field,item] of Object.entries(value)) {
+      if(numeric.has(field)&&typeof item==='number'&&Number.isFinite(item)&&Math.abs(item)<=Number.MAX_SAFE_INTEGER)clean[field]=item;
+      else if(flags.has(field)&&typeof item==='boolean')clean[field]=item;
+      else if(field==='name'&&names.has(item))clean[field]=item;
+      else if(['state','connectionState','iceConnectionState','signalingState'].includes(field)&&states.has(item))clean[field]=item;
+      else if(field==='source'&&['friends','call','native'].includes(item))clean[field]=item;
+      else if(field==='kind'&&['audio','video'].includes(item))clean[field]=item;
+    }
+    return clean;
+  }
+  function prune(){const now=Date.now();rows=rows.filter(row=>Number.isFinite(row.time)&&row.time>=now-day&&row.time<=now&&events.has(row.event)).slice(-256).map(row=>({time:row.time,event:row.event,details:details(row.details)}));}
+  try{const saved=JSON.parse(localStorage.getItem(key)||'[]');if(Array.isArray(saved))rows=saved.filter(row=>row&&typeof row==='object');prune();}catch{}
+  function record(event,value={}) {
+    if(!events.has(event))return false;
+    const now=Date.now(),bucket=Math.floor(now/60000);if(bucket!==minute){minute=bucket;count=0;}if(++count>32)return false;
+    const clean=details(value),message={type:'diagnostics',action:'record',event,details:clean};
+    try {
+      if(window.parent&&window.parent!==window){window.parent.postMessage({...message,type:'vumiro-diagnostics'},location.origin);return true;}
+      if(window.chrome?.webview){window.chrome.webview.postMessage(message);return true;}
+    }catch{/* A closing host must not interfere with capture. */}
+    rows.push({time:now,event,details:clean});prune();try{localStorage.setItem(key,JSON.stringify(rows));}catch{}return true;
+  }
+  function exportLogs() {
+    if(window.chrome?.webview){window.chrome.webview.postMessage({type:'diagnostics',action:'export'});return;}
+    prune();const file=new Blob([JSON.stringify({format:1,retention:'Up to 24 hours / 256 technical events. No media, chat, credentials or peer addresses.',events:rows},null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(file),link=document.createElement('a');link.href=url;link.download='Vumiro-diagnostics-'+new Date().toISOString().slice(0,10)+'.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  window.VumiroDiagnostics=Object.freeze({record,exportLogs,snapshot(){prune();return rows.map(row=>({...row,details:{...row.details}}));}});
+  if(typeof addEventListener==='function') {
+    const errorName=error=>names.has(error?.name)?error.name:'Error';
+    addEventListener('error',event=>record('page-error',{name:errorName(event.error)}));
+    addEventListener('unhandledrejection',event=>record('promise-rejection',{name:errorName(event.reason)}));
+    addEventListener('pagehide',()=>record('page-unload'));
+    record('page-ready',{source:window.location?.pathname==='/call.html'?'call':'friends'});
+  }
+})();
+
 /* Local voice preferences and audio diagnostics. Deliberately separate from account snapshots. */
 (() => {
   'use strict';
@@ -461,6 +510,8 @@
   }
   let settings = { ...defaults }, adapter = null, deafened = false, isolation = 0, queue = Promise.resolve(), dialog = null, preview = null, serial = 0, opener = null, deviceChangeHandler = null;
   const players = new Map(), routing = new Map(), attachments = new WeakMap(), listeners = new Set();
+  let playbackContext = null;
+  const boostGraphs = new Set();
   try { settings = clean(JSON.parse(localStorage.getItem(key)) || {}); } catch { /* Session defaults remain usable. */ }
   const media = () => window.navigator?.mediaDevices || (typeof navigator !== 'undefined' ? navigator.mediaDevices : null);
   const supported = () => media()?.getSupportedConstraints?.() || {};
@@ -473,7 +524,41 @@
   const snapshot = () => ({ ...settings });
   function emit() { for (const listener of listeners) { try { listener({ ...settings, deafened, isolated: isolation > 0 }); } catch { /* Views are independent. */ } } }
   function applyVolumes() {
-    for (const [audio, level] of players) { audio.volume = Math.max(0, Math.min(1, level() * settings.masterVolume / 100)); audio.muted = routing.has(audio) || deafened || isolation > 0 || audio.volume === 0; }
+    for (const [audio, player] of players) {
+      const requested = Number(player.level()), volume = Number.isFinite(requested) ? Math.max(0, Math.min(4, requested * settings.masterVolume / 100)) : 0;
+      audio.volume = Math.min(1, volume);
+      if (player.graph) player.graph.gain.gain.value = Math.max(1, volume);
+      else if (volume > 1 && !player.boostFailed && player.stream?.getAudioTracks().length) startBoost(audio, player);
+      audio.muted = routing.has(audio) || deafened || isolation > 0 || volume === 0;
+    }
+  }
+  function releaseBoost(player) {
+    const graph = player.graph; if (!graph) return; player.graph = null;
+    for (const node of [graph.source, graph.gain]) { try { node?.disconnect(); } catch { /* Already disconnected. */ } }
+    graph.destination?.stream.getTracks().forEach(track => track.stop()); boostGraphs.delete(graph);
+    if (!boostGraphs.size && playbackContext) { const context = playbackContext; playbackContext = null; context.close().catch(() => {}); }
+  }
+  async function startBoost(audio, player) {
+    // Keep <=100% playback on the original device path. Boost uses the device's
+    // default sample rate and still plays through the selected HTML audio sink.
+    const graph = {}; player.graph = graph; boostGraphs.add(graph);
+    try {
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (!Context) throw Error('This audio engine does not support amplification.');
+      const context = playbackContext || (playbackContext = new Context({ latencyHint: 'playback' }));
+      graph.source = context.createMediaStreamSource(player.stream); graph.gain = context.createGain(); graph.destination = context.createMediaStreamDestination();
+      graph.source.connect(graph.gain); graph.gain.connect(graph.destination);
+      graph.gain.gain.value = Math.max(1, Math.min(4, Number(player.level()) * settings.masterVolume / 100));
+      await context.resume();
+      if (players.get(audio) !== player || player.graph !== graph) return;
+      audio.srcObject = graph.destination.stream; applyVolumes();
+      if (!routing.has(audio)) { const playing = audio.play(); if (playing?.catch) playing.catch(() => report('Click Enable audio to resume playback.')); }
+    } catch (error) {
+      if (player.graph !== graph) return;
+      window.VumiroDiagnostics?.record('playback-boost-error', { name: error.name });
+      player.boostFailed = true; releaseBoost(player);
+      if (players.get(audio) === player) { applyVolumes(); report('Audio boost unavailable; playing at up to 100%: ' + error.message); }
+    }
   }
   function gate() { applyVolumes(); adapter?.gate?.(deafened || isolation > 0); emit(); }
   function report(message) { adapter?.report?.(message); }
@@ -519,7 +604,8 @@
     queue = task.catch(() => {}); return task;
   }
   function registerPlayback(audio, level = () => 1) {
-    const token = {}; players.set(audio, level); attachments.set(audio, token); routing.set(audio, token); applyVolumes();
+    const old = players.get(audio); if (old) releaseBoost(old);
+    const token = {}; players.set(audio, { level, stream: audio.srcObject, graph: null, boostFailed: false }); attachments.set(audio, token); routing.set(audio, token); applyVolumes();
     // Serializing attachment also handles a track arriving during a speaker change.
     const ready = queue.then(async () => {
       if (!players.has(audio) || attachments.get(audio) !== token) throw Error('Playback attachment cancelled.');
@@ -534,7 +620,7 @@
     // Callers can await routing; attaching a remote track must not create an unhandled rejection.
     queue = ready.catch(() => {}); return ready;
   }
-  function forgetPlayback(audio) { players.delete(audio); routing.delete(audio); attachments.delete(audio); audio.muted = true; audio.pause?.(); audio.srcObject = null; }
+  function forgetPlayback(audio) { const player = players.get(audio); players.delete(audio); if (player) releaseBoost(player); routing.delete(audio); attachments.delete(audio); audio.muted = true; audio.pause?.(); audio.srcObject = null; }
   function controller() {
     if (adapter) return api;
     for (const frame of document.querySelectorAll?.('iframe') || []) {
@@ -668,7 +754,7 @@
     // Audio controls must not style the shared settings navigation or its layout.
     style.textContent = `dialog.vumiro-audio-dialog:not(.settingsScreen){color-scheme:dark;color:#f7f2ef;background:#211c1c;border:1px solid #63413f;border-radius:18px;width:min(620px,calc(100vw - 30px));max-height:calc(100svh - 40px);padding:25px;overflow:auto;box-shadow:0 30px 100px #0009;font:13px/1.5 Sora,'Segoe UI',sans-serif}dialog.vumiro-audio-dialog:not(.settingsScreen)::backdrop{background:#090707b8;backdrop-filter:blur(5px)}.va-content{min-width:0;width:100%;max-width:760px;margin-inline:auto}.va-content .va-header{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0 0 10px}.va-content h2{font:600 30px/1.2 Outfit,Sora,'Segoe UI',sans-serif;letter-spacing:-.8px;margin:0}.va-content h3{font:550 19px/1.4 Outfit,Sora,'Segoe UI',sans-serif;margin:0 0 18px}.va-content p{font-size:12px;line-height:1.7;color:var(--muted,#c1b3ae);margin:10px 0 0}.va-content .va-intro{font-size:13px;margin:0 0 30px}.va-content .va-close{position:static;float:none;margin:0;display:grid;place-items:center;flex:none;width:34px;height:34px;background:transparent;border:1px solid var(--line,#483a39);border-radius:50%;font-size:23px;line-height:1;color:#e3d5cf;padding:0}.va-content .va-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.va-content label{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:12px;color:#e2d2cb}.va-content select,.va-content button{box-sizing:border-box;font:inherit;color:#f7eee8;background:var(--surface,#292423);border:1px solid var(--line,#48403e);border-radius:10px;padding:9px 12px;min-width:0}.va-content select{width:100%;max-width:100%;text-overflow:ellipsis}.va-content button{cursor:pointer}.va-content button:hover{background:#38302e;border-color:#6a5651}.va-content button:disabled,.va-content input:disabled,.va-content select:disabled{opacity:.5;cursor:default}.va-content :focus-visible{outline:2px solid #ff7471;outline-offset:3px}.va-content .va-actions{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.va-content .va-check{flex-direction:row;align-items:center;gap:10px;margin:14px 0}.va-content input[type=checkbox]{accent-color:#ee3a40;width:15px;height:15px;margin:0}.va-content input[type=range]{width:100%;max-width:none;accent-color:#ed454b;padding:0}.va-content meter{display:block;width:100%;height:14px}.va-content .va-level{font-size:11px;color:var(--muted,#c4b2aa);margin:5px 0 0}.va-content .va-section{margin-top:28px;padding-top:26px;border-top:1px solid var(--line,#483a39)}.va-content [data-audio-status]{font-size:12px;background:#ffffff03;border:1px solid var(--line,#483a39);border-radius:10px;padding:13px 16px;margin:28px 0 0;min-height:38px;color:var(--muted,#e4c9bd)}.va-content .va-volume{display:flex;justify-content:space-between;gap:12px}.va-content [hidden]{display:none!important}@media(max-width:620px){.va-content .va-grid{grid-template-columns:1fr}}`;
     document.head.append(style); dialog = document.createElement('dialog'); dialog.className = 'vumiro-audio-dialog'; dialog.setAttribute('aria-labelledby', 'vumiro-audio-title');
-    dialog.innerHTML = `<div class="va-content"><div class="dialogHead va-header"><h2 id="vumiro-audio-title">Voice &amp; audio</h2><button type="button" class="va-close" data-audio-close aria-label="Close voice and audio">×</button></div><p class="va-intro">Choose what you speak through and where you listen. Saved only on this device.</p><section aria-label="Microphone and speaker devices"><div class="va-grid"><label>Microphone<select data-audio-input aria-label="Microphone device"></select></label><label>Speaker / headphones<select data-audio-output aria-label="Speaker device"></select></label></div><div class="va-actions"><button type="button" data-audio-refresh>Refresh devices</button><button type="button" data-audio-permission>Enable mic meter</button></div><meter data-audio-meter min="0" max="100" value="0" aria-label="Microphone input level"></meter><div class="va-level" data-audio-level>Microphone off</div><div class="va-actions"><button type="button" data-audio-test>Record &amp; play test</button><button type="button" data-audio-stop disabled>Stop test / meter</button></div><p>Tests stay on this device. A microphone test pauses room voice and playback until it ends. The meter alone does not change your call mute.</p></section><section class="va-section" aria-labelledby="va-playback-title"><h3 id="va-playback-title">Playback</h3><label><span class="va-volume">Playback volume <output data-audio-volume-value>100%</output></span><input data-audio-volume type="range" min="0" max="100" step="1" aria-label="Master playback volume"></label><div class="va-actions"><button type="button" data-audio-speaker-test>Test speaker</button></div><p data-audio-speaker-help></p></section><section class="va-section" aria-labelledby="va-processing-title"><h3 id="va-processing-title">Voice processing</h3><label class="va-check"><input data-audio-echoCancellation type="checkbox">Echo cancellation</label><label class="va-check"><input data-audio-noiseSuppression type="checkbox">Noise suppression</label><label class="va-check"><input data-audio-autoGainControl type="checkbox">Automatic microphone level</label><p data-audio-processing></p></section><div data-audio-status role="status" aria-live="polite">Microphone stays off until you enable the meter or start a test.</div></div>`;
+    dialog.innerHTML = `<div class="va-content"><div class="dialogHead va-header"><h2 id="vumiro-audio-title">Voice &amp; audio</h2><button type="button" class="va-close" data-audio-close aria-label="Close voice and audio">×</button></div><p class="va-intro">Choose what you speak through and where you listen. Saved only on this device.</p><section aria-label="Microphone and speaker devices"><div class="va-grid"><label>Microphone<select data-audio-input aria-label="Microphone device"></select></label><label>Speaker / headphones<select data-audio-output aria-label="Speaker device"></select></label></div><div class="va-actions"><button type="button" data-audio-refresh>Refresh devices</button><button type="button" data-audio-permission>Enable mic meter</button></div><meter data-audio-meter min="0" max="100" value="0" aria-label="Microphone input level"></meter><div class="va-level" data-audio-level>Microphone off</div><div class="va-actions"><button type="button" data-audio-test>Record &amp; play test</button><button type="button" data-audio-stop disabled>Stop test / meter</button></div><p>Tests stay on this device. A microphone test pauses room voice and playback until it ends. The meter alone does not change your call mute.</p></section><section class="va-section" aria-labelledby="va-playback-title"><h3 id="va-playback-title">Playback</h3><label><span class="va-volume">Playback volume <output data-audio-volume-value>100%</output></span><input data-audio-volume type="range" min="0" max="100" step="1" aria-label="Master playback volume"></label><div class="va-actions"><button type="button" data-audio-speaker-test>Test speaker</button></div><p data-audio-speaker-help></p><p>In a room, open a participant’s Audio controls to adjust Screen and Voice separately, with boost up to 400% for quiet sources.</p></section><section class="va-section" aria-labelledby="va-processing-title"><h3 id="va-processing-title">Voice processing</h3><label class="va-check"><input data-audio-echoCancellation type="checkbox">Echo cancellation</label><label class="va-check"><input data-audio-noiseSuppression type="checkbox">Noise suppression</label><label class="va-check"><input data-audio-autoGainControl type="checkbox">Automatic microphone level</label><p data-audio-processing></p></section><div data-audio-status role="status" aria-live="polite">Microphone stays off until you enable the meter or start a test.</div></div>`;
     document.body.append(dialog);
     const get = selector => dialog.querySelector('[data-audio-' + selector + ']');
     get('close').onclick = () => dialog.close(); dialog.addEventListener('close', () => { stopPreview(); opener?.focus?.(); });

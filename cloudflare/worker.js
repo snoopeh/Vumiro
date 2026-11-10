@@ -255,6 +255,14 @@ export default {
   async fetch(request,env) {
     const url=new URL(request.url);
     if(url.pathname.startsWith('/api/v1/account/')) return handleAccountRequest(request,env);
+    const shortInvite=/^\/r\/([A-Za-z0-9_-]{12})$/.exec(url.pathname);
+    if(shortInvite) {
+      if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed.',{status:405,headers:{Allow:'GET, HEAD'}});
+      // Opaque discovery token only. Resolve after local identity authentication
+      // in Friends; room admission always remains the CallRoom's responsibility.
+      const target=new URL('/friends.html',url.origin);target.searchParams.set('roomInvite',shortInvite[1]);
+      return new Response(null,{status:302,headers:{Location:target.href,'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
+    }
     if(url.pathname==='/call-signaling' || url.pathname==='/friends-signaling') {
       const friends=url.pathname==='/friends-signaling';
       if(!FRIEND_ID_PATTERN.test(url.searchParams.get('id') || '') || !friends && !ROOM_PATTERN.test(url.searchParams.get('room') || '')) return new Response('A local profile and protected room code are required. Create a new room in Vumiro.',{status:400});

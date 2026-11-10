@@ -2,6 +2,8 @@
 
 Date: 2026-11-05
 
+Status updated 2026-11-08: all seven 1B source items implemented and reviewed; human QA pending. No release or production-service deployment.
+
 ## Context and working rules
 
 Implement the approved acceptance criteria in `.planning/specs/1b-improve-existing-flows-acceptance-criteria.md`. The repository is on `main` with extensive existing, uncommitted work, including changes from the preceding UI task. Preserve all of it; do not reset, stash, or commit. Work inline because the required baseline includes the dirty checkout. Do not touch release metadata, publish, deploy, or alter production services. Keep desktop and Linux behavior consistent. Use the existing app-owned sound model; Discord is only a behavioral reference. Validation is allowed under the user's request to review the acceptance criteria before calling the work ready.
@@ -37,12 +39,18 @@ Implement the approved acceptance criteria in `.planning/specs/1b-improve-existi
 
 | 1B item | Review result | Evidence / remaining QA |
 |---|---|---|
-| Profile/settings drafts and feedback | Implemented | Image edits stage until one profile Save; dismissal invalidates pending image work. Room, connection, and sound settings save explicitly. Errors and saved state use a transient accessible toast. Profile draft regression tests pass. |
+| Profile/settings drafts and feedback | Implemented | Image edits stage until one profile Save; dismissal invalidates pending image work. Room, connection, and sound settings save explicitly, including the in-room quality panel. Operational microphone/device/playback controls intentionally remain immediate. Errors and saved state use a transient accessible toast. Profile draft regression tests pass. |
 | Multi-match discovery | Implemented | Authenticated online prefix search returns up to 20 distinct users; tags/codes remain exact; selection, blocked/offline guards, latest-query handling, and reconnect cleanup are in place. Worker tests cover display-name matching and cap. |
-| Remote mute | Implemented | Data-channel announcement includes an explicit compatible mute flag; tile and People list show text state. Old peers remain unknown. |
+| Remote mute | Implemented | Data-channel announcement includes an explicit compatible mute flag; tile and People list show a mic-off icon and text. Connection loss clears stale state until a fresh announcement. Old peers remain unknown. |
 | Contextual audio controls | Implemented | Secondary tile controls reveal on hover/focus and have a touch toggle; focused controls remain visible. Existing volume tests pass. |
-| Chat formatting and emoji | Implemented | Safe text-node renderer supports bold, italic, inline code, line breaks, and HTTPS links; toolbar inserts formatting and Unicode emoji. Rendering regression tests pass. |
-| Event sounds | Implemented | Original synthesized Vumiro cues cover incoming calls, participant changes, inactive-chat messages, and incoming friend/room notices. Preview and saved master toggle share the same preference. |
-| Loading and motion | Implemented | Search, request, image processing/save, explicit settings save, room join/reconnect, and share start/stop report real operation state. Transitions are under 200 ms and honor reduced motion. |
+| Chat formatting and emoji | Implemented | Safe text-node renderer supports bold, italic, inline code, line breaks, and HTTPS links; toolbar inserts formatting and Unicode emoji. The picker now has searchable categories and recent emoji; room chat works alone/reconnecting and signed recent history catches up new peers. Paperclip file transfers are a separately requested extension. Rendering, picker and transport regressions cover these paths. |
+| Event sounds | Implemented | Original synthesized Vumiro cues cover incoming calls, participant changes, inactive-chat messages, and incoming friend/room notices. Preview and saved master toggle share the same preference. Background chat cues now work; multi-note join/leave cues have distinct scheduled notes. |
+| Loading and motion | Implemented | Search, request, image processing/save, explicit settings save, room join/reconnect, and share start/stop report real operation state. Actual pending statuses now include spinners; completion/cancellation clears busy state. Entry/press transitions use 160 ms and honor reduced motion. |
 
-Automated validation: 141 client tests pass; 30 Cloudflare tests pass; 35 desktop/native invariants pass; syntax checks and `git diff --check` pass. The LOCAL QA app is running from this checkout with its separate QA profile. This is ready for human QA; no human acceptance or release is recorded.
+Automated validation is recorded in `dist/local-qa/logs` by the final launcher and in the focused regression suites. Source review is complete; human acceptance, audible quality, motion/accessibility on real devices, real peer-network behavior and release approval remain pending. Use `scripts/Run-Local.ps1 -LocalService` to inspect named tags against the isolated local Worker. No human acceptance or release is recorded.
+
+## Follow-up scope clarification
+
+The November 8 request explicitly adds named handles, recent in-memory chat synchronization and direct attachments beyond the original 1B minimum. These are implemented for local review; they do not deploy the directory or create a server-side chat-history service. Profile, room quality/defaults, connection and app-sound menus use Save; immediate call operations and hardware/playback adjustments remain live controls.
+
+November 9 follow-up: random five-digit named discriminators replace sequential three-digit allocations; one-time directory migration retains legacy numeric tags. The emoji panel uses scoped controls, compact accessible categories and Lucide toolbar symbols. Attachments can stage alone and offer to late joiners, with explicit-receive raster/GIF previews and opt-in public-link thumbnails. App sounds have a louder default and separate saved 0–300% volume. Room invitations now include direct friend actions plus expiring opaque links and human codes, with current access rules and password checks preserved. These service changes are running only in local QA. Generic website/OpenGraph metadata fetching is not implemented; link cards and supported image/YouTube thumbnails are available. Human QA and release remain pending.
