@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 1,
+  "mode": "draft",
+  "status": "passed",
+  "repo": "snoopeh/Vumiro",
+  "tag": "client-v1.22.3",
+  "expectedCommit": "96da6ebc8218641f1282882612a82a75dd56aa8e",
+  "startedAt": "2026-11-10T08:08:27.822Z",
+  "checks": [
+    {
+      "name": "inputs",
+      "status": "passed",
+      "details": {
+        "valid": true
+      }
+    },
+    {
+      "name": "release-metadata",
+      "status": "passed",
+      "details": {
+        "SHA256SUMS-linux.txt": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601305",
+          "id": 730601305,
+          "node_id": "RA_kwDOVLlJL84rjBdZ",
+          "name": "SHA256SUMS-linux.txt",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "text/plain; charset=utf-8",
+          "state": "uploaded",
+          "size": 266,
+          "digest": "sha256:c123f4e6d99675928ce4f6d0dae41a965bf3028c4496c5e5da0b27038e9212ac",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:21Z",
+          "updated_at": "2026-11-10T07:58:21Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/SHA256SUMS-linux.txt"
+        },
+        "SHA256SUMS.txt": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601280",
+          "id": 730601280,
+          "node_id": "RA_kwDOVLlJL84rjBdA",
+          "name": "SHA256SUMS.txt",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "text/plain; charset=utf-8",
+          "state": "uploaded",
+          "size": 175,
+          "digest": "sha256:791f47a76d158ad1cf998d3fe051dcc775be52dd01122382af97d123cc80e0cb",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:20Z",
+          "updated_at": "2026-11-10T07:58:20Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/SHA256SUMS.txt"
+        },
+        "Vumiro-linux-x64.AppImage": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601278",
+          "id": 730601278,
+          "node_id": "RA_kwDOVLlJL84rjBc-",
+          "name": "Vumiro-linux-x64.AppImage",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "application/vnd.appimage",
+          "state": "uploaded",
+          "size": 127946602,
+          "digest": "sha256:e20fca18ff91c6b0a555bb77e15995d3a5d73691414fead30f07af7c71f653af",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:20Z",
+          "updated_at": "2026-11-10T07:58:27Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.AppImage"
+        },
+        "Vumiro-linux-x64.deb": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601282",
+          "id": 730601282,
+          "node_id": "RA_kwDOVLlJL84rjBdC",
+          "name": "Vumiro-linux-x64.deb",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "application/x-debian-package",
+          "state": "uploaded",
+          "size": 102945884,
+          "digest": "sha256:3a9303605376ab590c60c593f3db6bd3c18210170fb80fa87031776f8189b5dd",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:20Z",
+          "updated_at": "2026-11-10T07:58:27Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.deb"
+        },
+        "Vumiro-linux-x64.rpm": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601302",
+          "id": 730601302,
+          "node_id": "RA_kwDOVLlJL84rjBdW",
+          "name": "Vumiro-linux-x64.rpm",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "application/x-rpm",
+          "state": "uploaded",
+          "size": 92354625,
+          "digest": "sha256:01d82ff472dd389b330e448b9418b23a57d1e328cd8ba88fa5ea1ba7eb0278d3",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:21Z",
+          "updated_at": "2026-11-10T07:58:25Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.rpm"
+        },
+        "Vumiro-win-x64-v2.zip": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601281",
+          "id": 730601281,
+          "node_id": "RA_kwDOVLlJL84rjBdB",
+          "name": "Vumiro-win-x64-v2.zip",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "application/zip",
+          "state": "uploaded",
+          "size": 2813185,
+          "digest": "sha256:75ed63b66a79407f87ec7e1fa5550669dc87bea3557c6adcd87b669c0e08b8d2",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:20Z",
+          "updated_at": "2026-11-10T07:58:20Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-win-x64-v2.zip"
+        },
+        "Vumiro-win-x64.zip": {
+          "url": "https://api.github.com/repos/snoopeh/Vumiro/releases/assets/730601279",
+          "id": 730601279,
+          "node_id": "RA_kwDOVLlJL84rjBc_",
+          "name": "Vumiro-win-x64.zip",
+          "label": "",
+          "uploader": {
+            "login": "github-actions[bot]",
+            "id": 41898282,
+            "node_id": "MDM6Qm90NDE4OTgyODI=",
+            "avatar_url": "https://avatars.githubusercontent.com/in/15368?v=4",
+            "gravatar_id": "",
+            "url": "https://api.github.com/users/github-actions%5Bbot%5D",
+            "html_url": "https://github.com/apps/github-actions",
+            "followers_url": "https://api.github.com/users/github-actions%5Bbot%5D/followers",
+            "following_url": "https://api.github.com/users/github-actions%5Bbot%5D/following{/other_user}",
+            "gists_url": "https://api.github.com/users/github-actions%5Bbot%5D/gists{/gist_id}",
+            "starred_url": "https://api.github.com/users/github-actions%5Bbot%5D/starred{/owner}{/repo}",
+            "subscriptions_url": "https://api.github.com/users/github-actions%5Bbot%5D/subscriptions",
+            "organizations_url": "https://api.github.com/users/github-actions%5Bbot%5D/orgs",
+            "repos_url": "https://api.github.com/users/github-actions%5Bbot%5D/repos",
+            "events_url": "https://api.github.com/users/github-actions%5Bbot%5D/events{/privacy}",
+            "received_events_url": "https://api.github.com/users/github-actions%5Bbot%5D/received_events",
+            "type": "Bot",
+            "user_view_type": "public",
+            "site_admin": false
+          },
+          "content_type": "application/zip",
+          "state": "uploaded",
+          "size": 951500,
+          "digest": "sha256:67254a63a3593bb731c12aeef4cfeabde43b860302471365baa1ceed06b77fd0",
+          "download_count": 0,
+          "created_at": "2026-11-10T07:58:20Z",
+          "updated_at": "2026-11-10T07:58:21Z",
+          "browser_download_url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-win-x64.zip"
+        }
+      }
+    },
+    {
+      "name": "tag-commit",
+      "status": "passed",
+      "details": {
+        "commit": "96da6ebc8218641f1282882612a82a75dd56aa8e"
+      }
+    },
+    {
+      "name": "draft-version-order",
+      "status": "passed",
+      "details": {
+        "pages": 1,
+        "publishedStableReleases": 19,
+        "newestPublishedTag": "client-v1.22.1"
+      }
+    },
+    {
+      "name": "windows-checksums",
+      "status": "passed",
+      "details": {
+        "size": 175,
+        "sha256": "791f47a76d158ad1cf998d3fe051dcc775be52dd01122382af97d123cc80e0cb",
+        "entries": {
+          "Vumiro-win-x64.zip": "67254a63a3593bb731c12aeef4cfeabde43b860302471365baa1ceed06b77fd0",
+          "Vumiro-win-x64-v2.zip": "75ed63b66a79407f87ec7e1fa5550669dc87bea3557c6adcd87b669c0e08b8d2"
+        }
+      }
+    },
+    {
+      "name": "linux-checksums",
+      "status": "passed",
+      "details": {
+        "size": 266,
+        "sha256": "c123f4e6d99675928ce4f6d0dae41a965bf3028c4496c5e5da0b27038e9212ac",
+        "entries": {
+          "Vumiro-linux-x64.AppImage": "e20fca18ff91c6b0a555bb77e15995d3a5d73691414fead30f07af7c71f653af",
+          "Vumiro-linux-x64.deb": "3a9303605376ab590c60c593f3db6bd3c18210170fb80fa87031776f8189b5dd",
+          "Vumiro-linux-x64.rpm": "01d82ff472dd389b330e448b9418b23a57d1e328cd8ba88fa5ea1ba7eb0278d3"
+        }
+      }
+    },
+    {
+      "name": "local-assets-directory",
+      "status": "passed",
+      "details": {
+        "SHA256SUMS-linux.txt": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\linux\\SHA256SUMS-linux.txt",
+        "Vumiro-linux-x64.AppImage": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\linux\\Vumiro-linux-x64.AppImage",
+        "Vumiro-linux-x64.deb": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\linux\\Vumiro-linux-x64.deb",
+        "Vumiro-linux-x64.rpm": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\linux\\Vumiro-linux-x64.rpm",
+        "SHA256SUMS.txt": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\windows\\SHA256SUMS.txt",
+        "Vumiro-win-x64-v2.zip": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\windows\\Vumiro-win-x64-v2.zip",
+        "Vumiro-win-x64.zip": "C:\\Users\\em_ps\\Documents\\ChatGPT\\New project 2\\Vumiro\\dist\\release-tools\\release-1.22.3-assets\\windows\\Vumiro-win-x64.zip"
+      }
+    },
+    {
+      "name": "local:Vumiro-win-x64.zip",
+      "status": "passed",
+      "details": {
+        "size": 951500,
+        "sha256": "67254a63a3593bb731c12aeef4cfeabde43b860302471365baa1ceed06b77fd0"
+      }
+    },
+    {
+      "name": "local:Vumiro-win-x64-v2.zip",
+      "status": "passed",
+      "details": {
+        "size": 2813185,
+        "sha256": "75ed63b66a79407f87ec7e1fa5550669dc87bea3557c6adcd87b669c0e08b8d2"
+      }
+    },
+    {
+      "name": "local:SHA256SUMS.txt",
+      "status": "passed",
+      "details": {
+        "size": 175,
+        "sha256": "791f47a76d158ad1cf998d3fe051dcc775be52dd01122382af97d123cc80e0cb"
+      }
+    },
+    {
+      "name": "local:Vumiro-linux-x64.AppImage",
+      "status": "passed",
+      "details": {
+        "size": 127946602,
+        "sha256": "e20fca18ff91c6b0a555bb77e15995d3a5d73691414fead30f07af7c71f653af"
+      }
+    },
+    {
+      "name": "local:Vumiro-linux-x64.deb",
+      "status": "passed",
+      "details": {
+        "size": 102945884,
+        "sha256": "3a9303605376ab590c60c593f3db6bd3c18210170fb80fa87031776f8189b5dd"
+      }
+    },
+    {
+      "name": "local:Vumiro-linux-x64.rpm",
+      "status": "passed",
+      "details": {
+        "size": 92354625,
+        "sha256": "01d82ff472dd389b330e448b9418b23a57d1e328cd8ba88fa5ea1ba7eb0278d3"
+      }
+    },
+    {
+      "name": "local:SHA256SUMS-linux.txt",
+      "status": "passed",
+      "details": {
+        "size": 266,
+        "sha256": "c123f4e6d99675928ce4f6d0dae41a965bf3028c4496c5e5da0b27038e9212ac"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "name": "Vumiro-win-x64.zip",
+      "size": 951500,
+      "sha256": "67254a63a3593bb731c12aeef4cfeabde43b860302471365baa1ceed06b77fd0",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-win-x64.zip"
+    },
+    {
+      "name": "Vumiro-win-x64-v2.zip",
+      "size": 2813185,
+      "sha256": "75ed63b66a79407f87ec7e1fa5550669dc87bea3557c6adcd87b669c0e08b8d2",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-win-x64-v2.zip"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 175,
+      "sha256": "791f47a76d158ad1cf998d3fe051dcc775be52dd01122382af97d123cc80e0cb",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/SHA256SUMS.txt"
+    },
+    {
+      "name": "Vumiro-linux-x64.AppImage",
+      "size": 127946602,
+      "sha256": "e20fca18ff91c6b0a555bb77e15995d3a5d73691414fead30f07af7c71f653af",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.AppImage"
+    },
+    {
+      "name": "Vumiro-linux-x64.deb",
+      "size": 102945884,
+      "sha256": "3a9303605376ab590c60c593f3db6bd3c18210170fb80fa87031776f8189b5dd",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.deb"
+    },
+    {
+      "name": "Vumiro-linux-x64.rpm",
+      "size": 92354625,
+      "sha256": "01d82ff472dd389b330e448b9418b23a57d1e328cd8ba88fa5ea1ba7eb0278d3",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/Vumiro-linux-x64.rpm"
+    },
+    {
+      "name": "SHA256SUMS-linux.txt",
+      "size": 266,
+      "sha256": "c123f4e6d99675928ce4f6d0dae41a965bf3028c4496c5e5da0b27038e9212ac",
+      "url": "https://github.com/snoopeh/Vumiro/releases/download/untagged-1f8443f2f1091daef0a9/SHA256SUMS-linux.txt"
+    }
+  ],
+  "releaseId": 440079937,
+  "releaseUrl": "https://github.com/snoopeh/Vumiro/releases/tag/client-v1.22.3",
+  "resolvedCommit": "96da6ebc8218641f1282882612a82a75dd56aa8e",
+  "finishedAt": "2026-11-10T08:08:30.653Z"
+}
