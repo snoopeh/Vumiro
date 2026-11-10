@@ -261,16 +261,23 @@
     for(const peer of peers.values()){peer.chatHistoryQueue=[];peer.chatHistoryReceived=0;}
   }
   function chatSignatureText(message) { return JSON.stringify(['vumiro-room-chat-v2',message.room,message.id,message.author.id,message.author.key,message.author.name,message.timestamp,message.text]); }
+  function chatReplySignatureText(message) { return JSON.stringify(['vumiro-room-chat-reply-v1',chatSignatureText(message),message.signature,message.replyTo.authorId,message.replyTo.id]); }
+  function validChatReply(message) {
+    const hasTarget=Object.prototype.hasOwnProperty.call(message,'replyTo'),hasSignature=Object.prototype.hasOwnProperty.call(message,'replySignature');
+    if(!hasTarget&&!hasSignature)return true;
+    const target=message.replyTo;
+    return hasTarget&&hasSignature&&target&&typeof target==='object'&&!Array.isArray(target)&&Object.keys(target).length===2&&/^[A-Za-z0-9_-]{43}$/.test(target.authorId||'')&&/^[A-Za-z0-9_-]{16,64}$/.test(target.id||'')&&typeof message.replySignature==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(message.replySignature);
+  }
   function validChatMessage(message) { return !!message&&typeof message.id==='string'&&/^[A-Za-z0-9_-]{16,64}$/.test(message.id)&&typeof message.text==='string'&&!!message.text.trim()&&message.text.length<=2000&&Number.isSafeInteger(message.timestamp)&&Math.abs(message.timestamp-serverNow())<86400000; }
-  function storeChatMessage(message) { if(!rememberMessage(message.author.id+':'+message.id))return false;chatHistory.push({type:'chat',version:2,room:message.room,id:message.id,text:message.text,timestamp:message.timestamp,signature:message.signature,author:{id:message.author.id,key:message.author.key,name:message.author.name}});chatHistory.sort((a,b)=>a.timestamp-b.timestamp);if(chatHistory.length>100)chatHistory.splice(0,chatHistory.length-100);return true; }
+  function storeChatMessage(message) { if(!rememberMessage(message.author.id+':'+message.id))return false;chatHistory.push({type:'chat',version:2,room:message.room,id:message.id,text:message.text,timestamp:message.timestamp,signature:message.signature,author:{id:message.author.id,key:message.author.key,name:message.author.name},...(message.replyTo?{replyTo:{authorId:message.replyTo.authorId,id:message.replyTo.id},replySignature:message.replySignature}:{})});chatHistory.sort((a,b)=>a.timestamp-b.timestamp);if(chatHistory.length>100)chatHistory.splice(0,chatHistory.length-100);return true; }
   async function acceptRoomChat(peer,message,history=false) {
     if(!validChatMessage(message))return false;
-    if(message.version!==2){if(history)return false;if(rememberMessage(peer.id+':'+message.id)){chatLine(message.text,peer.id,message.timestamp);if(peer.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');}return true;}
-    if(!chatRoom||message.room!==chatRoom||!message.author||typeof message.author.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(message.author.id)||typeof message.author.name!=='string'||!message.author.name.trim()||message.author.name.length>48||typeof message.author.key!=='string'||message.author.key.length>256||typeof message.signature!=='string'||message.signature.length>128||(!history&&message.author.id!==peer.id)||seenMessages.has(message.author.id+':'+message.id))return false;
+    if(message.version!==2){if(history||message.version!==undefined&&message.version!==1)return false;if(rememberMessage(peer.id+':'+message.id)){chatLine(message.text,peer.id,message.timestamp);if(peer.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');}return true;}
+    if(!chatRoom||message.room!==chatRoom||!message.author||typeof message.author.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(message.author.id)||typeof message.author.name!=='string'||!message.author.name.trim()||message.author.name.length>48||typeof message.author.key!=='string'||message.author.key.length>256||typeof message.signature!=='string'||message.signature.length>128||!validChatReply(message)||(!history&&message.author.id!==peer.id)||seenMessages.has(message.author.id+':'+message.id))return false;
     const epoch=chatEpoch;
     try {
       const author=message.author.id===identity?.id?(message.author.key===identity.key?message.author:null):await local.validateContact(message.author);
-      if(!author||!await local.verify(author,chatSignatureText(message),message.signature)||epoch!==chatEpoch||peers.get(peer.id)!==peer||!storeChatMessage(message))return false;
+      if(!author||!await local.verify(author,chatSignatureText(message),message.signature)||message.replyTo&&!await local.verify(author,chatReplySignatureText(message),message.replySignature)||epoch!==chatEpoch||peers.get(peer.id)!==peer||!storeChatMessage(message))return false;
       if(!profileCache.has(author.id)){profileCache.set(author.id,{name:author.name,avatar:''});if(profileCache.size>128)profileCache.delete(profileCache.keys().next().value);}
       chatLine(message.text,author.id,message.timestamp);if(!history&&author.id!==identity?.id&&(document.hidden||$('chatView').hidden))playCallCue('chat');return true;
     } catch{return false;}

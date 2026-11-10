@@ -48,6 +48,36 @@ test('signed history retains original attribution and rejects tampering, duplica
   assert.equal(await app.acceptRoomChat(p,envelope(app,{id:'p'.repeat(32),author:{...message.author,key:'wrong'}}),true),false);
   assert.equal(app.lines.length,1);
 });
+test('a separately signed reply reference survives verified room history',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original'});
+  assert.equal(await app.acceptRoomChat(p,target,true),true);
+  const reply=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});
+  reply.replySignature=signature(app.chatReplySignatureText(reply));
+  assert.equal(await app.acceptRoomChat(p,reply,true),true);
+  const stored=vm.runInContext('chatHistory',app).find(item=>item.id===reply.id);
+  assert.equal(stored.replyTo.id,target.id);assert.equal(stored.replySignature,reply.replySignature);
+  p.sent.length=0;app.queueChatHistory(p);assert.equal(p.sent.find(item=>item.message?.id===reply.id).message.replyTo.id,target.id);
+  assert.equal(signature(app.chatSignatureText(reply)),reply.signature,'older v2 clients can still verify the base text');
+});
+test('reply metadata cannot be forged, split, or retargeted without its own signature',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);
+  const valid=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});
+  valid.replySignature=signature(app.chatReplySignatureText(valid));
+  for(const patch of [
+    {replyTo:{authorId:target.author.id,id:'x'.repeat(32)}},
+    {replySignature:'invalid'},
+    {replySignature:undefined},
+    {replyTo:undefined},
+    {replyTo:{authorId:'wrong',id:target.id}}
+  ])assert.equal(await app.acceptRoomChat(p,{...valid,...patch},true),false);
+  assert.equal(await app.acceptRoomChat(p,valid,true),true);
+});
+test('a future chat version is not downgraded to unsigned legacy text',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),future=envelope(app,{version:3});
+  assert.equal(await app.acceptRoomChat(p,future,false),false);
+  assert.equal(app.lines.length,0);
+});
 test('recent history is bounded, pauses on backpressure, and clears on a new room or leave',async()=>{
   const app=harness();assert.equal(typeof app.acceptRoomChat,'function');app.setChatRoom('room-one');const p=peer(app);
   for(let i=0;i<110;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0')}),false);
