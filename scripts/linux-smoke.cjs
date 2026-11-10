@@ -76,7 +76,7 @@ function install({ app, session }) {
   const directory = process.env.VUMIRO_SMOKE_DIR;
   if (!directory || !path.isAbsolute(directory) || !fs.statSync(directory).isDirectory()) throw new Error('Smoke mode needs a disposable runner directory.');
   const fixture=createSmokeAccountFixture();
-  let fixtureEnabled=false;
+  let fixtureEnabled=false,runtimeReady=null;
   const report = { ok: false, packaged: app.isPackaged, checks: [], rendererErrors: [], blockedRequests: 0, mediaRequests: 0 };
   const progress=createSmokeProgress(report);progress('driver:installed');
   let finished = false;
@@ -142,14 +142,21 @@ function install({ app, session }) {
       }
     });
     progress('observe:debugger-attach');window.webContents.debugger.attach('1.3');
-    progress('observe:runtime-enable');
-    await withSmokeDeadline(()=>window.webContents.debugger.sendCommand('Runtime.enable'),'observe:runtime-enable');
+    progress('observe:runtime-requested');
+    // A new hidden BrowserWindow may not have a renderer yet. Main must reach
+    // its initial loadURL before it waits for Runtime.enable to complete.
+    runtimeReady=Promise.resolve().then(()=>window.webContents.debugger.sendCommand('Runtime.enable'));
+    runtimeReady.catch(()=>{}); // Preserve failure for run(), without an unhandled rejection before navigation.
     progress('observe:ready');
   }
   async function run(window) {
     try {
       progress('run:starting');
       if (!app.isPackaged) throw new Error('Smoke mode requires packaged app resources.');
+      if(!runtimeReady)throw new Error('Smoke observer was not installed before navigation.');
+      progress('run:runtime-enable');
+      await withSmokeDeadline(()=>runtimeReady,'run:runtime-enable');
+      progress('run:renderer-ready');
       let action='initial';
       const evaluate = (fn, ...args) => withSmokeDeadline(()=>window.webContents.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true),'renderer:'+action);
       const wait = async (fn, label, ...args) => {

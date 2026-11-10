@@ -131,3 +131,37 @@ test('smoke stage deadlines identify a pending native operation and retain earli
   assert.equal(report.stage,'observe:runtime-enable');assert.equal(report.progress.at(-1).ms,100);
   assert.equal(await withSmokeDeadline(async()=>true,'completed-stage',20),true);
 });
+
+
+function bootstrapDriver(sendCommand){
+  const timers=new Map(),order=[],reports=[],exits=[];let timerId=0;
+  const app={isPackaged:true,setPath(){},commandLine:{appendSwitch(){}},exit:code=>exits.push(code)};
+  const sandbox={module:{exports:{}},require:name=>name==='node:fs'?{statSync:()=>({isDirectory:()=>true}),mkdirSync(){},writeFileSync:(_path,value)=>reports.push(JSON.parse(value))}:require(name),
+    process:{env:{VUMIRO_SMOKE_DIR:path.join(os.tmpdir(),'vumiro-smoke-bootstrap')},on(){}},URL,Response,
+    setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id)};
+  vm.runInNewContext(readFileSync(new URL('../scripts/linux-smoke.cjs',import.meta.url),'utf8'),sandbox);
+  const driver=sandbox.module.exports.install({app,session:{}});
+  const contents={on(){},debugger:{on(){},attach(){order.push('attach');},sendCommand:command=>{order.push(command);return sendCommand();}},executeJavaScript(){order.push('evaluate');throw Error('bootstrap evaluation reached');}};
+  return {driver,window:{webContents:contents},timers,order,reports,exits};
+}
+
+test('smoke observer lets main load the first document before awaiting runtime readiness',async()=>{
+  let enableRuntime;
+  const ready=new Promise(resolve=>{enableRuntime=resolve;}),f=bootstrapDriver(()=>ready);
+  let observed=false;const observing=f.driver.observe(f.window).then(()=>{observed=true;});observing.catch(()=>{});
+  await Promise.resolve();await Promise.resolve();await Promise.resolve();
+  assert.equal(observed,true,'observe must not block main before its initial loadURL');
+  assert.equal([...f.timers.values()].filter(timer=>timer.ms===5000).length,0,'runtime deadline starts after initial navigation');
+  f.order.push('loadURL');enableRuntime();await observing;
+  await f.driver.run(f.window);
+  assert.deepEqual(f.order,['attach','Runtime.enable','loadURL','evaluate']);
+  assert.match(f.reports.at(-1).error,/bootstrap evaluation reached/);
+  assert.ok(f.reports.at(-1).progress.some(item=>item.stage==='run:renderer-ready'));
+});
+
+test('runtime readiness rejection is retained and reported when run starts',async()=>{
+  const f=bootstrapDriver(()=>Promise.reject(Error('CDP readiness failed')));
+  await f.driver.observe(f.window);await Promise.resolve();
+  await f.driver.run(f.window);
+  assert.equal(f.order.includes('evaluate'),false);assert.match(f.reports.at(-1).error,/CDP readiness failed/);assert.deepEqual(f.exits,[1]);
+});
