@@ -37,6 +37,17 @@ function connectApps(first,second) {
   aChannel.send=value=>bChannel.onmessage({data:value});bChannel.send=value=>aChannel.onmessage({data:value});first.dataChannel(a,aChannel);second.dataChannel(b,bChannel);aChannel.onopen();bChannel.onopen();return [a,b];
 }
 
+test('live chat has no receive cooldown while verification work stays bounded',async()=>{
+  const sender=harness(),receiver=harness();sender.identity.key='key:'+sender.identity.id;receiver.identity={id:'C'.repeat(43),key:'key:'+'C'.repeat(43),name:'Receiver'};
+  sender.setChatRoom('room-one');receiver.setChatRoom('room-one');const [sendingPeer,receivingPeer]=connectApps(sender,receiver);let timestamp=Date.now();
+  receiver.Date={now:()=>timestamp};
+  const transmit=index=>{const message=envelope(sender,{id:String(index).padStart(32,'0'),text:'Burst '+index,author:{...sender.identity}});sendingPeer.channel.send(JSON.stringify(message));};
+  for(let i=0;i<250;i++){transmit(i);await receivingPeer.chatQueue;}
+  assert.equal(receiver.lines.filter(line=>line[1]===sender.identity.id).length,250,'verified text bypasses metadata and chat time windows');
+  timestamp+=10001;let release;const verifying=new Promise(resolve=>{release=resolve;});receiver.local.verify=async()=>{await verifying;return true;};
+  for(let i=250;i<380;i++)transmit(i);assert.equal(receivingPeer.chatPending,120);release();await receivingPeer.chatQueue;assert.equal(receivingPeer.chatPending,0);
+});
+
 test('room text composer stays usable without peers and through signaling recovery',()=>{
   const app=harness();app.chatControls();assert.equal(app.$('chatText').disabled,false);assert.equal(app.$('chatSend').disabled,false);assert.equal(app.$('chatAttach').disabled,false);
   app.setChatRoom('room-one');app.joined=false;app.disconnected=true;app.chatControls();assert.equal(app.$('chatText').disabled,false);
@@ -58,6 +69,85 @@ test('sending alone stores a signed message and syncs it when a participant conn
   app.$('chatText').value='Hello future friends';await app.sendRoomChat({preventDefault(){}});
   assert.equal(app.lines.length,1);assert.equal(app.$('chatText').value,'');
   const p=peer(app);app.queueChatHistory(p);assert.equal(p.sent.length,1);assert.equal(p.sent[0].type,'chat-history');assert.equal(p.sent[0].message.text,'Hello future friends');
+});
+
+test('consecutive messages send without a clock based cooldown',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);app.Date={now:()=>10000};
+  for(const text of ['First','Second','Third']){app.$('chatText').value=text;await app.sendRoomChat({preventDefault(){}});}
+  assert.deepEqual(p.sent.map(message=>message.text),['First','Second','Third']);
+});
+
+test('rapid submissions queue while signing and keep a newly typed draft',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);let release;
+  const signing=new Promise(resolve=>{release=resolve;});let first=true;
+  app.local.sign=async text=>{if(first){first=false;await signing;}return signature(text);};
+  app.$('chatText').value='First';const sentFirst=app.sendRoomChat({preventDefault(){}});
+  assert.equal(app.$('chatText').value,'','accepted drafts clear before signing completes');
+  const duplicate=app.sendRoomChat({preventDefault(){}});
+  app.$('chatText').value='Second';const sentSecond=app.sendRoomChat({preventDefault(){}});
+  app.$('chatText').value='Third';const sentThird=app.sendRoomChat({preventDefault(){}});
+  app.$('chatText').value='Still typing';release();await Promise.all([sentFirst,duplicate,sentSecond,sentThird]);
+  assert.deepEqual(p.sent.map(message=>message.text),['First','Second','Third']);assert.equal(app.$('chatText').value,'Still typing');
+});
+
+test('a full signing queue keeps the next draft available instead of discarding it',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);let release;
+  const signing=new Promise(resolve=>{release=resolve;});app.local.sign=async text=>{await signing;return signature(text);};
+  const pending=[];for(let i=0;i<120;i++){app.$('chatText').value='Queued '+i;pending.push(app.sendRoomChat({preventDefault(){}}));}
+  app.$('chatText').value='Keep overflow';await app.sendRoomChat({preventDefault(){}});assert.equal(app.$('chatText').value,'Keep overflow');assert.match(app.$('chatStatus').textContent,/still being signed/);
+  release();await Promise.all(pending);assert.equal(p.sent.length,120);assert.equal(app.$('chatText').value,'Keep overflow');
+  await app.sendRoomChat({preventDefault(){}});assert.equal(p.sent.at(-1).text,'Keep overflow');
+});
+
+test('a signing failure preserves a newer draft and reply selection',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app);await app.acceptRoomChat(p,target,true);let reject;
+  app.local.sign=()=>new Promise((resolve,failure)=>{reject=failure;});
+  app.$('chatText').value='Fails';const sending=app.sendRoomChat({preventDefault(){}});await Promise.resolve();
+  app.$('chatText').value='New draft';app.selectChatReply(target.author.id,target.id);reject(Error('device unavailable'));await sending;
+  assert.equal(app.$('chatText').value,'New draft');assert.equal(app.$('replyPreview').hidden,false);assert.equal(p.sent.length,0);
+});
+
+test('queued signing failures keep every failed message visible without replacing a new draft',async()=>{
+  const app=harness();app.setChatRoom('room-one');let reject;
+  const signing=new Promise((resolve,failure)=>{reject=failure;});app.local.sign=async()=>signing;
+  app.$('chatText').value='Failed first';const first=app.sendRoomChat({preventDefault(){}});
+  app.$('chatText').value='Failed second';const second=app.sendRoomChat({preventDefault(){}});
+  app.$('chatText').value='Keep typing';reject(Error('device unavailable'));await Promise.all([first,second]);
+  assert.equal(app.$('chatText').value,'Keep typing');assert.equal(app.lines.length,2);
+  assert.match(app.lines[0][0],/could not be signed.*\nFailed first/);assert.match(app.lines[1][0],/could not be signed.*\nFailed second/);
+  assert.ok(app.lines.every(line=>!line[1]),'failed text is clearly marked as a local error, not a delivered message');
+});
+
+test('queued sends keep their reply target and leave a newer selection intact',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),first=envelope(app,{id:'f'.repeat(32)}),second=envelope(app,{id:'s'.repeat(32)});
+  await app.acceptRoomChat(p,first,true);await app.acceptRoomChat(p,second,true);let release;
+  const signing=new Promise(resolve=>{release=resolve;});app.local.sign=async text=>{await signing;return signature(text);};
+  app.selectChatReply(first.author.id,first.id);app.$('chatText').value='Answer';const sending=app.sendRoomChat({preventDefault(){}});
+  app.selectChatReply(second.author.id,second.id);release();await sending;
+  assert.equal(p.sent.at(-1).replyTo.id,first.id);assert.equal(app.$('replyPreview').hidden,false);assert.equal(vm.runInContext('pendingReply.id',app),second.id);
+});
+
+test('room changes discard pending sends and do not wait for old signing',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);let release,first=true;
+  const signing=new Promise(resolve=>{release=resolve;});app.local.sign=async text=>{if(first){first=false;await signing;}return signature(text);};
+  app.$('chatText').value='Old first';const oldFirst=app.sendRoomChat({preventDefault(){}});await Promise.resolve();
+  app.$('chatText').value='Old queued';const oldQueued=app.sendRoomChat({preventDefault(){}});
+  app.setChatRoom('room-two');app.$('chatText').value='New room';await app.sendRoomChat({preventDefault(){}});
+  release();await Promise.all([oldFirst,oldQueued]);assert.deepEqual(p.sent.map(message=>message.text),['New room']);assert.equal(app.lines.length,1);
+});
+
+test('identity changes during signing cannot send with the previous author',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);let release;
+  const signing=new Promise(resolve=>{release=resolve;});app.local.sign=async text=>{await signing;return signature(text);};
+  app.$('chatText').value='Previous identity';const sending=app.sendRoomChat({preventDefault(){}});await Promise.resolve();
+  app.identity={id:'D'.repeat(43),key:'another-key',name:'Another'};release();await sending;
+  assert.equal(p.sent.length,0);assert.equal(app.lines.length,0);
+});
+
+test('signing failures restore an empty composer and keep the send queue usable',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app);app.local.sign=async()=>{throw Error('device unavailable');};
+  app.$('chatText').value='Retry me';await app.sendRoomChat({preventDefault(){}});assert.equal(app.$('chatText').value,'Retry me');assert.match(app.$('chatStatus').textContent,/could not be signed/);
+  app.local.sign=async text=>signature(text);await app.sendRoomChat({preventDefault(){}});assert.equal(p.sent.at(-1).text,'Retry me');
 });
 test('signed history retains original attribution and rejects tampering, duplicates and other rooms',async()=>{
   const app=harness();assert.equal(typeof app.acceptRoomChat,'function');app.setChatRoom('room-one');const p=peer(app,'C'.repeat(43)),message=envelope(app);
