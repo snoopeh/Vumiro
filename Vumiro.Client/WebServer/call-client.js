@@ -31,6 +31,10 @@
   const accessReady=embedded && query.has('mode')?new Promise(resolve=>{accessResolve=resolve;}):Promise.resolve();
   let passwordResolve=null, authenticationVersion=2, focusedId='', manualFocus=false, policyBusy=false, ownerBlocks='',policyAck=null,policyQueue=Promise.resolve();
   const profileCache=new Map();
+  const mosaic=globalThis.VumiroStreamMosaic?.create({root:$('tiles'),grid:$('streamTiles'),strip:$('idleTiles')}) || {
+    update(entries,id){for(const item of entries){item.tile.element.classList.toggle('focused',item.id===id);item.tile.selectButton?.setAttribute('aria-pressed',String(item.id===id));}},
+    replan(){},dispose(){}
+  };
   const roomState=()=>parentMessage({type:'vumiro-room-state',room:roomValue($('room').value),joined,sharing:!!screen,mode:roomMode,name:roomName});
   const ownsRoom=()=>!!identity && roomValue($('room').value).slice(0,43)===identity.id;
   const encode64=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -43,7 +47,7 @@
     const entries=[...(localTile?[{id:selfId || identity?.id,tile:localTile,local:true}]:[]),...peers.values()];
     if(!manualFocus) { const sharing=entries.find(item=>!item.local && item.tile.sharing) || entries.find(item=>item.tile.sharing);focusedId=sharing?.id || entries.find(item=>!item.local)?.id || entries[0]?.id || ''; }
     if(!entries.some(item=>item.id===focusedId)) focusedId=entries.find(item=>!item.local)?.id || entries[0]?.id || '';
-    for(const item of entries) item.tile.element.classList.toggle('focused',item.id===focusedId);
+    mosaic.update(entries,focusedId);
     $('participantCount').textContent=joined?(entries.length+' '+(entries.length===1?'person':'people')):joining?'Connecting…':disconnected?'Disconnected':'Ready to join';$('peopleCount').textContent=String(entries.length);$('empty').hidden=entries.length>0;
     $('emptyTitle').textContent=disconnected?'Let’s get you back in':joining?'Your room is getting ready':'Make yourself at home';$('emptyDescription').textContent=disconnected?'Your room stays here. Reconnect when you’re ready to pick up where you left off.':'A place to watch, talk and share. Your screen and microphone stay off until you choose to turn them on.';$('emptyHint').textContent=disconnected?'Use Reconnect below':joining?'Connecting securely to your room…':'Choose a room to get started';
     const people=$('peopleList');people.replaceChildren();for(const item of entries) { const profile=profileCache.get(item.id) || {name:item.local?($('name').value || 'You'):item.name || 'Participant',username:'',avatar:''},row=document.createElement('li');row.className='person';row.tabIndex=0;row.setAttribute('role','button');row.setAttribute('aria-haspopup','dialog');row.setAttribute('aria-label','View '+profile.name+(item.local?' (you)':'')+' profile');row.onclick=()=>openParticipantProfile(item.id,item.local);row.onkeydown=event=>{ if(event.target===row && (event.key==='Enter'||event.key===' ')) { event.preventDefault();openParticipantProfile(item.id,item.local); } };const photo=avatarElement(profile),copy=document.createElement('div'),name=document.createElement('span'),state=document.createElement('span'),dot=document.createElement('span');copy.className='person-copy';name.className='person-name';name.textContent=profile.name+(item.local?' (you)':'');state.className='person-status';state.textContent=(item.tile.sharing?'Sharing a screen':item.local?'In the room':item.pc.connectionState==='connected'?'Connected':'Connecting…')+(item.tile.micMuted===true?' · Mic off':'');dot.className='person-dot'+(item.local || item.pc.connectionState==='connected'?' online':'');copy.append(name,state);row.append(photo,copy,dot);people.append(row); }
@@ -442,9 +446,10 @@
     if(!joined && $('inviteDialog').open) $('inviteDialog').close();
   }
   function tile(name, local) {
-    const element = document.createElement('article'); element.className = 'tile';element.tabIndex=0;element.setAttribute('aria-label','Focus '+name);
+    const element = document.createElement('article'); element.className = 'tile';element.tabIndex=-1;element.setAttribute('role','group');element.setAttribute('aria-label','Stream from '+name);
     const header = document.createElement('header'), heading = document.createElement('h2'); heading.textContent = name + (local ? ' (you)' : '');
     const avatar=document.createElement('img');avatar.className='avatar';avatar.alt='';avatar.hidden=true;const identityBox=document.createElement('div');identityBox.className='identity';const muteBadge=document.createElement('span');muteBadge.className='remote-mute';muteBadge.hidden=true;muteBadge.setAttribute('role','status');const muteIcon=document.createElement('span'),muteLabel=document.createElement('span');muteIcon.setAttribute('aria-hidden','true');muteIcon.innerHTML='<svg class="icon"><use href="#i-mic-off"/></svg>';muteLabel.textContent='Mic off';muteBadge.append(muteIcon,muteLabel);identityBox.append(avatar,heading,muteBadge);
+    const selectButton=document.createElement('button');selectButton.type='button';selectButton.className='tile-select';selectButton.textContent='Select';selectButton.setAttribute('aria-label','Show controls for '+name);selectButton.setAttribute('aria-pressed','false');identityBox.append(selectButton);
     const tools = document.createElement('div'), view = document.createElement('select'); view.setAttribute('aria-label', 'View ' + name);
     for (const [value, label] of [['fit','Fit'],['actual','Actual size']]) { const option = document.createElement('option'); option.value=value; option.textContent=label; view.append(option); }
     const full = document.createElement('button'); full.className='fullscreen-button';full.title='Fullscreen';full.setAttribute('aria-label','Fullscreen '+name);const fullIcon=document.createElement('span');fullIcon.setAttribute('aria-hidden','true');fullIcon.innerHTML='<svg class="icon"><use href="#i-fullscreen"/></svg>';const fullLabel=document.createElement('span');fullLabel.textContent='Fullscreen';full.append(fullIcon,fullLabel);tools.append(view, full); header.append(identityBox, tools);
@@ -456,8 +461,8 @@
     view.onchange = () => { stage.classList.toggle('actual', view.value === 'actual'); resize(); };
     function resize() { if (view.value==='actual') { video.style.width=video.videoWidth+'px'; video.style.height=video.videoHeight+'px'; } else { video.style.width='';video.style.height=''; } }
     async function fullscreen() { try { if(document.fullscreenElement) await document.exitFullscreen();else await stage.requestFullscreen(); } catch(error) { status('Fullscreen: '+error.message); } }
-    video.onresize=resize;full.onclick=fullscreen;stage.ondblclick=event=>{ event.preventDefault();fullscreen(); };
-    const result={element,video,stats,placeholder,heading,avatar,placeholderAvatar,muteBadge,audios:[],sharing:false,micMuted:null};
+    video.onresize=()=>{resize();mosaic.replan();};full.onclick=fullscreen;stage.ondblclick=event=>{ event.preventDefault();fullscreen(); };
+    const result={element,video,stats,placeholder,heading,avatar,placeholderAvatar,muteBadge,selectButton,audios:[],sharing:false,micMuted:null};
     if(!local) {
       const toggle=document.createElement('button');toggle.type='button';toggle.className='audio-controls-toggle';toggle.textContent='Audio';toggle.setAttribute('aria-label','Show playback controls for '+name);toggle.setAttribute('aria-expanded','false');tools.append(toggle);const controls=document.createElement('div');controls.className='audio-controls';controls.setAttribute('aria-label','Playback volume for '+name);toggle.onclick=event=>{event.stopPropagation();const shown=element.classList.toggle('audio-visible');toggle.setAttribute('aria-expanded',String(shown));toggle.setAttribute('aria-label',(shown?'Hide':'Show')+' playback controls for '+name);};
       const slots=new Map();
@@ -478,8 +483,9 @@
       };
     }
     result.show = sharing => { result.sharing=sharing; placeholder.hidden=sharing; video.style.visibility=sharing?'visible':'hidden';refreshLayout(); };
-    element.onclick=event=>{ if(event.target.closest('button,select,input,.audio-controls')) return;const found=[...peers.values()].find(peer=>peer.tile===result);focusedId=found?.id || selfId || identity?.id || '';manualFocus=true;refreshLayout(); };
-    element.onkeydown=event=>{ if(event.target===element && ['Enter',' '].includes(event.key)) { event.preventDefault();element.click(); } };
+    function selectTile(){const found=[...peers.values()].find(peer=>peer.tile===result);focusedId=found?.id || selfId || identity?.id || '';manualFocus=true;refreshLayout();}
+    selectButton.onclick=event=>{event.stopPropagation();selectTile();};
+    element.onclick=event=>{if(!event.target.closest('button,select,input,.audio-controls'))selectTile();};
     result.show(false);return result;
   }
   function play(element) { const promise=element.play(); if(promise) promise.catch(()=>{ $('enableAudio').hidden=false; }); }
@@ -877,7 +883,7 @@
   $('inviteDialog').addEventListener('close',()=>$('copyInvite').focus());
   $('inviteLink').onclick=()=>$('inviteLink').select();
   $('enableAudio').onclick=()=>{ $('enableAudio').hidden=true;for(const peer of peers.values()) { play(peer.tile.video);for(const audio of peer.tile.audios) play(audio); } };
-  addEventListener('beforeunload',()=>{releaseRoomResources();safeCleanup(()=>voice?.dispose());});
+  addEventListener('beforeunload',()=>{mosaic.dispose();releaseRoomResources();safeCleanup(()=>voice?.dispose());});
   addEventListener('message',event=>{
     if(!embedded || event.origin!==location.origin || event.source!==parent) return;
     if(event.data?.type==='vumiro-friend-status') friendStatus(event.data);

@@ -9,6 +9,7 @@ const targetDir = path.join(projectDir, 'webserver');
 const licenseDir = path.join(projectDir, 'resources', 'legal');
 const expectedAssets = [
   'call-client.js',
+  'stream-mosaic.js',
   'call.html',
   'friends-client.js',
   'friends.html',
