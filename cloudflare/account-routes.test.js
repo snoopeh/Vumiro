@@ -10,8 +10,8 @@ const encode = value => Buffer.from(value instanceof Uint8Array ? value : JSON.s
 function memoryD1() {
   const sqlite = new DatabaseSync(':memory:');
   const migrations = new URL('./migrations/', import.meta.url);
-  const files = readdirSync(migrations).filter(name => /^000[1-6]_.*\.sql$/.test(name)).sort();
-  assert.equal(files.length, 6);
+  const files = readdirSync(migrations).filter(name => /^000[1-7]_.*\.sql$/.test(name)).sort();
+  assert.equal(files.length, 7);
   for (const name of files) sqlite.exec(readFileSync(new URL(name, migrations), 'utf8'));
   function statement(sql, values = []) {
     return {
@@ -81,6 +81,7 @@ async function fixture(t) {
   async function request(path = '/data', method = 'GET', body, credentials = {}) {
     const headers = { Authorization: `Bearer ${credentials.token || token}`, 'X-Vumiro-Device': credentials.deviceId || deviceId };
     if (credentials.deviceToken) headers['X-Vumiro-Device-Token'] = credentials.deviceToken;
+    if (credentials.profileMedia !== undefined) headers['X-Vumiro-Profile-Media'] = credentials.profileMedia;
     if (credentials.profileCards !== undefined) headers['X-Vumiro-Profile-Cards'] = credentials.profileCards;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const response = await handleAccountRequest(new Request(`https://accounts.example/api/v1/account${path}`, {
@@ -94,7 +95,7 @@ async function fixture(t) {
     assert.match(result.body.deviceToken, /^[0-9a-f]{64}$/);
     return { deviceId: id, deviceToken: result.body.deviceToken };
   }
-  return { db, env, accountId, deviceId, provider, signedToken, request, enroll };
+  return { db, env, accountId, deviceId, provider, signedToken, request, enroll, token };
 }
 
 function snapshot(name = 'Owner') {
@@ -260,4 +261,249 @@ test('successful provider deletion returns completion and leaves no account snap
   assert.equal(app.db.prepare('SELECT state FROM deleted_accounts WHERE account_id = ?').bind(app.accountId).first().state, 'complete');
   assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM account_data').first().count, 0);
   assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM account_devices').first().count, 0);
+});
+
+// Optional private finished-cover backup. No external storage is contacted by these tests.
+async function mediaFixture(t) {
+  const app = await fixture(t), objects = new Map();
+  app.env.PROFILE_MEDIA = {
+    async put(key, bytes) { objects.set(key, new Uint8Array(bytes)); },
+    async get(key) { const bytes = objects.get(key); return bytes ? { body: bytes } : null; },
+    async delete(key) { objects.delete(key); },
+    async list({ limit, cursor }) {
+      const keys = [...objects.keys()].sort().filter(key => !cursor || key > cursor), page = keys.slice(0, limit);
+      return { objects: page.map(key => ({ key, uploaded: new Date(0) })), truncated: keys.length > limit, cursor: page.at(-1) };
+    }
+  };
+  const credentials = { ...await app.enroll(), profileCards: '1', profileMedia: '1' };
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAABCAIAAACUgoPjAAAAC0lEQVR4nGNggAEAAAoAAX+AdF4AAAAASUVORK5CYII=', 'base64');
+  const { mediaDigest } = await import('./profile-media.js');
+  const banner = 'data:image/png;base64,' + bytes.toString('base64');
+  async function manifest() { return { version: 1, revision: crypto.randomUUID(), digest: await mediaDigest(bytes), mime: 'image/png', width: 3, height: 1, bytes: bytes.length, thumbnailDigest: await mediaDigest(banner) }; }
+  async function media(path, method = 'GET', cover, data = bytes, overrides = {}) {
+    const headers = { Authorization: `Bearer ${app.token}`, 'X-Vumiro-Device': credentials.deviceId, 'X-Vumiro-Device-Token': credentials.deviceToken, 'X-Vumiro-Profile-Cards': '1', 'X-Vumiro-Profile-Media': '1', ...overrides };
+    if (cover) { headers['X-Vumiro-Cover-Manifest'] = JSON.stringify(cover); headers['Content-Type'] = cover.mime; }
+    return handleAccountRequest(new Request('https://accounts.example/api/v1/account' + path, { method, headers, ...(method === 'POST' ? { body: data } : {}) }), app.env);
+  }
+  return { ...app, objects, credentials, bytes, banner, manifest, media };
+}
+
+test('private covers require verified bytes, capability, account and active device; staged blobs are not downloadable', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  let response = await app.media('/cover', 'POST', cover);
+  assert.equal(response.status, 201, await response.text());
+  assert.equal(app.objects.size, 1);
+  assert.equal((await app.media('/cover/' + cover.revision)).status, 404);
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 200, 'identical upload retry is idempotent');
+  assert.equal((await app.media('/cover', 'POST', { ...cover, digest: 'A'.repeat(43) })).status, 400);
+  assert.equal((await app.media('/cover', 'POST', { ...cover, width: 3841 })).status, 400);
+  assert.equal((await app.media('/cover', 'POST', { ...cover, width: 2, height: 2 })).status, 400, 'manifest must be exactly 3:1');
+  assert.equal((await app.media('/cover', 'POST', cover, Buffer.from('<svg/>'))).status, 400);
+  assert.equal((await app.media('/cover', 'POST', cover, app.bytes, { Authorization: 'Bearer invalid' })).status, 401);
+  assert.equal((await app.media('/cover', 'POST', cover, app.bytes, { 'X-Vumiro-Device-Token': '0'.repeat(64) })).status, 403);
+  app.db.prepare('UPDATE account_devices SET revoked_at = ? WHERE account_id = ?').bind(new Date().toISOString(), app.accountId).run();
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 403);
+});
+
+test('cover references bind thumbnail, account and CAS; legacy writes preserve only unchanged thumbnail', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); value.profile.banner = app.banner; value.profile.cover = cover;
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, app.credentials)).status, 200);
+  const downloaded = await app.media('/cover/' + cover.revision);
+  assert.equal(downloaded.status, 200); assert.match(downloaded.headers.get('Cache-Control'), /no-store/);
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), app.bytes);
+  assert.deepEqual((await app.request('/data', 'GET', undefined, app.credentials)).body.data.profile.cover, cover);
+  const legacy = { ...app.credentials }; delete legacy.profileMedia;
+  const old = (await app.request('/data', 'GET', undefined, legacy)).body.data;
+  assert.equal(old.profile.cover, undefined);
+  old.profile.name = 'Changed';
+  assert.equal((await app.request('/data', 'PUT', { snapshot: old, expectedRevision: 1 }, legacy)).status, 200);
+  assert.deepEqual((await app.request('/data', 'GET', undefined, app.credentials)).body.data.profile.cover, cover);
+  const wrong = structuredClone(value); wrong.profile.banner = '';
+  assert.equal((await app.request('/data', 'PUT', { snapshot: wrong, expectedRevision: 2 }, app.credentials)).status, 400);
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 1 }, app.credentials)).status, 409);
+  old.profile.banner = '';
+  assert.equal((await app.request('/data', 'PUT', { snapshot: old, expectedRevision: 2 }, legacy)).status, 200);
+  assert.equal((await app.request('/data', 'GET', undefined, app.credentials)).body.data.profile.cover, undefined);
+  assert.equal((await app.media('/cover/' + cover.revision)).status, 404);
+});
+
+test('media is optional, staging is bounded, expired blobs clean up and account deletion removes objects', async t => {
+  const app = await mediaFixture(t), bucket = app.env.PROFILE_MEDIA;
+  delete app.env.PROFILE_MEDIA;
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 503);
+  assert.equal((await app.request('/data', 'PUT', { snapshot: snapshot(), expectedRevision: 0 }, app.credentials)).status, 200);
+  app.env.PROFILE_MEDIA = bucket;
+  for (let i = 0; i < 4; i++) assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 201);
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 409);
+  assert.equal(app.objects.size, 4);
+  app.db.prepare('UPDATE account_profile_media SET created_at = 0').run();
+  await runAccountMaintenance(app.env);
+  assert.equal(app.objects.size, 0);
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 201);
+  assert.equal((await app.request('/data', 'DELETE', undefined, app.credentials)).status, 200);
+  assert.equal(app.objects.size, 0);
+  assert.equal(app.db.prepare('SELECT COUNT(*) AS count FROM account_profile_media').first().count, 0);
+});
+
+test('R2 deletion failure keeps account deletion pending, blocked and retryable', async t => {
+  const app = await mediaFixture(t);
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 201);
+  const remove = app.env.PROFILE_MEDIA.delete;
+  app.env.PROFILE_MEDIA.delete = async () => { throw new Error('temporary R2 failure'); };
+  assert.equal((await app.request('/data', 'DELETE', undefined, app.credentials)).status, 202);
+  assert.equal(app.provider.deletionCalls.length, 0);
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 410);
+  app.env.PROFILE_MEDIA.delete = remove;
+  assert.equal((await app.request('/data', 'DELETE', undefined, app.credentials)).status, 200);
+  assert.equal(app.objects.size, 0);
+});
+
+test('cross-account and claimed-for-deletion cover references fail closed', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); Object.assign(value.profile, { banner: app.banner, cover });
+  const token = await app.signedToken({ subject: crypto.randomUUID() });
+  const other = { ...await app.enroll(crypto.randomUUID(), token), token, profileCards: '1', profileMedia: '1' };
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, other)).status, 400);
+  app.db.prepare("UPDATE account_profile_media SET state = 'deleting' WHERE account_id = ?").bind(app.accountId).run();
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, app.credentials)).status, 400);
+});
+
+test('revocation during R2 upload prevents publication; concurrent deletion cannot complete before media cleanup', async t => {
+  const app = await mediaFixture(t), put = app.env.PROFILE_MEDIA.put;
+  app.env.PROFILE_MEDIA.put = async (key, bytes) => {
+    await put(key, bytes);
+    app.db.prepare('UPDATE account_devices SET revoked_at = ? WHERE account_id = ?').bind(new Date().toISOString(), app.accountId).run();
+  };
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 503);
+  assert.equal(app.db.prepare('SELECT state FROM account_profile_media').first().state, 'deleting');
+  await runAccountMaintenance(app.env);
+  assert.equal(app.objects.size, 0);
+});
+
+test('in-flight upload and account deletion preserve retry metadata until every object is gone', async t => {
+  const app = await mediaFixture(t), put = app.env.PROFILE_MEDIA.put;
+  app.env.PROFILE_MEDIA.put = async (key, bytes) => {
+    assert.equal((await app.request('/data', 'DELETE', undefined, app.credentials)).status, 202);
+    assert.equal(app.provider.deletionCalls.length, 0);
+    await put(key, bytes);
+  };
+  assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 503);
+  assert.equal((await app.request('/data', 'DELETE', undefined, app.credentials)).status, 200);
+  assert.equal(app.objects.size, 0);
+});
+
+test('bucket-only crash orphans are collected without deleting tracked current media', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); Object.assign(value.profile, { banner: app.banner, cover });
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, app.credentials)).status, 200);
+  app.objects.set('covers/deleted-account/late-untracked-put', app.bytes);
+  await runAccountMaintenance(app.env);
+  assert.equal(app.objects.size, 1);
+  assert.equal((await app.media('/cover/' + cover.revision)).status, 200);
+});
+
+test('legacy sync preserves an existing reference when the optional bucket binding is temporarily absent', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); Object.assign(value.profile, { banner: app.banner, cover });
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, app.credentials)).status, 200);
+  const legacy = { ...app.credentials }; delete legacy.profileMedia;
+  const old = (await app.request('/data', 'GET', undefined, legacy)).body.data;
+  delete app.env.PROFILE_MEDIA;
+  assert.equal((await app.request('/data', 'PUT', { snapshot: old, expectedRevision: 1 }, legacy)).status, 200);
+  assert.equal((await app.request('/data', 'DELETE', undefined, legacy)).status, 202);
+  assert.equal(app.provider.deletionCalls.length, 0);
+});
+
+test('cover CAS cannot publish a blob claimed by cleanup after reference validation', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.request('/data', 'PUT', { snapshot: snapshot(), expectedRevision: 0 }, app.credentials)).status, 200);
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); Object.assign(value.profile, { banner: app.banner, cover });
+  const prepare = app.db.prepare;
+  app.db.prepare = sql => {
+    const statement = prepare(sql);
+    if (!sql.startsWith('UPDATE account_data SET payload')) return statement;
+    return { bind(...args) { const bound = statement.bind(...args); return { run() {
+      prepare("UPDATE account_profile_media SET state = 'deleting' WHERE account_id = ?").bind(app.accountId).run();
+      return bound.run();
+    } }; } };
+  };
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 1 }, app.credentials)).status, 409);
+  assert.equal((await app.request('/data', 'GET', undefined, app.credentials)).body.data.profile.cover, undefined);
+});
+
+test('pre-media installations without optional migration still sync and delete normally', async t => {
+  const app = await fixture(t), credentials = await app.enroll();
+  app.db.sqlite.exec('DROP TABLE account_profile_media; DROP TABLE profile_media_maintenance');
+  assert.equal((await app.request('/data', 'PUT', { snapshot: snapshot(), expectedRevision: 0 }, credentials)).status, 200);
+  assert.equal((await app.request('/data', 'DELETE', undefined, credentials)).status, 200);
+});
+
+test('maintenance media counters cap D1/R2 work and resume orphan pagination', async t => {
+  const app = await mediaFixture(t);
+  for (let i = 0; i < 4; i++) assert.equal((await app.media('/cover', 'POST', await app.manifest())).status, 201);
+  app.db.prepare('UPDATE account_profile_media SET created_at = 0').run();
+  for (let i = 0; i < 12; i++) app.objects.set('covers/orphan/' + String(i).padStart(2, '0'), app.bytes);
+  let calls = 0;
+  const originalPrepare = app.db.prepare;
+  function counted(statement) {
+    return { bind(...args) { return counted(statement.bind(...args)); },
+      run() { calls++; return statement.run(); }, first(...args) { calls++; return statement.first(...args); },
+      all() { calls++; return statement.all(); } };
+  }
+  app.db.prepare = sql => counted(originalPrepare(sql));
+  for (const method of ['list', 'delete']) { const original = app.env.PROFILE_MEDIA[method]; app.env.PROFILE_MEDIA[method] = async (...args) => { calls++; return original(...args); }; }
+  const { cleanupProfileMedia, sweepProfileMediaOrphans, newMediaBudget } = await import('./profile-media.js');
+  for (let pass = 0; pass < 8; pass++) {
+    calls = 0; const budget = newMediaBudget();
+    await cleanupProfileMedia(app.env, null, false, budget);
+    await sweepProfileMediaOrphans(app.env, budget);
+    assert.ok(calls <= budget.used && budget.used <= 20, `actual ${calls}, reserved ${budget.used}`);
+  }
+  assert.equal(app.objects.size, 0, 'bounded passes eventually drain staged and bucket-only objects');
+});
+
+test('same immutable revision retries after failed R2 puts, including a stored object with lost acknowledgement', async t => {
+  const app = await mediaFixture(t), put = app.env.PROFILE_MEDIA.put;
+  for (const writeBeforeFailure of [false, true]) {
+    const cover = await app.manifest(); let attempts = 0;
+    app.env.PROFILE_MEDIA.put = async (key, bytes) => {
+      attempts++;
+      if (attempts === 1) {
+        if (writeBeforeFailure) await put(key, bytes);
+        throw new Error('R2 acknowledgement failed');
+      }
+      return put(key, bytes);
+    };
+    assert.equal((await app.media('/cover', 'POST', cover)).status, 503);
+    const failed = app.db.prepare('SELECT object_key, state FROM account_profile_media WHERE revision = ?').bind(cover.revision).first();
+    assert.equal(failed.state, 'deleting');
+    assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+    const ready = app.db.prepare('SELECT object_key, state FROM account_profile_media WHERE revision = ?').bind(cover.revision).first();
+    assert.equal(ready.state, 'ready');
+    assert.notEqual(ready.object_key, failed.object_key);
+    assert.equal(app.objects.has(failed.object_key), false, 'failed or uncertain previous write is removed before retry');
+    assert.equal((await app.media('/cover', 'POST', cover)).status, 200);
+    assert.equal(attempts, 2, 'ready duplicate does not write again');
+  }
+});
+
+test('duplicate upload stays idempotent after stale snapshot CAS and after publication; conflicting manifest stays rejected', async t => {
+  const app = await mediaFixture(t), cover = await app.manifest();
+  assert.equal((await app.request('/data', 'PUT', { snapshot: snapshot(), expectedRevision: 0 }, app.credentials)).status, 200);
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 201);
+  const value = snapshot(); Object.assign(value.profile, { banner: app.banner, cover });
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 0 }, app.credentials)).status, 409);
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 200);
+  assert.equal(app.objects.size, 1);
+  assert.equal((await app.request('/data', 'PUT', { snapshot: value, expectedRevision: 1 }, app.credentials)).status, 200);
+  assert.equal((await app.media('/cover', 'POST', cover)).status, 200);
+  assert.equal((await app.media('/cover', 'POST', { ...cover, thumbnailDigest: 'A'.repeat(43) })).status, 409);
+  assert.equal(app.objects.size, 1);
+  assert.equal((await app.media('/cover/' + cover.revision)).status, 200);
 });

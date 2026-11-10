@@ -1,3 +1,4 @@
+import { validCover, handleProfileMedia, validateCoverReference, coverReadyGuard, canonicalCover, cleanupProfileMedia, deleteProfileMedia, sweepProfileMediaOrphans, newMediaBudget } from './profile-media.js';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const MAX_SNAPSHOT_BYTES = 262144;
@@ -18,7 +19,7 @@ function validOrigin(origin, requestUrl) {
   try { const host = new URL(origin).hostname; return ['localhost', '127.0.0.1', '[::1]'].includes(requestUrl.hostname) && ['localhost', '127.0.0.1', '[::1]'].includes(host); } catch { return false; }
 }
 function corsHeaders(origin) {
-  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Vumiro-Device, X-Vumiro-Device-Token, X-Vumiro-Profile-Cards', 'Vary': 'Origin, X-Vumiro-Profile-Cards' };
+  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Vumiro-Device, X-Vumiro-Device-Token, X-Vumiro-Profile-Cards, X-Vumiro-Profile-Media, X-Vumiro-Cover-Manifest', 'Vary': 'Origin, X-Vumiro-Profile-Cards, X-Vumiro-Profile-Media' };
 }
 const DEVICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -211,7 +212,7 @@ async function validIdentityRecovery(value, now) {
 export async function validateSnapshot(value, now = Date.now()) {
   const required = ['version', 'profile', 'friends', 'blocked', 'settings', 'privacyNoticeVersion', 'privacyNoticeAcceptedAt'];
   if (!onlyKeysWithOptional(value, required, ['identityRecovery']) || !await validIdentityRecovery(value.identityRecovery, now) || value.version !== 1 ||
-    !onlyKeysWithOptional(value.profile, ['name', 'username', 'avatar'], ['bio', 'banner', 'connections']) || !validProfileCard(value.profile) || !Array.isArray(value.friends) || !Array.isArray(value.blocked) || !validSettings(value.settings)) return false;
+    !onlyKeysWithOptional(value.profile, ['name', 'username', 'avatar'], ['bio', 'banner', 'connections', 'cover']) || ('cover' in value.profile && !validCover(value.profile.cover)) || !validProfileCard(value.profile) || !Array.isArray(value.friends) || !Array.isArray(value.blocked) || !validSettings(value.settings)) return false;
   if (value.friends.length > 128 || value.blocked.length > 64 || !cleanText(value.profile.name, 1, 48) || typeof value.profile.username !== 'string' ||
     value.profile.username !== value.profile.username.trim().toLowerCase() || !USERNAME.test(value.profile.username) || typeof value.profile.avatar !== 'string' || value.profile.avatar.length > 44000 || !AVATAR.test(value.profile.avatar)) return false;
   const acceptedAt = Date.parse(value.privacyNoticeAcceptedAt);
@@ -280,11 +281,14 @@ export async function handleAccountRequest(request, env) {
   const profileCardsHeader = request.headers.get('X-Vumiro-Profile-Cards');
   if (profileCardsHeader !== null && profileCardsHeader !== '1') return json({ error: 'The profile-card capability is unsupported.' }, 400, cors);
   const supportsProfileCards = profileCardsHeader === '1';
+  const mediaHeader = request.headers.get('X-Vumiro-Profile-Media');
+  if (mediaHeader !== null && (mediaHeader !== '1' || !supportsProfileCards)) return json({ error: 'The profile-media capability is unsupported.' }, 400, cors);
+  const supportsProfileMedia = mediaHeader === '1';
   if (url.pathname === '/api/v1/account/config' && request.method === 'GET') {
     const base = String(env.SUPABASE_URL || '').replace(/\/$/, ''), publishable = String(env.SUPABASE_PUBLISHABLE_KEY || '');
     if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || !/^(?:sb_publishable_[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(publishable)) return json({ error: 'Account service is not configured yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
     const oauthProviders = [env.ACCOUNT_OAUTH_GOOGLE_ENABLED === 'true' ? 'google' : null, env.ACCOUNT_OAUTH_MICROSOFT_ENABLED === 'true' ? 'azure' : null].filter(Boolean);
-    return json({ authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: supportsProfileCards ? PRIVACY_NOTICE_VERSION : LEGACY_PRIVACY_NOTICE_VERSION }, 200, cors);
+    return json({ profileMediaEnabled: !!env.PROFILE_MEDIA, authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: supportsProfileCards ? PRIVACY_NOTICE_VERSION : LEGACY_PRIVACY_NOTICE_VERSION }, 200, cors);
   }
   if (!env.ACCOUNT_DB) return json({ error: 'Account storage is not configured yet.' }, 503, cors);
   const user = await authenticate(request, env);
@@ -327,6 +331,10 @@ export async function handleAccountRequest(request, env) {
     if (device.revoked_at) return json({ error: 'This device was revoked and cannot be registered again.' }, 403, cors);
     if (!await verifyDeviceToken(request.headers.get('X-Vumiro-Device-Token') || '', device.credential_hash)) return json({ error: 'This device credential is invalid.' }, 403, cors);
     await env.ACCOUNT_DB.prepare('UPDATE account_devices SET last_seen = ? WHERE account_id = ? AND device_id = ?').bind(now, user.id, deviceId).run();
+    if (url.pathname === '/api/v1/account/cover' || url.pathname.startsWith('/api/v1/account/cover/')) {
+      if (!supportsProfileMedia) return json({ error: 'Advertise profile-media support to access covers.' }, 400, cors);
+      return await handleProfileMedia(request, env, user.id, cors, deviceId, device.credential_hash);
+    }
     if (url.pathname === '/api/v1/account/devices' && request.method === 'GET') return json({ devices: await devicesForAccount(env, user.id), currentDevice: deviceId }, 200, cors);
     if (url.pathname === '/api/v1/account/devices/revoke' && request.method === 'POST') {
       if (!user.recentSecurityAuth) return json({ error: 'Sign in again before revoking a device.' }, 401, cors);
@@ -346,6 +354,7 @@ export async function handleAccountRequest(request, env) {
       const data = row ? JSON.parse(row.payload) : null;
       // Older installed clients enforce a closed profile schema. They receive
       // their original shape, while exports always retain all saved fields.
+      if (data?.profile && !supportsProfileMedia) delete data.profile.cover;
       if (data?.profile && !supportsProfileCards) for (const field of ['bio', 'banner', 'connections']) delete data.profile[field];
       return json({ version: 1, account: { email: user.email }, data, revision: row?.revision || 0, devices: await devicesForAccount(env, user.id), currentDevice: deviceId, updatedAt: row?.updated_at || null, noticeRecords: await noticesForAccount(env, user.id) }, 200, cors);
     }
@@ -370,13 +379,38 @@ export async function handleAccountRequest(request, env) {
           if (!await validateSnapshot(snapshot)) return json({ error: 'The saved account data format is invalid.' }, 400, cors);
         }
       }
+      if (!supportsProfileMedia && Object.hasOwn(snapshot.profile, 'cover')) return json({ error: 'Advertise profile-media support before saving a cover.' }, 400, cors);
+      if (!supportsProfileMedia && expectedRevision > 0) {
+        const current = await env.ACCOUNT_DB.prepare('SELECT payload, revision FROM account_data WHERE account_id = ?').bind(user.id).first();
+        if (!current || current.revision !== expectedRevision) return json({ error: 'Account data changed on another device.' }, 409, cors);
+        const stored = JSON.parse(current.payload).profile;
+        if (stored.cover && (stored.banner || '') === (snapshot.profile.banner || '')) snapshot = { ...snapshot, profile: { ...snapshot.profile, cover: stored.cover } };
+      }
+      if (supportsProfileMedia && snapshot.profile.cover && !env.PROFILE_MEDIA) return json({ error: 'Private high-resolution cover backup is not configured.', code: 'profile_media_unavailable' }, 503, cors);
+      if (!await validateCoverReference(env, user.id, snapshot.profile, !supportsProfileMedia)) return json({ error: 'The saved cover reference is invalid or unavailable.' }, 400, cors);
+      const previousMedia = env.PROFILE_MEDIA && expectedRevision > 0
+        ? await env.ACCOUNT_DB.prepare('SELECT payload FROM account_data WHERE account_id = ? AND revision = ?').bind(user.id, expectedRevision).first() : null;
+      const previousCover = previousMedia ? JSON.parse(previousMedia.payload).profile?.cover?.revision : null;
       const payload = JSON.stringify(snapshot), timestamp = new Date().toISOString();
+      if (encoder.encode(payload).byteLength > MAX_SNAPSHOT_BYTES) return json({ error: 'Account data is too large.' }, 400, cors);
       let result;
-      if (expectedRevision === 0) result = await env.ACCOUNT_DB.prepare('INSERT INTO account_data (account_id, payload, updated_at, revision) VALUES (?, ?, ?, 1) ON CONFLICT(account_id) DO NOTHING').bind(user.id, payload, timestamp).run();
-      else result = await env.ACCOUNT_DB.prepare('UPDATE account_data SET payload = ?, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND revision = ?').bind(payload, timestamp, user.id, expectedRevision).run();
+      const cover = snapshot.profile.cover;
+      // Cover metadata is optional; installations without the migration never query its table for legacy sync.
+      const guard = cover ? ' AND ' + coverReadyGuard : '';
+      const coverArgs = cover ? [user.id, cover.revision, canonicalCover(cover)] : [];
+      const liveGuard = " AND NOT EXISTS (SELECT 1 FROM deleted_accounts WHERE account_id = ?) AND EXISTS (SELECT 1 FROM account_devices WHERE account_id = ? AND device_id = ? AND revoked_at IS NULL AND credential_hash = ?)";
+      const liveArgs = [user.id, user.id, deviceId, device.credential_hash];
+      if (expectedRevision === 0) result = await env.ACCOUNT_DB.prepare('INSERT INTO account_data (account_id, payload, updated_at, revision) SELECT ?, ?, ?, 1 WHERE 1 = 1' + guard + liveGuard + ' ON CONFLICT(account_id) DO NOTHING').bind(user.id, payload, timestamp, ...coverArgs, ...liveArgs).run();
+      else result = await env.ACCOUNT_DB.prepare('UPDATE account_data SET payload = ?, updated_at = ?, revision = revision + 1 WHERE account_id = ? AND revision = ?' + guard + liveGuard).bind(payload, timestamp, user.id, expectedRevision, ...coverArgs, ...liveArgs).run();
       if (!result.meta?.changes) return json({ error: 'Account data changed on another device. Restore the latest copy or choose to replace it with this device.' }, 409, cors);
       await env.ACCOUNT_DB.prepare(`INSERT INTO account_notice_acceptances (account_id, notice_version, accepted_at, recorded_at, device_id)
         VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id, notice_version) DO NOTHING`).bind(user.id, snapshot.privacyNoticeVersion, snapshot.privacyNoticeAcceptedAt, timestamp, deviceId).run();
+      if (previousCover && previousCover !== cover?.revision) {
+        try {
+          await env.ACCOUNT_DB.prepare("UPDATE account_profile_media SET created_at = 0 WHERE account_id = ? AND revision = ? AND NOT EXISTS (SELECT 1 FROM account_data WHERE account_id = ? AND json_extract(payload, '$.profile.cover.revision') = ?)").bind(user.id, previousCover, user.id, previousCover).run();
+          await cleanupProfileMedia(env, user.id);
+        } catch { /* Snapshot is committed; retained metadata lets maintenance retry cleanup. */ }
+      }
       return json({ ok: true, revision: expectedRevision + 1, updatedAt: timestamp }, 200, cors);
     }
     if (deletePath) {
@@ -425,11 +459,13 @@ async function requestIdentityDeletion(userId, env) {
 export function deletionRetryDelayMs(attempts) {
   return Math.min(24 * 60 * 60 * 1000, 5 * 60 * 1000 * 2 ** Math.max(0, Math.min(16, attempts - 1)));
 }
-async function attemptIdentityDeletion(userId, env) {
+async function attemptIdentityDeletion(userId, env, mediaBudget = newMediaBudget()) {
   const row = await env.ACCOUNT_DB.prepare("SELECT attempts FROM deleted_accounts WHERE account_id = ? AND state = 'pending'").bind(userId).first();
   if (!row) return true;
   const attempts = Number(row.attempts || 0) + 1, attemptedAt = new Date().toISOString();
-  const result = await requestIdentityDeletion(userId, env);
+  let mediaDeleted = false;
+  try { mediaDeleted = await deleteProfileMedia(env, userId, mediaBudget); } catch { /* Retain pending tombstone for retry. */ }
+  const result = mediaDeleted ? await requestIdentityDeletion(userId, env) : { ok: false, error: 'profile_media_cleanup_pending' };
   if (result.ok) {
     const expiresAt = new Date(Date.now() + COMPLETED_TOMBSTONE_RETENTION_MS).toISOString();
     await env.ACCOUNT_DB.prepare(`UPDATE deleted_accounts SET state = 'complete', attempts = ?, last_attempt_at = ?, last_error = NULL,
@@ -448,11 +484,12 @@ async function finishDeletion(userId, env, cors) {
 }
 export async function runAccountMaintenance(env) {
   if (!env.ACCOUNT_DB) return;
-  const now = new Date().toISOString();
+  const now = new Date().toISOString(), mediaBudget = newMediaBudget();
   if (env.SUPABASE_SERVICE_ROLE_KEY) {
-    const pending = await env.ACCOUNT_DB.prepare("SELECT account_id AS accountId FROM deleted_accounts WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY requested_at ASC LIMIT 25").bind(now).all();
-    for (const item of pending.results || []) await attemptIdentityDeletion(item.accountId, env);
+    const pending = await env.ACCOUNT_DB.prepare("SELECT account_id AS accountId FROM deleted_accounts WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY requested_at ASC LIMIT 2").bind(now).all();
+    for (const item of pending.results || []) await attemptIdentityDeletion(item.accountId, env, mediaBudget);
   }
+  if (env.PROFILE_MEDIA) { await cleanupProfileMedia(env, null, false, mediaBudget); await sweepProfileMediaOrphans(env, mediaBudget); }
   const revokedBefore = new Date(Date.now() - REVOKED_DEVICE_RETENTION_MS).toISOString();
   const rateBefore = Math.floor(Date.now() / 1000) - 2 * 24 * 60 * 60;
   await env.ACCOUNT_DB.batch([
