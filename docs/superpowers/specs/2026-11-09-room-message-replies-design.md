@@ -28,6 +28,13 @@ Add a visible Reply button to each eligible verified text row and make that row 
 - Check the author-plus-ID reference against verified current-room messages only; never trust quoted content from the wire.
 - Run focused room-chat tests, then the client suite and LOCAL QA launcher before human review. Human QA should test mouse drag, click, touch, keyboard, late join, narrow widths, and a mixed-version room.
 
+### Implementation and review record
+
+- Commits: protocol `82cc5f2`, composer and citation `d1c9117`, row drag and accessibility `7baf25a`. The design and implementation plan were committed separately.
+- Focused red/green tests exercised signed reply metadata, tamper rejection, room reset, draft preservation, history eviction, missing originals, drag cancellation, and keyboard access. The full client suite passed 347/347, and `Check-Client.mjs --skip-backend` passed version, syntax, and client checks before the final accessibility adjustment. The LOCAL QA launcher reran 347/347 client tests, native invariants, service isolation, updater, native-audio recovery, diagnostics, and a Windows Debug build with zero warnings and errors.
+- The isolated review window is `Vumiro · LOCAL QA · 7baf25a` from `Vumiro-Replies`, with its own QA profile. Automated tests verify that the original v2 text signature remains unchanged; a real older-client receive/relay session remains for human QA. Older relays may omit reply context while retaining the text, as described above.
+- Live multi-client behavior, mouse drag feel, touch, narrow-window visuals, and mixed-version behavior still require human QA. No human acceptance, push, deployment, or release has occurred.
+
 ## References
 
 - [W3C WCAG 2.2 dragging movements](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements): dragging functionality needs a simple pointer alternative; keyboard access is a separate requirement.

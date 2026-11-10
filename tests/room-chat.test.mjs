@@ -9,10 +9,16 @@ const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js'
 function harness() {
   const elements=new Map(),lines=[],peers=new Map(),revoked=[],timers=new Map();
   class Element {
-    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;}
-    append(...values){this.children.push(...values);}
+    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;this.classes=new Set();this.listeners={};this.classList={add:name=>this.classes.add(name),remove:name=>this.classes.delete(name),toggle:name=>this.classes.has(name)?this.classes.delete(name):this.classes.add(name)};}
+    append(...values){this.children.push(...values);for(const value of values)if(value&&typeof value==='object')value.parentElement=this;}
     replaceChildren(...values){this.children=values;}
+    addEventListener(name,handler){this.listeners[name]=handler;}
+    insertBefore(value,before){const at=this.children.indexOf(before);this.children.splice(at<0?0:at,0,value);}
+    setAttribute(name,value){this[name]=value;}
+    removeAttribute(name){delete this[name];}
     querySelector(){return this.children[0];}
+    scrollIntoView(){this.scrolled=true;}
+    focus(){this.focused=true;}
     remove(){this.removed=true;}
   }
   const $=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
@@ -21,6 +27,8 @@ function harness() {
   vm.runInContext(source.slice(source.indexOf('  const seenMessages='),source.indexOf('  function renderChatText('))+source.slice(source.indexOf('  const openChannels='),source.indexOf('  function cleanProfile(')),app);
   return app;
 }
+function uiHarness(){const app=harness();app.avatarElement=()=>new app.Element('img');app.renderChatText=(target,value)=>{target.textContent=value;};vm.runInContext(source.slice(source.indexOf('  function chatLine('),source.indexOf('  const openChannels=')),app);return app;}
+function descendants(element){return [element,...element.children.flatMap(descendants)];}
 function peer(app,id='B'.repeat(43)) {const sent=[],value={id,name:'Friend',pc:{connectionState:'connected'},channel:{readyState:'open',bufferedAmount:0,send:data=>sent.push(JSON.parse(data))},sent};app.peers.set(id,value);return value;}
 function envelope(app,patch={}) {const value={type:'chat',version:2,room:'room-one',id:'m'.repeat(32),text:'Before you arrived',timestamp:Date.now(),author:{id:'B'.repeat(43),name:'Friend',key:'key:'+'B'.repeat(43)},...patch};value.signature=signature(app.chatSignatureText(value));return value;}
 function connectApps(first,second) {
@@ -47,6 +55,113 @@ test('signed history retains original attribution and rejects tampering, duplica
   assert.equal(await app.acceptRoomChat(p,envelope(app,{room:'old-room',id:'o'.repeat(32)}),true),false);
   assert.equal(await app.acceptRoomChat(p,envelope(app,{id:'p'.repeat(32),author:{...message.author,key:'wrong'}}),true),false);
   assert.equal(app.lines.length,1);
+});
+test('a separately signed reply reference survives verified room history',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original'});
+  assert.equal(await app.acceptRoomChat(p,target,true),true);
+  const reply=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});
+  reply.replySignature=signature(app.chatReplySignatureText(reply));
+  assert.equal(await app.acceptRoomChat(p,reply,true),true);
+  const stored=vm.runInContext('chatHistory',app).find(item=>item.id===reply.id);
+  assert.equal(stored.replyTo.id,target.id);assert.equal(stored.replySignature,reply.replySignature);
+  p.sent.length=0;app.queueChatHistory(p);assert.equal(p.sent.find(item=>item.message?.id===reply.id).message.replyTo.id,target.id);
+  assert.equal(signature(app.chatSignatureText(reply)),reply.signature,'older v2 clients can still verify the base text');
+});
+test('reply metadata cannot be forged, split, or retargeted without its own signature',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);
+  const valid=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});
+  valid.replySignature=signature(app.chatReplySignatureText(valid));
+  for(const patch of [
+    {replyTo:{authorId:target.author.id,id:'x'.repeat(32)}},
+    {replySignature:'invalid'},
+    {replySignature:undefined},
+    {replyTo:undefined},
+    {replyTo:{authorId:'wrong',id:target.id}}
+  ])assert.equal(await app.acceptRoomChat(p,{...valid,...patch},true),false);
+  assert.equal(await app.acceptRoomChat(p,valid,true),true);
+});
+test('reply selection preserves the draft, signs the reference, and clears after send',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original text'});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='My draft';
+  assert.equal(app.selectChatReply(target.author.id,target.id),true);
+  assert.equal(app.$('chatText').value,'My draft');
+  assert.equal(app.$('replyPreview').hidden,false);
+  assert.match(app.$('replyExcerpt').textContent,/Original text/);
+  await app.sendRoomChat({preventDefault(){}});
+  const sent=vm.runInContext('chatHistory',app).find(item=>item.author.id===app.identity.id);
+  assert.equal(sent.replyTo.id,target.id);
+  assert.equal(sent.replySignature,signature(app.chatReplySignatureText(sent)));
+  assert.equal(app.$('replyPreview').hidden,true);
+  assert.equal(app.$('chatText').value,'');
+});
+test('cancel, room change, and history eviction clear reply selection without clearing draft',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='Keep me';
+  app.selectChatReply(target.author.id,target.id);app.clearChatReply();assert.equal(app.$('replyPreview').hidden,true);assert.equal(app.$('chatText').value,'Keep me');
+  app.selectChatReply(target.author.id,target.id);app.setChatRoom('room-two');assert.equal(app.$('replyPreview').hidden,true);
+  app.setChatRoom('room-one');await app.acceptRoomChat(p,target,true);app.selectChatReply(target.author.id,target.id);
+  for(let i=0;i<101;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0'),timestamp:Date.now()+i}),true);
+  assert.equal(app.$('replyPreview').hidden,true);
+});
+test('verified text rows offer Reply and a one-level citation to a retained original',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32),text:'Original text'});
+  await app.acceptRoomChat(p,target,true);
+  const row=app.$('chatLog').children[0],button=descendants(row).find(item=>item.className==='chat-reply-action');
+  assert.ok(button);assert.equal(button.textContent,'Reply');assert.equal(row.draggable,true);
+  button.onclick();assert.equal(app.$('replyPreview').hidden,false);
+  const reply=envelope(app,{id:'r'.repeat(32),text:'Answer',replyTo:{authorId:target.author.id,id:target.id}});reply.replySignature=signature(app.chatReplySignatureText(reply));
+  await app.acceptRoomChat(p,reply,true);
+  const citation=descendants(app.$('chatLog').children[1]).find(item=>item.className==='chat-reply-citation');
+  assert.ok(citation);assert.match(citation.textContent,/Friend.*Original text/);citation.onclick();assert.equal(row.scrolled,true);
+});
+test('unavailable reply citations use neutral text and evicted messages lose Reply',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app);
+  const orphan=envelope(app,{id:'r'.repeat(32),replyTo:{authorId:'C'.repeat(43),id:'missing'.padEnd(16,'x')}});orphan.replySignature=signature(app.chatReplySignatureText(orphan));
+  await app.acceptRoomChat(p,orphan,true);
+  const citation=descendants(app.$('chatLog').children[0]).find(item=>item.className==='chat-reply-citation');
+  assert.equal(citation.textContent,'Original message unavailable');
+  const first=envelope(app,{id:'f'.repeat(32),text:'First'});await app.acceptRoomChat(p,first,true);
+  const row=app.$('chatLog').children[1],button=descendants(row).find(item=>item.className==='chat-reply-action');
+  for(let i=0;i<101;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0'),timestamp:Date.now()+i}),true);
+  assert.equal(button.disabled,true);assert.equal(row.draggable,false);
+});
+test('dragging a verified row onto the composer selects that reply without changing draft text',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='Keep draft';app.bindChatReplyDrag();
+  const row=app.$('chatLog').children[0],payload=new Map(),transfer={types:[],setData:(type,value)=>payload.set(type,value),getData:type=>payload.get(type)||'',effectAllowed:'',dropEffect:''};
+  app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){throw Error('valid drag cancelled');}});
+  assert.ok(payload.get('application/x-vumiro-room-reply'));assert.equal(payload.get('text/plain'),undefined);
+  let prevented=false;app.$('chatForm').listeners.dragover({dataTransfer:transfer,preventDefault(){prevented=true;}});assert.equal(prevented,true);
+  app.$('chatForm').listeners.drop({dataTransfer:transfer,preventDefault(){}});
+  assert.equal(app.$('replyPreview').hidden,false);assert.equal(app.$('chatText').value,'Keep draft');
+});
+test('outside, interactive, and selected-text drags leave the current reply alone',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),first=envelope(app,{id:'f'.repeat(32)}),second=envelope(app,{id:'s'.repeat(32)});
+  await app.acceptRoomChat(p,first,true);await app.acceptRoomChat(p,second,true);app.selectChatReply(first.author.id,first.id);app.bindChatReplyDrag();
+  const row=app.$('chatLog').children[1],button=descendants(row).find(item=>item.className==='chat-reply-action'),payload=new Map(),transfer={types:[],setData:(type,value)=>payload.set(type,value),getData:type=>payload.get(type)||''};
+  let cancelled=0;app.$('chatLog').listeners.dragstart({target:button,dataTransfer:transfer,preventDefault(){cancelled++;}});assert.equal(cancelled,1);
+  app.window.getSelection=()=>({toString:()=> 'selected'});app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){cancelled++;}});assert.equal(cancelled,2);
+  app.window.getSelection=()=>({toString:()=> ''});app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){cancelled++;}});
+  app.$('chatLog').listeners.dragend({});assert.equal(app.$('replyAuthor').textContent,first.author.name);assert.equal(app.$('replyExcerpt').textContent,first.text);
+  assert.equal(app.$('chatForm').classes.has('chat-reply-drop'),false);
+});
+test('reply preview announces its target and Escape cancels from any composer control',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);
+  vm.runInContext(source.slice(source.indexOf('  function setupChatReplyComposer()'),source.indexOf('  setupChatReplyComposer();')),app);
+  app.setupChatReplyComposer();for(const node of descendants(app.$('chatForm')))if(node.id)app.elements.set(node.id,node);
+  app.bindChatReplyKeys();app.$('chatText').value='Keep draft';app.selectChatReply(target.author.id,target.id);
+  assert.equal(app.$('replyPreview').role,'status');
+  assert.match(app.$('chatText')['aria-describedby'],/replyAuthor.*replyExcerpt/);
+  let prevented=false;app.$('chatView').listeners.keydown({key:'Escape',preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);assert.equal(app.$('replyPreview').hidden,true);assert.equal(app.$('chatText').value,'Keep draft');
+  assert.equal(app.$('chatText')['aria-describedby'],undefined);
+});
+test('a future chat version is not downgraded to unsigned legacy text',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),future=envelope(app,{version:3});
+  assert.equal(await app.acceptRoomChat(p,future,false),false);
+  assert.equal(app.lines.length,0);
 });
 test('recent history is bounded, pauses on backpressure, and clears on a new room or leave',async()=>{
   const app=harness();assert.equal(typeof app.acceptRoomChat,'function');app.setChatRoom('room-one');const p=peer(app);
