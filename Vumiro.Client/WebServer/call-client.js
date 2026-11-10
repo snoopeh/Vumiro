@@ -205,7 +205,8 @@
   const seenMessages=new Set(),chatHistory=[],chatFiles=new Map(),receivedChatFiles=new Map(),chatFileUrls=new Set();
   const maxChatFile=10*1024*1024,chatChunkBytes=12288;
   let lastChatSent=0,chatRoom='',chatEpoch=0,chatSending=false,pendingReply=null;
-  const replyRows=new Map(),replyCitations=new Set();
+  const replyRows=new Map(),replyCitations=new Set(),replyDragTokens=new Map();
+  let activeReplyDrag='',activeReplyRow=null;
   const replyKey=(authorId,id)=>authorId+':'+id;
   function rememberMessage(key) { if(seenMessages.has(key)) return false; seenMessages.add(key); if(seenMessages.size>1000) seenMessages.delete(seenMessages.values().next().value); return true; }
   function renderChatText(target,text) {
@@ -252,7 +253,8 @@
       body.append(message);
       if(signedMessage&&findReplyTarget(signedMessage.author.id,signedMessage.id)){
         const button=document.createElement('button');button.type='button';button.className='chat-reply-action';button.textContent='Reply';button.setAttribute?.('aria-label','Reply to '+profile.name);button.onclick=()=>selectChatReply(signedMessage.author.id,signedMessage.id);
-        body.append(button);row.draggable=true;row.tabIndex=-1;replyRows.set(replyKey(signedMessage.author.id,signedMessage.id),{row,button});
+        const token=Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
+        body.append(button);row.draggable=true;row.tabIndex=-1;row.dataset.replyToken=token;replyRows.set(replyKey(signedMessage.author.id,signedMessage.id),{row,button,token});replyDragTokens.set(token,{authorId:signedMessage.author.id,id:signedMessage.id});
       }
       row.append(photo,body);
     } else { row.className='system';row.textContent=text; }
@@ -272,7 +274,7 @@
   }
   function setChatRoom(value) {
     if(chatRoom===value)return;
-    chatRoom=value;++chatEpoch;chatSending=false;lastChatSent=0;chatHistory.length=0;seenMessages.clear();chatFiles.clear();replyRows.clear();replyCitations.clear();clearChatReply();
+    chatRoom=value;++chatEpoch;chatSending=false;lastChatSent=0;chatHistory.length=0;seenMessages.clear();chatFiles.clear();replyRows.clear();replyCitations.clear();replyDragTokens.clear();clearChatReply();
     for(const file of receivedChatFiles.values()){clearTimeout(file.timer);if(!file.url){file.parts=[];file.button.textContent='File unavailable · room ended';file.button.onclick=null;}}
     receivedChatFiles.clear();for(const url of chatFileUrls)URL.revokeObjectURL(url);chatFileUrls.clear();$('chatLog').replaceChildren();$('chatText').value='';
     for(const peer of peers.values()){peer.chatHistoryQueue=[];peer.chatHistoryReceived=0;}
@@ -283,7 +285,7 @@
     for(const citation of replyCitations){const target=findReplyTarget(citation.target.authorId,citation.target.id);citation.button.textContent=target?target.author.name+' · '+(target.text.length>100?target.text.slice(0,97)+'…':target.text):'Original message unavailable';}
   }
   function syncReplyRows() {
-    for(const [key,value] of replyRows){const available=chatHistory.some(item=>replyKey(item.author.id,item.id)===key);value.button.disabled=!available;value.row.draggable=available;}
+    for(const [key,value] of replyRows){const available=chatHistory.some(item=>replyKey(item.author.id,item.id)===key);value.button.disabled=!available;value.row.draggable=available;if(!available)replyDragTokens.delete(value.token);}
     updateReplyCitations();
   }
   function renderReplyPreview() {
@@ -291,13 +293,32 @@
     if(!target){pendingReply=null;$('replyPreview').hidden=true;return;}
     $('replyAuthor').textContent=target.author.name;
     $('replyExcerpt').textContent=target.text.length>120?target.text.slice(0,117)+'…':target.text;
-    $('replyPreview').hidden=false;
+    $('replyPreview').hidden=false;$('chatText').setAttribute?.('aria-describedby','replyAuthor replyExcerpt');
   }
   function selectChatReply(authorId,id) {
     if(!findReplyTarget(authorId,id))return false;
     pendingReply={authorId,id};renderReplyPreview();$('chatText').focus?.();return true;
   }
-  function clearChatReply() { pendingReply=null;$('replyPreview').hidden=true; }
+  function clearChatReply() { pendingReply=null;$('replyPreview').hidden=true;$('chatText').removeAttribute?.('aria-describedby'); }
+  function bindChatReplyDrag() {
+    const log=$('chatLog'),form=$('chatForm'),mime='application/x-vumiro-room-reply';
+    if(typeof log.addEventListener!=='function'||typeof form.addEventListener!=='function')return;
+    function clearDrag() { activeReplyRow?.classList.remove('chat-dragging');activeReplyRow=null;activeReplyDrag='';form.classList.remove('chat-reply-drop'); }
+    log.addEventListener('dragstart',event=>{
+      let node=event.target,interactive=false;
+      while(node&&node!==log&&!node.dataset?.replyToken){if(['A','BUTTON','INPUT','TEXTAREA','SELECT'].includes(String(node.tagName).toUpperCase()))interactive=true;node=node.parentElement;}
+      const row=node?.dataset?.replyToken?node:null,token=row?.dataset.replyToken;
+      if(interactive||!row?.draggable||!replyDragTokens.has(token)||window.getSelection?.()?.toString()){event.preventDefault();return;}
+      clearDrag();activeReplyRow=row;activeReplyDrag=token;event.dataTransfer?.setData(mime,token);if(event.dataTransfer)event.dataTransfer.effectAllowed='copy';row.classList.add('chat-dragging');
+    });
+    form.addEventListener('dragover',event=>{if(!activeReplyDrag)return;event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';form.classList.add('chat-reply-drop');});
+    form.addEventListener('dragleave',event=>{if(!form.contains?.(event.relatedTarget))form.classList.remove('chat-reply-drop');});
+    form.addEventListener('drop',event=>{if(!activeReplyDrag)return;const token=event.dataTransfer?.getData(mime);if(token===activeReplyDrag){event.preventDefault();const target=replyDragTokens.get(token);if(target)selectChatReply(target.authorId,target.id);}clearDrag();});
+    log.addEventListener('dragend',clearDrag);
+  }
+  function bindChatReplyKeys() {
+    $('chatView').addEventListener?.('keydown',event=>{if(event.key!=='Escape'||!pendingReply)return;event.preventDefault();clearChatReply();$('chatText').focus?.();});
+  }
   function chatReplySignatureText(message) { return JSON.stringify(['vumiro-room-chat-reply-v1',chatSignatureText(message),message.signature,message.replyTo.authorId,message.replyTo.id]); }
   function validChatReply(message) {
     const hasTarget=Object.prototype.hasOwnProperty.call(message,'replyTo'),hasSignature=Object.prototype.hasOwnProperty.call(message,'replySignature');
@@ -364,7 +385,7 @@
   }
   function retainedChatFileBytes() { return [...chatFiles.values()].reduce((sum,file)=>sum+file.file.size,0)+[...receivedChatFiles.values()].filter(file=>file.active||file.url).reduce((sum,file)=>sum+file.size,0); }
   function releaseChatRow(row) {
-    for(const [key,value] of replyRows)if(value.row===row)replyRows.delete(key);
+    for(const [key,value] of replyRows)if(value.row===row){replyRows.delete(key);replyDragTokens.delete(value.token);}
     for(const citation of replyCitations)if(citation.row===row)replyCitations.delete(citation);
     for(const file of chatFiles.values())if(file.row===row){file.previewRetired=true;if(file.url){URL.revokeObjectURL(file.url);chatFileUrls.delete(file.url);file.url=null;}}
     for(const [key,file] of receivedChatFiles)if(file.row===row){releaseChatFile(file);if(file.url){URL.revokeObjectURL(file.url);chatFileUrls.delete(file.url);}receivedChatFiles.delete(key);}
@@ -1114,12 +1135,14 @@
   setupEmojiPicker();
   function setupChatReplyComposer() {
     const preview=document.createElement('div'),copy=document.createElement('div'),heading=document.createElement('strong'),author=document.createElement('span'),excerpt=document.createElement('span'),cancel=document.createElement('button');
-    preview.id='replyPreview';preview.className='chat-reply-preview';preview.hidden=true;preview.setAttribute('aria-label','Replying to message');
+    preview.id='replyPreview';preview.className='chat-reply-preview';preview.hidden=true;preview.setAttribute('role','status');preview.setAttribute('aria-live','polite');preview.setAttribute('aria-label','Replying to message');
     heading.textContent='Replying to ';author.id='replyAuthor';excerpt.id='replyExcerpt';copy.append(heading,author,excerpt);
     cancel.id='replyCancel';cancel.type='button';cancel.textContent='Cancel';cancel.setAttribute('aria-label','Cancel reply');cancel.onclick=()=>{clearChatReply();$('chatText').focus();};
-    preview.append(copy,cancel);$('chatForm').insertBefore(preview,$('chatTools'));
+    preview.append(copy,cancel);$('chatForm').insertBefore?.(preview,$('chatTools'));
   }
   setupChatReplyComposer();
+  bindChatReplyDrag();
+  bindChatReplyKeys();
   $('chatForm').onsubmit=sendRoomChat;
   if($('chatAttach'))$('chatAttach').onclick=()=>$('chatFile')?.click();
   if($('chatFile'))$('chatFile').onchange=()=>{shareChatFile($('chatFile').files?.[0]);$('chatFile').value='';};

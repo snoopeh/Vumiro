@@ -9,9 +9,13 @@ const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js'
 function harness() {
   const elements=new Map(),lines=[],peers=new Map(),revoked=[],timers=new Map();
   class Element {
-    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;this.classList={add(){},remove(){},toggle(){}};}
+    constructor(tag='div'){this.tagName=tag;this.children=[];this.dataset={};this.style={};this.value='';this.hidden=false;this.disabled=false;this.classes=new Set();this.listeners={};this.classList={add:name=>this.classes.add(name),remove:name=>this.classes.delete(name),toggle:name=>this.classes.has(name)?this.classes.delete(name):this.classes.add(name)};}
     append(...values){this.children.push(...values);for(const value of values)if(value&&typeof value==='object')value.parentElement=this;}
     replaceChildren(...values){this.children=values;}
+    addEventListener(name,handler){this.listeners[name]=handler;}
+    insertBefore(value,before){const at=this.children.indexOf(before);this.children.splice(at<0?0:at,0,value);}
+    setAttribute(name,value){this[name]=value;}
+    removeAttribute(name){delete this[name];}
     querySelector(){return this.children[0];}
     scrollIntoView(){this.scrolled=true;}
     focus(){this.focused=true;}
@@ -121,6 +125,38 @@ test('unavailable reply citations use neutral text and evicted messages lose Rep
   const row=app.$('chatLog').children[1],button=descendants(row).find(item=>item.className==='chat-reply-action');
   for(let i=0;i<101;i++)await app.acceptRoomChat(p,envelope(app,{id:String(i).padStart(32,'0'),timestamp:Date.now()+i}),true);
   assert.equal(button.disabled,true);assert.equal(row.draggable,false);
+});
+test('dragging a verified row onto the composer selects that reply without changing draft text',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);app.$('chatText').value='Keep draft';app.bindChatReplyDrag();
+  const row=app.$('chatLog').children[0],payload=new Map(),transfer={types:[],setData:(type,value)=>payload.set(type,value),getData:type=>payload.get(type)||'',effectAllowed:'',dropEffect:''};
+  app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){throw Error('valid drag cancelled');}});
+  assert.ok(payload.get('application/x-vumiro-room-reply'));assert.equal(payload.get('text/plain'),undefined);
+  let prevented=false;app.$('chatForm').listeners.dragover({dataTransfer:transfer,preventDefault(){prevented=true;}});assert.equal(prevented,true);
+  app.$('chatForm').listeners.drop({dataTransfer:transfer,preventDefault(){}});
+  assert.equal(app.$('replyPreview').hidden,false);assert.equal(app.$('chatText').value,'Keep draft');
+});
+test('outside, interactive, and selected-text drags leave the current reply alone',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),first=envelope(app,{id:'f'.repeat(32)}),second=envelope(app,{id:'s'.repeat(32)});
+  await app.acceptRoomChat(p,first,true);await app.acceptRoomChat(p,second,true);app.selectChatReply(first.author.id,first.id);app.bindChatReplyDrag();
+  const row=app.$('chatLog').children[1],button=descendants(row).find(item=>item.className==='chat-reply-action'),payload=new Map(),transfer={types:[],setData:(type,value)=>payload.set(type,value),getData:type=>payload.get(type)||''};
+  let cancelled=0;app.$('chatLog').listeners.dragstart({target:button,dataTransfer:transfer,preventDefault(){cancelled++;}});assert.equal(cancelled,1);
+  app.window.getSelection=()=>({toString:()=> 'selected'});app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){cancelled++;}});assert.equal(cancelled,2);
+  app.window.getSelection=()=>({toString:()=> ''});app.$('chatLog').listeners.dragstart({target:row,dataTransfer:transfer,preventDefault(){cancelled++;}});
+  app.$('chatLog').listeners.dragend({});assert.equal(app.$('replyAuthor').textContent,first.author.name);assert.equal(app.$('replyExcerpt').textContent,first.text);
+  assert.equal(app.$('chatForm').classes.has('chat-reply-drop'),false);
+});
+test('reply preview announces its target and Escape cancels from any composer control',async()=>{
+  const app=harness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app,{id:'t'.repeat(32)});
+  await app.acceptRoomChat(p,target,true);
+  vm.runInContext(source.slice(source.indexOf('  function setupChatReplyComposer()'),source.indexOf('  setupChatReplyComposer();')),app);
+  app.setupChatReplyComposer();for(const node of descendants(app.$('chatForm')))if(node.id)app.elements.set(node.id,node);
+  app.bindChatReplyKeys();app.$('chatText').value='Keep draft';app.selectChatReply(target.author.id,target.id);
+  assert.equal(app.$('replyPreview').role,'status');
+  assert.match(app.$('chatText')['aria-describedby'],/replyAuthor.*replyExcerpt/);
+  let prevented=false;app.$('chatView').listeners.keydown({key:'Escape',preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);assert.equal(app.$('replyPreview').hidden,true);assert.equal(app.$('chatText').value,'Keep draft');
+  assert.equal(app.$('chatText')['aria-describedby'],undefined);
 });
 test('a future chat version is not downgraded to unsigned legacy text',async()=>{
   const app=harness();app.setChatRoom('room-one');const p=peer(app),future=envelope(app,{version:3});
