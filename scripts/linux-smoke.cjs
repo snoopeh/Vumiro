@@ -62,6 +62,14 @@ function createSmokeAccountFixture() {
   return {credentials,allows,serve,secureStore,stats:()=>({requests,writes})};
 }
 
+function smokeAuthReloadUrl(value) {
+  const url=new URL(value);
+  if(!allowSmokeRequest(value)||url.pathname!=='/auth.html')throw new Error('Smoke reload requires the trusted auth page.');
+  // Native startup supplies signaling and room preferences in this query.
+  // The real lobby needs them even though transport remains blocked offline.
+  url.searchParams.set('platform','linux');return url.href;
+}
+
 function createSmokeProgress(report,now=Date.now) {
   const started=now();report.progress=[];
   return stage=>{report.stage=stage;report.progress.push({stage,ms:Math.max(0,now()-started)});if(report.progress.length>48)report.progress.shift();};
@@ -187,8 +195,9 @@ function install({ app, session }) {
       ipcMain.removeHandler('vumiro:secure-store');
       ipcMain.handle('vumiro:secure-store',(event,request)=>fixture.secureStore(event,request,window.webContents));
       fixtureEnabled=true;progress('fixture:native-adapter-ready');
+      const authReloadUrl=smokeAuthReloadUrl(await evaluate(()=>location.href));
       progress('fixture:auth-document-load');
-      await withSmokeDeadline(()=>window.loadURL('vumiro://app/auth.html?platform=linux'),'fixture:auth-document-load',7000);
+      await withSmokeDeadline(()=>window.loadURL(authReloadUrl),'fixture:auth-document-load',7000);
       await wait(()=>location.pathname==='/auth.html'&&document.querySelector('#accountSignIn')?.disabled===false,'fixture account availability');
       action='fixture sign-in submission';progress('fixture:sign-in-submission');
       await evaluate(credentials=>{
@@ -256,4 +265,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, createSmokeAccountFixture, createSmokeProgress, withSmokeDeadline, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, createSmokeProgress, withSmokeDeadline, install };

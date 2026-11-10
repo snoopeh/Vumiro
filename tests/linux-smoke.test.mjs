@@ -165,3 +165,18 @@ test('runtime readiness rejection is retained and reported when run starts',asyn
   await f.driver.run(f.window);
   assert.equal(f.order.includes('evaluate'),false);assert.match(f.reports.at(-1).error,/CDP readiness failed/);assert.deepEqual(f.exits,[1]);
 });
+
+
+test('fixture auth reload preserves native signaling and room bootstrap parameters for the real lobby',()=>{
+  const {smokeAuthReloadUrl}=require('../scripts/linux-smoke.cjs');
+  const initial=new URL('vumiro://app/auth.html?signaling=wss%3A%2F%2Fvumiro-rooms.vumiro-signaling.workers.dev%2Fcall-signaling&fps=60&mbps=20&invite=smoke-room#room');
+  const reloaded=new URL(smokeAuthReloadUrl(initial.href));
+  assert.equal(reloaded.pathname,'/auth.html');
+  for(const key of ['signaling','fps','mbps','invite'])assert.equal(reloaded.searchParams.get(key),initial.searchParams.get(key));
+  assert.equal(reloaded.hash,'#room');assert.equal(reloaded.searchParams.get('platform'),'linux');
+  const client=readFileSync(new URL('../Vumiro.Client/WebServer/friends-client.js',import.meta.url),'utf8');
+  const normalize=vm.runInNewContext('('+client.match(/function normalizeService\(raw\) \{[^\n]+/)[0]+')',{URL,migrateRoomHost:value=>value});
+  assert.match(normalize(reloaded.searchParams.get('signaling')),/^wss:\/\//);
+  assert.throws(()=>normalize('vumiro://app'),/valid wss/,'discarding the native signaling query prevents real lobby initialization');
+  for(const invalid of ['https://example.test/auth.html','vumiro://other/auth.html','vumiro://app/call.html'])assert.throws(()=>smokeAuthReloadUrl(invalid),/trusted auth/);
+});
