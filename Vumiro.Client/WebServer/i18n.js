@@ -10205,7 +10205,8 @@
 .vumiro-language{position:fixed;bottom:12px;left:12px;display:flex;align-items:center;gap:7px;z-index:2147483646;background:var(--surface,#211c1c);color:var(--text,#f7f2ef);border:1px solid var(--line,#483a39);border-radius:10px;padding:6px 9px;font:14px system-ui;max-width:calc(100vw - 24px);box-sizing:border-box}
 .vumiro-language select{font:inherit;color:inherit;background:transparent;border:0;width:auto;max-width:190px;min-width:100px;margin:0;padding:3px 0;cursor:pointer}
 .vumiro-language select option{color:#f7f2ef;background:#211c1c}
-.vumiro-language:focus-within{outline:2px solid var(--accent,#e11d2e);outline-offset:3px}
+.vumiro-language select:focus{outline:none}
+.vumiro-language select:focus-visible{outline:2px solid var(--accent,#e11d2e);outline-offset:3px}
 .vumiro-language-inline{position:relative;bottom:auto;left:auto;width:max-content;margin:16px 0 0;max-width:100%;z-index:auto}
 .vumiro-language-sidebar,.vumiro-language-settings{width:100%;min-width:0;max-width:100%;margin:0;font-size:12px;flex-shrink:0}
 .vumiro-language-sidebar select,.vumiro-language-settings select{width:100%;min-width:0;max-width:100%;flex:1}
