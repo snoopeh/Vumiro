@@ -1,7 +1,8 @@
-# Private finished-cover backup (optional, not deployed)
+# Private finished-cover backup (optional, disabled)
 
-This source feature does not provision a bucket, enable billing, create credentials,
-change a Cloudflare account, or upload any user data. Existing legacy account sync
+The account Worker includes this source feature, but its optional bucket is not
+provisioned and the live `profileMediaEnabled` flag remains false. The 1.22.2
+service rollout did not enable media storage. Existing legacy account sync
 works without the binding and without migration 0007. To enable later, an explicitly
 authorized operator must apply `migrations/0007_profile_media.sql` to ACCOUNT_DB and
 bind a private R2 bucket as `PROFILE_MEDIA` on the account Worker. Do not enable a
@@ -101,4 +102,4 @@ Local Windows Node benchmark (2026-11-10), inspectRaster only, ten calls each:
 These are local wall-clock measurements, not Cloudflare CPU measurements; JWT,
 digest, request parsing, database and R2 work are excluded. Actual Cloudflare
 performance, cold-start behavior and free-plan compatibility remain unverified.
-No deployment, paid-plan choice or infrastructure changes were made.
+No media bucket, paid-plan choice or media infrastructure changes were made.

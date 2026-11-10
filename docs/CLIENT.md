@@ -1,6 +1,8 @@
-# Vumiro 1.21.8
+# Vumiro 1.22.2
 
 Share your view. Local profiles, friends and direct screen/voice rooms in a small Windows app.
+
+Version 1.22.2 adds sender notifications that open their source, a consistent settings menu with unsaved-change confirmation, six accessible interface languages, named friend tags, signed friend nudges, room loading feedback, login motion, stream mosaics and message replies. Chat has a larger resizable pane, a shorter fading thumb and no timed text cooldown. Sign-in is required; successful sign-in opens the lobby after any necessary encrypted-identity recovery. Local profiles and signing identities remain stored on the device.
 
 Download [Vumiro](https://github.com/snoopeh/Vumiro/releases/latest), extract **Vumiro-win-x64-v2.zip**, and run **Vumiro.exe**. Windows 10/11 x64, .NET Framework 4.8 and Microsoft Edge WebView2 Runtime are required. No administrator access or local sharing server is needed. The **Vumiro-win-x64.zip** asset is a compatibility bridge for older automatic updaters; after installing it, use Update now again to finish installing the complete package.
 
@@ -30,9 +32,9 @@ Create a display name, then open the bottom **Profile and account** menu and cho
 
 Version 1.21.7 connects email/password accounts to the hosted service and publishes the operator and provider details in the privacy notice. Signing-key rotation no longer rejects valid cached sessions, and pending identity deletion is reported accurately.
 
-The dedicated welcome page opens on first launch. It offers **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. You can also choose **Continue with a local profile**. Existing local users can open **Account & backup** from the bottom profile menu. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
+The dedicated welcome page opens when signed out. It offers configured **Google**, **Microsoft**, and Vumiro **email/password** sign-in, plus **Create account**, email verification, and password recovery. An account is required before entering the lobby or a room. Existing local profile data remains on the device. Account management is inside the common settings menu. Social sign-in opens the system browser and requests only email and basic profile details; Vumiro does not request your mail, contacts, or files.
 
-Email/password sign-in and verified-email registration are enabled. Use at least 12 characters for your password and enter the six-digit confirmation code from your email; codes expire after ten minutes. Google and Microsoft remain disabled until their separate provider registrations are configured. Local profiles and rooms work independently. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device when those providers are enabled.
+Email/password sign-in and verified-email registration are enabled. Use at least 12 characters for your password and enter the six-digit confirmation code from your email; codes expire after ten minutes. Social providers appear when enabled by the service configuration. A signed-in device keeps its session after restarts using Windows DPAPI or the Linux desktop keyring. Linux account sign-in is unavailable when no secure keyring is configured. Social users can set a separate Vumiro backup password for encrypted contact-identity recovery on another device when those providers are enabled.
 
 The account can back up and restore the profile, friend contact book, blocks, stream preferences, and client-encrypted signing identity. Save the identity recovery code offline when enabling backup. Existing nonextractable local identities require a one-time signed migration; updated friends verify it when both peers are online, while older clients may require a new friend acceptance. Choose which direction to sync when both this device and the account already have data. Concurrent edits use a revision check; automatic sync pauses on conflict. **Export my data**, linked-device revocation, sign-out, and account deletion are in the same panel. Deleting the account removes synced account data; it leaves the local device profile and signing key on the device.
 
@@ -76,7 +78,7 @@ Use the **paperclip**, paste an image, or drop a file into the composer (up to 1
 
 On the updated directory, a public handle combines a username and a code, for example `mira#48271`. People can share a username; random five-digit codes identify the exact person. Existing three-digit named codes migrate once on the updated service; numeric legacy tags remain valid. Search `@mira` to choose from matching online users or enter `mira#48271` for an exact match. Copying a tag uses this combined handle. Existing numeric tags and contact codes remain compatible. A username change can change the combined handle; the signing identity stays the same.
 
-The local implementation requires the updated directory service. Until that service is deployed, production connections retain their legacy numeric tags. LOCAL QA can use the isolated localhost service to review named tags without changing production.
+The updated directory service was deployed with the 1.22.2 rollout. It assigns named tags to updated clients; legacy clients retain compatibility with their numeric identifiers. The live LOCAL QA reconnect verified a directory-issued named tag.
 
 ### Voice & audio
 

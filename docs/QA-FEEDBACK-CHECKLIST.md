@@ -57,6 +57,6 @@ Linux X11 supports native effects; Wayland and ordinary browsers use a viewport 
 
 ## Named-tag rollout status
 
-The running service was checked: its `ready` / `profile-ready` responses lack `namedFriendTagsVersion` and a named handle. **Named tags are not verified working on the running service.** Backend source supports them, but rollout is held pending human signoff. Commit `e046dbb` fixes the client regression that erased an already cached named tag when a numeric-only ready response arrived.
+After the user's release authorization on 2026-11-10, both existing coordination Workers were deployed. Reconnecting the real LOCAL QA client received **`qa-masta#92374`** from the live directory. The earlier numeric-only service limitation is resolved. Commit `e046dbb` still protects cached named tags during older directory responses.
 
-After an approved rollout, separately verify that the directory assigns a `nickname#code` handle, lookup resolves it, and reconnect preserves it. Do not use the cached-tag fix as evidence of backend rollout or successful handle assignment.
+Backend regressions cover named lookup, collision handling and reconnect persistence. Real two-person lookup and final cross-client acceptance remain part of human QA.
