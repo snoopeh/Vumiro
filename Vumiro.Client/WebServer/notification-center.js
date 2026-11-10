@@ -17,7 +17,9 @@
 .notificationPanel.isOpen{opacity:1;visibility:visible;transform:translateX(0);pointer-events:auto}
 .notificationPanel .dialogHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .notificationPanel h2{margin:0;font-size:16px}.notificationPanel ol{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-.notificationPopups{position:fixed;right:22px;bottom:24px;z-index:150;width:min(370px,calc(100vw - 32px));display:grid;gap:10px;pointer-events:none}
+.notificationPopups{position:fixed;inset:auto 22px 24px auto;margin:0;border:0;padding:0;background:transparent;overflow:visible;z-index:150;width:min(370px,calc(100vw - 32px));display:grid;gap:10px;pointer-events:none;color:inherit}
+.notificationPopups[popover]:not(:popover-open){display:none}
+.notificationPopups::backdrop{background:transparent;pointer-events:none}
 .notificationCard{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ffffff16;border-radius:13px;background:#202028;color:#f8f8fa;min-width:0}
 .notificationPopups .notificationCard{pointer-events:auto;box-shadow:0 14px 45px #0007;animation:notificationArrive .28s cubic-bezier(.2,.8,.2,1)}
 .notificationAvatar{flex:none;width:42px;height:42px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:#4b273a;color:#fff;font-weight:700;font-size:18px}
@@ -33,7 +35,28 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
     let opened = false, items = [];
     const stack = document.createElement('div');
     stack.className = 'notificationPopups'; stack.setAttribute('aria-live', 'polite'); stack.setAttribute('aria-relevant', 'additions');
+    if (typeof stack.showPopover === 'function') stack.setAttribute('popover', 'manual');
     document.body.append(stack);
+    // A modal makes nodes outside its subtree inert. Keep the nonmodal toast
+    // stack inside the current modal, then lift it above that modal in the top layer.
+    let modalOrder = [];
+    function placePopups(records = []) {
+      const modals = [...document.querySelectorAll('dialog:modal')];
+      modalOrder = modalOrder.filter(node => modals.includes(node));
+      for (const record of records) if (record.type === 'attributes' && modals.includes(record.target)) {
+        modalOrder = modalOrder.filter(node => node !== record.target); modalOrder.push(record.target);
+      }
+      for (const node of modals) if (!modalOrder.includes(node)) modalOrder.push(node);
+      const parent = modalOrder.at(-1) || document.body;
+      if (stack.parentNode !== parent) {
+        if (stack.matches?.(':popover-open')) stack.hidePopover();
+        parent.append(stack);
+      }
+      if (visible.size && stack.showPopover && !stack.matches(':popover-open')) stack.showPopover();
+      else if (!visible.size && stack.matches?.(':popover-open')) stack.hidePopover();
+    }
+    const modalObserver = new MutationObserver(placePopups);
+    modalObserver.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['open']});
     panel.classList.add?.('notificationPanel');
     panel.setAttribute('role', 'region'); panel.setAttribute('aria-label', labels.title || 'Notifications');
     panel.setAttribute('tabindex', '-1');
@@ -42,10 +65,15 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
     bell.setAttribute('aria-controls', panel.id); bell.setAttribute('aria-expanded', 'false');
     bell.setAttribute('aria-haspopup', 'true');
     function listen(node, type, callback) { node.addEventListener(type, callback); listeners.push(() => node.removeEventListener(type, callback)); }
-    function open() { opened = true; panel.hidden = false; panel.classList.toggle('isOpen', true); panel.setAttribute('aria-hidden', 'false'); bell.setAttribute('aria-expanded', 'true'); }
+    function positionPanel() {
+      if (!opened) return;
+      const top = Math.max(8, Math.ceil(bell.getBoundingClientRect().bottom) + 12);
+      panel.style.top = top + 'px'; panel.style.maxHeight = Math.max(0, window.innerHeight - top - 12) + 'px';
+    }
+    function open() { opened = true; positionPanel(); panel.hidden = false; panel.classList.toggle('isOpen', true); panel.setAttribute('aria-hidden', 'false'); bell.setAttribute('aria-expanded', 'true'); }
     function close(restoreFocus = false) { opened = false; panel.classList.toggle('isOpen', false); panel.setAttribute('aria-hidden', 'true'); panel.inert = true; bell.setAttribute('aria-expanded', 'false'); if (restoreFocus) bell.focus(); }
     function show() { panel.inert = false; open(); }
-    function removePopup(id) { const entry = visible.get(id); if (!entry) return; clearTimeout(entry.timer); entry.node.remove(); visible.delete(id); }
+    function removePopup(id) { const entry = visible.get(id); if (!entry) return; clearTimeout(entry.timer); entry.node.remove(); visible.delete(id); placePopups(); }
     function row(item, popup) {
       const node = document.createElement(popup ? 'article' : 'li'); node.className = 'notificationCard'; node.dataset.notificationId = item.id;
       let avatar;
@@ -82,16 +110,20 @@ button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{a
       function expire() { clearTimeout(entry.timer); entry.timer = setTimeout(() => removePopup(item.id), item.category === 'call' ? 12000 : 7000); }
       node.addEventListener('pointerenter', () => clearTimeout(entry.timer)); node.addEventListener('pointerleave', expire);
       node.addEventListener('focusin', () => clearTimeout(entry.timer)); node.addEventListener('focusout', expire);
-      visible.set(item.id, entry); stack.append(node); expire(); return true;
+      visible.set(item.id, entry); stack.append(node); placePopups(); expire(); return true;
     }
     function clear() { for (const id of [...visible.keys()]) removePopup(id); seen.clear(); sync([]); close(); }
     listen(bell, 'click', () => { if (opened) close(); else show(); });
     listen(bell, 'keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); show(); panel.focus(); } });
     listen(document, 'keydown', event => { if (event.key === 'Escape' && opened) { event.preventDefault(); close(true); } });
     listen(document, 'pointerdown', event => { if (opened && !bell.contains(event.target) && !panel.contains(event.target)) close(); });
+    listen(window, 'resize', positionPanel);
+    listen(document, 'scroll', positionPanel);
+    const bellObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(positionPanel) : null;
+    bellObserver?.observe(bell);
     close();
     return Object.freeze({sync, popup, open: show, close, clear,
-      destroy: () => { clear(); listeners.forEach(remove => remove()); stack.remove(); }});
+      destroy: () => { modalObserver.disconnect(); bellObserver?.disconnect(); clear(); listeners.forEach(remove => remove()); stack.remove(); }});
   }
   window.VumiroNotificationCenter = Object.freeze({create, normalize});
 })();

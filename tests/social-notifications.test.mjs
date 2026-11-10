@@ -9,22 +9,26 @@ const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',imp
 function harness(saved){
   const start=source.indexOf('const notificationCategories='),end=source.indexOf('let generation=0',start);
   assert.ok(start>=0&&end>start,'notification controller exists');
-  const elements=new Map(),storage=new Map(saved?[['vumiro-social-notifications-v1',JSON.stringify(saved)]]:[]),sounds=[],attention=[],opened=[];
+  const elements=new Map(),storage=new Map(saved?[['vumiro-social-notifications-v1',JSON.stringify(saved)]]:[]),sounds=[],attention=[],opened=[],popups=[],dialogs=[];
   class Element{
-    constructor(){this.children=[];this.dataset={};this.attributes={};this.textContent='';this.hidden=false;this.checked=false;this.value='';}
+    constructor(){this.children=[];this.dataset={};this.attributes={};this.textContent='';this.hidden=false;this.checked=false;this.value='';this.open=false;this.classList={contains:name=>this.settings===true&&name==='settingsScreen'};}
     append(...nodes){this.children.push(...nodes);}
     replaceChildren(...nodes){this.children=nodes;}
     setAttribute(name,value){this.attributes[name]=value;}
     focus(){this.focused=true;}
+    click(){opened.push(this.id);}
+    close(){this.open=false;}
+    scrollIntoView(){this.scrolled=true;}
   }
-  const $=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
-  const context={$,document:{createElement:()=>new Element(),hasFocus:()=>false},localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
+  const $=id=>{if(!elements.has(id))elements.set(id,Object.assign(new Element(),{id}));return elements.get(id);};
+  const context={$,document:{createElement:()=>new Element(),hasFocus:()=>false,querySelectorAll:()=>dialogs.filter(item=>item.open)},localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)},
     appSounds:true,playUiCue:kind=>sounds.push(kind),host:{postMessage:message=>attention.push(message)},
     friends:[],rooms:[],blocked:[],blocking:new Set(),requests:[],pending:null,profile:{id:'A'.repeat(43)},runtimeNow:()=>1000,
-    dialog:id=>opened.push(id),status:message=>opened.push(message),renderRequests:()=>{},friendById:()=>null};
+    dialog:id=>{opened.push(id);$(id).open=true;},status:message=>opened.push(message),renderRequests:()=>{},friendById:()=>null,frame:null,currentRoom:'',location:{origin:'https://app.test'},returnToRoom:()=>opened.push('room')};
+  context.window=context;
   vm.createContext(context);
-  vm.runInContext(source.slice(start,end)+';globalThis.notificationsTest={notifySocial,notificationSettings,renderNotifications,openNotifications,saveNotificationPreferences,resetNotificationDraft,notificationAvailable,clearNotificationSession:typeof clearNotificationSession===\'function\'?clearNotificationSession:null};',context);
-  return {api:context.notificationsTest,$,storage,sounds,attention,opened,context};
+  vm.runInContext(source.slice(start,end)+';globalThis.notificationsTest={setCenter:value=>notificationCenter=value,notificationItems,notificationAction,notifySocial,notificationSettings,renderNotifications,openNotifications,saveNotificationPreferences,resetNotificationDraft,notificationAvailable,clearNotificationSession:typeof clearNotificationSession===\'function\'?clearNotificationSession:null};',context);
+  return {api:context.notificationsTest,$,storage,sounds,attention,opened,popups,dialogs,context};
 }
 
 test('notification settings default to useful categories and validate persisted values',()=>{
@@ -144,4 +148,71 @@ test('notification button always uses only the bell and the full view is a nonmo
   assert.match(html,/id="notificationOpen"[^>]*aria-label="Notifications"[^>]*>\s*<svg/);
   assert.doesNotMatch(html,/<span class="notificationLabel">/);
   assert.match(html,/<aside id="notificationDialog"/);
+});
+
+
+test('every visual event displays an in-app popup and only background events add a desktop popup',()=>{
+  const app=harness();app.api.setCenter({sync(){},popup:item=>app.popups.push(item)});
+  app.api.notifySocial('friend','background','Kai sent you a friend request.',null,5000);
+  assert.equal(app.popups.length,1);assert.equal(app.attention.length,1);
+  app.context.document.hasFocus=()=>true;
+  app.api.notifySocial('friend','foreground','Kai is now your friend.',null,5000);
+  assert.equal(app.popups.length,2);assert.equal(app.attention.length,1);
+});
+
+function routedItem(app,action){app.api.notifySocial('friend','route-'+app.api.notificationItems.length,'Activity',action,5000);return app.api.notificationItems[0];}
+function openDialog(app,id,settings=false){const node=app.$(id);node.open=true;node.settings=settings;app.dialogs.push(node);return node;}
+
+test('notification navigation respects Keep editing and leaves settings drafts open',async()=>{
+  const app=harness(),settings=openDialog(app,'profileDialog',true);let decisions=0;
+  app.context.VumiroSettingsExit={requestClose:async()=>{decisions++;return false;}};
+  assert.equal(await app.api.notificationAction(routedItem(app,{type:'friends'})),false);
+  assert.equal(decisions,1);assert.equal(settings.open,true);assert.ok(!app.opened.includes('friendsNav'));
+});
+
+test('chat popup waits for settings exit then closes safe dialogs and opens its room chat',async()=>{
+  const app=harness(),settings=openDialog(app,'profileDialog',true),card=openDialog(app,'userCardDialog'),posts=[];
+  app.context.currentRoom='room-1';app.context.frame={contentWindow:{postMessage:(...args)=>posts.push(args)}};
+  let finish;app.context.VumiroSettingsExit={requestClose:()=>new Promise(resolve=>{finish=()=>{settings.close();resolve(true);};})};
+  const result=app.api.notificationAction(routedItem(app,{type:'chat',room:'room-1'}));assert.equal(posts.length,0);assert.equal(card.open,true);
+  finish();assert.equal(await result,true);assert.equal(card.open,false);assert.ok(app.opened.includes('room'));assert.equal(posts[0][0].type,'vumiro-open-chat');assert.equal(posts[0][1],'https://app.test');
+});
+
+test('expired calls and identity changes while saving settings cancel notification navigation',async()=>{
+  for(const change of ['call','identity']){
+    const app=harness(),settings=openDialog(app,'profileDialog',true);app.context.pending={direction:'incoming',nonce:'call-1',expires:5000,friend:'B'.repeat(43)};
+    let finish;app.context.VumiroSettingsExit={requestClose:()=>new Promise(resolve=>{finish=()=>{settings.close();resolve(true);};})};
+    const item=routedItem(app,{type:'call',id:'call-1'}),result=app.api.notificationAction(item);
+    assert.equal(await app.api.notificationAction(item),false,'a second click cannot start overlapping exit decisions');
+    if(change==='call')app.context.pending=null;else app.context.profile={id:'C'.repeat(43)};
+    finish();assert.equal(await result,false);assert.ok(!app.opened.includes('friendsNav'));assert.equal(app.$('acceptInvite').focused,undefined);
+  }
+});
+
+test('notification activation never dismisses destructive or unknown modal dialogs',async()=>{
+  for(const id of ['confirmDialog','nicknameDialog','identityRecoveryDialog']){
+    const app=harness(),modal=openDialog(app,id);let decisions=0;openDialog(app,'profileDialog',true);
+    app.context.VumiroSettingsExit={requestClose:async()=>{decisions++;return true;}};
+    assert.equal(await app.api.notificationAction(routedItem(app,{type:'friends'})),false);assert.equal(modal.open,true);assert.equal(decisions,0);assert.ok(!app.opened.includes('friendsNav'));
+  }
+});
+
+test('call popups take a browsing user to Friends and focus the incoming invitation',async()=>{
+  const app=harness();app.context.pending={direction:'incoming',nonce:'call-1',expires:5000,friend:'B'.repeat(43)};
+  assert.equal(await app.api.notificationAction(routedItem(app,{type:'call',id:'call-1'})),true);
+  assert.ok(app.opened.includes('friendsNav'));assert.equal(app.$('acceptInvite').focused,true);
+});
+
+test('request and room activity popups focus their originating row without accepting or joining',async()=>{
+  for(const type of ['request','rooms']){
+    const app=harness(),owner='B'.repeat(43),id=type==='request'?'request-1':owner+'_'+'a'.repeat(48),button={focus(){this.focused=true;}};
+    const row={dataset:type==='request'?{notificationRequestId:id}:{notificationRoomId:id},scrollIntoView(){this.scrolled=true;},querySelector:()=>button};
+    app.context.friendById=value=>value===owner?{id:owner}:null;
+    app.context.requests=[{id,direction:'incoming',expires:5000,contact:{id:owner}}];app.context.requestNow=()=>1000;
+    app.context.rooms=[{room:id,owner}];app.context.renderRooms=()=>{};
+    app.$(type==='request'?'requests':'roomsList').children=[row];
+    assert.equal(await app.api.notificationAction(routedItem(app,{type,id})),true);
+    assert.equal(row.scrolled,true);assert.equal(button.focused,true);
+    assert.ok(app.opened.includes(type==='request'?'friendsNav':'roomDialog'));
+  }
 });

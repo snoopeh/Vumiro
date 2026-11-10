@@ -400,7 +400,7 @@ for(const [kind,defaults] of Object.entries(notificationCategories)){
   notificationSettings[kind]={visual:typeof saved?.visual==='boolean'?saved.visual:defaults.visual,sound:typeof saved?.sound==='boolean'?saved.sound:defaults.sound};
 }
 const notificationItems=[],notificationSeen=new Map();
-let notificationCenter=null,notificationSequence=0;
+let notificationCenter=null,notificationSequence=0,notificationRouting=false;
 function clearNotificationSession(){notificationItems.length=0;notificationSeen.clear();notificationCenter?.clear();host?.postMessage({type:'window',action:'notify-clear'});renderNotifications();}
 const notificationSettingIds={friend:'Friend',roomInvite:'RoomInvite',call:'Call',roomActivity:'RoomActivity',message:'Message'};
 function resetNotificationDraft(){
@@ -426,19 +426,43 @@ function notificationAvailable(item){
   if(action.type==='rooms')return rooms.some(room=>room.room===action.id&&!!friendById(room.owner)&&!blocked.includes(room.owner)&&!blocking.has(room.owner));
   return action.type==='friends';
 }
-function notificationAction(item){
-  if(!notificationAvailable(item))return;
-  if(item.action.type==='chat'){notificationCenter?.close();returnToRoom();frame.contentWindow.postMessage({type:'vumiro-open-chat'},location.origin);return;}
-  if(item.action.type==='call'){
-    if(pending?.direction!=='incoming'||pending.nonce!==item.action.id||pending.expires<=runtimeNow())return;
-    $('notificationDialog').close();$('acceptInvite').focus();return;
-  }
-  if(item.action.type==='request'){
-    $('notificationDialog').close();$('friendsNav').click();
-    [...$('requests').children].find(row=>row.dataset.notificationRequestId===item.action.id)?.querySelector('button')?.focus();return;
-  }
-  if(item.action.type==='rooms'){$('notificationDialog').close();dialog('roomDialog');}
-  if(item.action.type==='friends'){$('notificationDialog').close();$('friendsNav').click();}
+async function notificationAction(item){
+  if(notificationRouting||!notificationAvailable(item))return false;
+  notificationRouting=true;
+  const identityId=profile?.id,safeDialogs=new Set(['addDialog','userCardDialog','roomDialog']);
+  const openDialogs=()=>[...document.querySelectorAll('dialog[open]')];
+  const isSettings=node=>node.classList.contains('settingsScreen');
+  const protectedDialog=()=>openDialogs().some(node=>!isSettings(node)&&!safeDialogs.has(node.id));
+  try{
+    // Never close a destructive confirmation, identity recovery, editor, or unknown modal.
+    if(protectedDialog()){status('Finish or cancel the open dialog before opening this notification.');return false;}
+    if(openDialogs().some(isSettings)){
+      if(!window.VumiroSettingsExit||!await window.VumiroSettingsExit.requestClose())return false;
+    }
+    if(profile?.id!==identityId||!notificationItems.includes(item)||!notificationAvailable(item))return false;
+    if(protectedDialog()||openDialogs().some(isSettings))return false;
+    for(const node of openDialogs())if(safeDialogs.has(node.id))node.close();
+    $('notificationDialog').close();
+    if(item.action.type==='chat'){
+      returnToRoom();frame.contentWindow.postMessage({type:'vumiro-open-chat'},location.origin);return true;
+    }
+    if(item.action.type==='call'){
+      $('friendsNav').click();$('acceptInvite').focus();return true;
+    }
+    if(item.action.type==='request'){
+      $('friendsNav').click();
+      const row=[...$('requests').children].find(row=>row.dataset.notificationRequestId===item.action.id);
+      row?.scrollIntoView?.({block:'center'});row?.querySelector('button')?.focus();return true;
+    }
+    if(item.action.type==='rooms'){
+      renderRooms();dialog('roomDialog');
+      const row=[...$('roomsList').children].find(row=>row.dataset.notificationRoomId===item.action.id);
+      row?.scrollIntoView?.({block:'center'});row?.querySelector('button')?.focus();return true;
+    }
+    if(item.action.type==='friends'){$('friendsNav').click();return true;}
+    return false;
+  }catch(error){status(globalThis.VumiroI18n?.error(error)||error.message);return false;}
+  finally{notificationRouting=false;}
 }
 function renderNotifications(){
   if(notificationCenter){notificationCenter.sync(notificationItems.map(notificationView));return;}
@@ -486,7 +510,7 @@ function notifySocial(category,key,text,action=null,expires=runtimeNow()+8640000
   if(notificationItems.length>64)notificationItems.length=64;
   renderNotifications();
   if(notificationSettings[category].sound)playUiCue(notificationCategories[category].cue);
-  if(notificationSettings[category].visual){if(document.hasFocus())notificationCenter?.popup(notificationView(item));else desktopNotification(item);}
+  if(notificationSettings[category].visual){notificationCenter?.popup(notificationView(item));if(!document.hasFocus())desktopNotification(item);}
   return true;
 }
 let generation=0,messages=Promise.resolve(),serviceUrl='',requests=[],requestTimer=0,rooms=[],currentRoom='',joined=false,sharing=false,lookupTimer=0,lookupGeneration=0,selectedLookup=null,avatarDraft='',avatarSelection=0,avatarWork=Promise.resolve(),currentAccess=null,confirmation=null;
@@ -1079,7 +1103,7 @@ function renderRooms(){
   $('roomsBadge').hidden=!visible.length;$('roomsBadge').textContent=visible.length;$('roomNav').title=visible.length+' friends’ rooms available';
   $('roomsEmpty').hidden=visible.length>0;$('roomsEmpty').textContent=ready?'No friends’ rooms are open right now.':'Reconnect to see your friends’ rooms.';
   for(const item of visible.sort((a,b)=>Number(b.live)-Number(a.live))){
-    const friend=friendById(item.owner),row=document.createElement('div');row.className='roomRow';
+    const friend=friendById(item.owner),row=document.createElement('div');row.className='roomRow';row.dataset.notificationRoomId=item.room;
     const photo=document.createElement('span');photo.className='avatar';avatar(photo,friend);
     const info=document.createElement('span');info.className='friendInfo';const label=document.createElement('strong');label.textContent=friend.nickname;
     const state=document.createElement('small'), mode=item.mode==='public'?'Public':item.mode==='private'?'Password protected':item.mode==='friends'?'Friends':'Owner approval';

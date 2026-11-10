@@ -1675,7 +1675,8 @@
     "Preview silent glow": "Preview silent glow",
     "Chat and people width": "Chat and people width",
     "Signing you in…": "Signing you in…",
-    "Opening your lobby.": "Opening your lobby."
+    "Opening your lobby.": "Opening your lobby.",
+    "Finish or cancel the open dialog before opening this notification.": "Finish or cancel the open dialog before opening this notification."
   },
   "es": {
     "Welcome to Vumiro": "Bienvenido a Vumiro",
@@ -3350,7 +3351,8 @@
     "Preview silent glow": "Probar brillo silencioso",
     "Chat and people width": "Ancho del chat y participantes",
     "Signing you in…": "Iniciando sesión…",
-    "Opening your lobby.": "Abriendo tu sala principal."
+    "Opening your lobby.": "Abriendo tu sala principal.",
+    "Finish or cancel the open dialog before opening this notification.": "Completa o cancela el diálogo abierto antes de abrir esta notificación."
   },
   "pt-BR": {
     "Welcome to Vumiro": "Bem-vindo ao Vumiro",
@@ -5025,7 +5027,8 @@
     "Preview silent glow": "Testar brilho silencioso",
     "Chat and people width": "Largura do chat e participantes",
     "Signing you in…": "Entrando na sua conta…",
-    "Opening your lobby.": "Abrindo seu lobby."
+    "Opening your lobby.": "Abrindo seu lobby.",
+    "Finish or cancel the open dialog before opening this notification.": "Conclua ou cancele a janela aberta antes de abrir esta notificação."
   },
   "ja": {
     "Welcome to Vumiro": "Vumiroへようこそ",
@@ -6700,7 +6703,8 @@
     "Preview silent glow": "光の通知をプレビュー",
     "Chat and people width": "チャットと参加者の幅",
     "Signing you in…": "サインイン中…",
-    "Opening your lobby.": "ロビーを開いています。"
+    "Opening your lobby.": "ロビーを開いています。",
+    "Finish or cancel the open dialog before opening this notification.": "この通知を開く前に、開いているダイアログを完了するかキャンセルしてください。"
   },
   "zh-CN": {
     "Welcome to Vumiro": "欢迎使用Vumiro",
@@ -8375,7 +8379,8 @@
     "Preview silent glow": "预览静音光晕",
     "Chat and people width": "聊天和成员面板宽度",
     "Signing you in…": "正在登录…",
-    "Opening your lobby.": "正在打开大厅。"
+    "Opening your lobby.": "正在打开大厅。",
+    "Finish or cancel the open dialog before opening this notification.": "请先完成或取消当前对话框，再打开此通知。"
   },
   "ru": {
     "Welcome to Vumiro": "Добро пожаловать в Vumiro",
@@ -10050,7 +10055,8 @@
     "Preview silent glow": "Просмотр тихого свечения",
     "Chat and people width": "Ширина чата и списка участников",
     "Signing you in…": "Вход в аккаунт…",
-    "Opening your lobby.": "Открываем главное меню."
+    "Opening your lobby.": "Открываем главное меню.",
+    "Finish or cancel the open dialog before opening this notification.": "Завершите или отмените действие в открытом окне, прежде чем открывать это уведомление."
   }
 };
   const locales = Object.freeze([
