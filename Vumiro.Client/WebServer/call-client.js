@@ -94,7 +94,7 @@
   function roomAccountAllowed() {
     let lobby=null;
     try{if(parent!==window&&parent.location.origin===location.origin&&parent.location.pathname==='/friends.html')lobby=parent;}catch{}
-    if(lobby?.VumiroAccount?.getState?.().signedIn===true&&new URL(location.href).searchParams.get('embedded')==='1')return true;
+    if(lobby?.VumiroAccount?.getState?.().signedIn===true)return true;
     const home=new URL(location.href);home.pathname='/friends.html';for(const key of ['autojoin','embedded','launchId'])home.searchParams.delete(key);
     (lobby||window).location.replace(home.href);return false;
   }

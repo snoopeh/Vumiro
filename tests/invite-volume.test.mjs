@@ -50,7 +50,7 @@ async function harness({clipboard='success',origin='https://vumiro.local',mode='
   const location=new URL('/call?autojoin=1&room='+room+'&mode='+mode+'&signaling='+encodeURIComponent('wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling'),origin);
   const sandbox={window:{VumiroLocalProfile:local},document:{getElementById:element,body:new Element('body'),createElement:tag=>new Element(tag)},location,URL,URLSearchParams,TextEncoder,crypto:webcrypto,MediaStream:Stream,RTCPeerConnection:PeerConnection,WebSocket:Socket,
     navigator:{clipboard:{writeText:async value=>{if(clipboard==='failure')throw Error('Clipboard unavailable');copied.push(value);}}},
-    parent:{},localStorage:{getItem:()=>null,setItem(){}},history:{replaceState(){}},addEventListener(){},setInterval(){},setTimeout,clearTimeout,console,btoa,atob};
+    parent:{location:new URL('/friends.html',origin),VumiroAccount:{getState:()=>({signedIn:true})},postMessage(){}},localStorage:{getItem:()=>null,setItem(){}},history:{replaceState(){}},addEventListener(){},setInterval(){},setTimeout,clearTimeout,console,btoa,atob};
   vm.runInNewContext(source,sandbox,{filename:'call-client.js'});
   // Profile initialization and automatic join each await one promise.
   await new Promise(resolve=>setImmediate(resolve));
