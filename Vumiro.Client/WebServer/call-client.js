@@ -40,13 +40,14 @@
     function replan() {
       if (disposed) return;
       const sharing = entries.filter(item => item.tile.sharing);
-      if (!sharing.length) return;
+      const visible = sharing.length ? sharing : entries;
+      if (!visible.length) return;
       const box = root.getBoundingClientRect();
       const width = box.width || root.clientWidth || 320;
       const height = Math.max(240, Math.min(760, window.innerHeight - box.top - 160));
-      const ratios = sharing.map(item => {
+      const ratios = visible.map(item => {
         const {videoWidth, videoHeight} = item.tile.video;
-        return videoWidth > 0 && videoHeight > 0 ? videoWidth / videoHeight : fallbackAspect;
+        return item.tile.sharing && videoWidth > 0 && videoHeight > 0 ? videoWidth / videoHeight : fallbackAspect;
       });
       const result = plan(ratios, width, height);
       grid.style.setProperty('--mosaic-columns', String(result.columns));
@@ -68,10 +69,10 @@
         item.tile.element.classList.toggle('sharing', !!item.tile.sharing);
         item.tile.selectButton?.setAttribute('aria-pressed', String(item.id === focusedId));
       }
-      place(grid, sharing);
-      place(strip, idle);
-      grid.hidden = sharing.length === 0;
-      strip.hidden = idle.length === 0;
+      place(grid, sharing.length ? sharing : idle);
+      place(strip, sharing.length ? idle : []);
+      grid.hidden = entries.length === 0;
+      strip.hidden = sharing.length === 0 || idle.length === 0;
       replan();
     }
     let observedWidth = 0;
@@ -555,7 +556,7 @@
     stage.append(video,placeholder); element.append(header,stage,stats); $('tiles').append(element);
     view.onchange = () => { stage.classList.toggle('actual', view.value === 'actual'); resize(); };
     function resize() { if (view.value==='actual') { video.style.width=video.videoWidth+'px'; video.style.height=video.videoHeight+'px'; } else { video.style.width='';video.style.height=''; } }
-    async function fullscreen() { try { if(document.fullscreenElement) await document.exitFullscreen();else await stage.requestFullscreen(); } catch(error) { status('Fullscreen: '+error.message); } }
+    async function fullscreen() { if(!result.sharing)return;try { if(document.fullscreenElement) await document.exitFullscreen();else await stage.requestFullscreen(); } catch(error) { status('Fullscreen: '+error.message); } }
     video.onresize=()=>{resize();mosaic.replan();};full.onclick=fullscreen;stage.ondblclick=event=>{ event.preventDefault();fullscreen(); };
     const result={element,video,stats,placeholder,heading,avatar,placeholderAvatar,muteBadge,selectButton,audios:[],sharing:false,micMuted:null};
     if(!local) {
