@@ -119,11 +119,20 @@ test('legacy cover removal during transfer prevents stale cover display',async()
 });
 
 test('at most two incoming allocations exist, and disposal releases their slots',async()=>{
-  const f=await fixture(),sessions=[],sent=[];try{const from=f.participants[0],to=f.participants[1];from.blob=raster(50000);from.manifest={...from.manifest,bytes:50000,digest:await hash(await from.blob.arrayBuffer())};
-    for(let i=0;i<3;i++){const session=f.api.create({local:to.local,own:()=>to,remoteId:from.id,friend:()=>from,active:()=>true,send:value=>{sent.push({i,value});return true;}});sessions.push(session);await session.profileReceived(from.banner);session.receive({type:'cover-hello',version:1});const value={type:'cover-manifest',from:from.id,to:to.id,key:from.key,nonce:crypto.randomUUID(),expires:Date.now()+30000,manifest:from.manifest};value.signature=await from.local.sign(f.api.signatureText(value));session.receive(value);}
-    await until(()=>sent.filter(m=>m.value.type==='cover-request').length===2&&sent.some(m=>m.i===2&&m.value.type==='cover-done'));
-    sessions[0].dispose();const value={type:'cover-manifest',from:from.id,to:to.id,key:from.key,nonce:crypto.randomUUID(),expires:Date.now()+30000,manifest:from.manifest};value.signature=await from.local.sign(f.api.signatureText(value));sessions[2].receive(value);await until(()=>sent.some(m=>m.i===2&&m.value.type==='cover-request'));
-  }finally{for(const session of sessions)session.dispose();f.close();}
+  const f=await fixture(),sessions=[],sent=[],releaseVerification=[];try{const from=f.participants[0],to=f.participants[1];from.blob=raster(50000);from.manifest={...from.manifest,bytes:50000,digest:await hash(await from.blob.arrayBuffer())};
+    for(let i=0;i<3;i++){const verification=new Promise(resolve=>{releaseVerification[i]=resolve;}),local={...to.local,verify:async(...args)=>{const valid=await to.local.verify(...args);await verification;return valid;}};const session=f.api.create({local,own:()=>to,remoteId:from.id,friend:()=>from,active:()=>true,send:value=>{sent.push({i,value});return true;}});sessions.push(session);await session.profileReceived(from.banner);session.receive({type:'cover-hello',version:1});const value={type:'cover-manifest',from:from.id,to:to.id,key:from.key,nonce:crypto.randomUUID(),expires:Date.now()+30000,manifest:from.manifest};value.signature=await from.local.sign(f.api.signatureText(value));session.receive(value);}
+    // WebCrypto completions may arrive in any order. Make the last-created
+    // session finish verification first rather than relying on CI scheduling.
+    releaseVerification[2]();await until(()=>sent.some(m=>m.i===2&&m.value.type==='cover-request'));
+    releaseVerification[1]();await until(()=>sent.some(m=>m.i===1&&m.value.type==='cover-request'));
+    releaseVerification[0]();await until(()=>sent.filter(m=>['cover-request','cover-done'].includes(m.value.type)).length===3);
+    const allocated=sent.filter(m=>m.value.type==='cover-request'),rejected=sent.filter(m=>m.value.type==='cover-done');
+    assert.equal(allocated.length,2);assert.equal(rejected.length,1);
+    assert.equal(allocated[0].i,2,'allocation follows completed verification, not creation order');
+    assert.equal(rejected[0].i,0);
+    sessions[allocated[0].i].dispose();const value={type:'cover-manifest',from:from.id,to:to.id,key:from.key,nonce:crypto.randomUUID(),expires:Date.now()+30000,manifest:from.manifest};value.signature=await from.local.sign(f.api.signatureText(value));sessions[rejected[0].i].receive(value);await until(()=>sent.some(m=>m.i===rejected[0].i&&m.value.type==='cover-request'));
+    assert.equal(sent.filter(m=>m.value.type==='cover-request').length,3,'disposing a live allocation releases exactly one slot for retry');
+  }finally{for(const release of releaseVerification)release();for(const session of sessions)session.dispose();f.close();}
 });
 
 
