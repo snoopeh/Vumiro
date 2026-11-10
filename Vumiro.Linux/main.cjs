@@ -1,6 +1,7 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, protocol, session, desktopCapturer, ipcMain, shell, dialog, Notification, powerMonitor, safeStorage, screen } = require('electron');
+let nativeNudge;
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, randomBytes, createHash } = require('node:crypto');
@@ -517,6 +518,8 @@ function registerIpc() {
       void handleUpdateAction(message.action);
       return;
     }
+    if (message.type === 'window' && keys.join(',') === 'action,silent,type' && message.action === 'nudge' && typeof message.silent === 'boolean') nativeNudge.start(mainWindow, message.silent);
+    if (message.type === 'window' && keys.join(',') === 'action,type' && message.action === 'nudge-cancel') nativeNudge.cancel();
     if (message.type === 'window' && keys.join(',') === 'action,notification,type' && message.action === 'notify') showDesktopNotification(message.notification);
     if (message.type === 'window' && keys.join(',') === 'action,type' && message.action === 'notify-clear') clearDesktopNotifications();
   });
@@ -541,6 +544,8 @@ function splashHtml() {
 }
 
 async function createWindows() {
+  const createNudge = require('./native-nudge.cjs');
+  nativeNudge = createNudge({BrowserWindow, screen, positioningSupported:createNudge.positioningSupported(process.env, app.commandLine.getSwitchValue('ozone-platform'))});
   mainWindow = new BrowserWindow({
     width: 1160,
     height: 800,
@@ -553,6 +558,7 @@ async function createWindows() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: nativeNudge.positioningSupported ? ['--vumiro-native-nudge'] : [],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -602,8 +608,10 @@ async function createWindows() {
   window.on('unmaximize', sendWindowState);
   window.on('minimize', sendWindowState);
   window.on('restore', sendWindowState);
-  window.on('closed', clearDesktopNotifications);
-  window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) clearDesktopNotifications(); });
+  window.on('closed', () => { clearDesktopNotifications(); nativeNudge.cancel(); });
+  window.on('minimize', () => nativeNudge.cancel());
+  window.on('hide', () => nativeNudge.cancel());
+  window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) { clearDesktopNotifications(); nativeNudge.cancel(); } });
 
   if (!smoke) {
     splashWindow = new BrowserWindow({

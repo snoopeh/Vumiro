@@ -2,6 +2,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const nativeNudgeSupported = typeof process !== 'undefined' && process.argv?.includes('--vumiro-native-nudge') === true;
 const listeners = new Set();
 ipcRenderer.on('vumiro:message', (_event, data) => {
   for (const callback of [...listeners]) {
@@ -20,17 +21,19 @@ function allowedMessage(message) {
   if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
   const keys = Object.keys(message).sort();
   if (message.type === 'window' && message.action === 'notify') return keys.join(',') === 'action,notification,type' && !!notificationPayload(message.notification);
+  if (message.type === 'window' && message.action === 'nudge') return keys.join(',') === 'action,silent,type' && typeof message.silent === 'boolean';
   if (keys.join(',') !== 'action,type' || typeof message.action !== 'string') return false;
   if (message.type === 'updates') return ['state', 'check', 'install', 'download'].includes(message.action);
-  return message.type === 'window' && ['state', 'close', 'minimize', 'maximize', 'notify-clear'].includes(message.action);
+  return message.type === 'window' && ['state', 'close', 'minimize', 'maximize', 'notify-clear', 'nudge-cancel'].includes(message.action);
 }
 
 contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
   platform: 'linux',
-  capabilities: Object.freeze({ nativeWindowFrame: true, systemAudio: false, manualUpdates: true }),
+  capabilities: Object.freeze({ nativeWindowFrame: true, systemAudio: false, manualUpdates: true, nativeWindowNudge: nativeNudgeSupported, screenNudgeGlow: nativeNudgeSupported }),
   postMessage(message) {
     if (allowedMessage(message)) {
       const safe = { type: message.type, action: message.action };
+      if (message.action === 'nudge') safe.silent = message.silent;
       if (message.action === 'notify') safe.notification = notificationPayload(message.notification);
       ipcRenderer.send('vumiro:post-message', safe);
     }

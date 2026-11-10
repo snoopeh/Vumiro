@@ -29,6 +29,7 @@
     },
     "files": [
       "main.cjs",
+      "native-nudge.cjs",
       "preload.js",
       "capture-picker.js",
       "capture-picker-preload.js",

@@ -12,6 +12,7 @@ namespace Vumiro.Client
         private bool contentFullscreen;
         private bool backdropEnabled;
         private DesktopNotificationCenter desktopNotifications;
+        private NativeNudge nativeNudge;
         private readonly CaptionClickTracker captionClicks = new CaptionClickTracker();
         private static readonly Dictionary<string, int> ResizeEdges = new Dictionary<string, int> {
             {"w",10}, {"e",11}, {"n",12}, {"nw",13}, {"ne",14}, {"s",15}, {"sw",16}, {"se",17}
@@ -22,8 +23,10 @@ namespace Vumiro.Client
             FormBorderStyle = FormBorderStyle.None;
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             HandleCreated += (s, e) => ApplyWindowAppearance();
-            browser.NavigationStarting += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; };
-            FormClosed += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; };
+            browser.NavigationStarting += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; nativeNudge?.Cancel(); };
+            FormClosed += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; nativeNudge?.Dispose(); nativeNudge = null; };
+            ResizeBegin += (s, e) => nativeNudge?.Cancel();
+            VisibleChanged += (s, e) => { if (!Visible) nativeNudge?.Cancel(); };
             Resize += (s, e) => {
                 if (WindowState != FormWindowState.Minimized) lastWindowState = WindowState;
                 ApplyWindowAppearance(); PublishWindowState();
@@ -44,6 +47,7 @@ namespace Vumiro.Client
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 0x0112 || message.Msg == 0x0231) nativeNudge?.Cancel(); // system state change / user move-size
             if (message.Msg == 0x0083) { message.Result = IntPtr.Zero; return; } // WM_NCCALCSIZE
             if (message.Msg == 0x0086 && WindowState != FormWindowState.Minimized) // WM_NCACTIVATE
             {
@@ -74,17 +78,17 @@ namespace Vumiro.Client
             {
                 var packed = message.LParam.ToInt64();
                 var point = PointToClient(new Point((short)(packed & 0xffff), (short)((packed >> 16) & 0xffff)));
-                var edge = Math.Max(5, (int)Math.Round(6 * DeviceDpi / 96.0));
-                var left = point.X < edge; var right = point.X >= ClientSize.Width - edge;
-                var top = point.Y < edge; var bottom = point.Y >= ClientSize.Height - edge;
-                var hit = top ? left ? 13 : right ? 14 : 12 : bottom ? left ? 16 : right ? 17 : 15 : left ? 10 : right ? 11 : 1;
-                message.Result = new IntPtr(hit);
+                message.Result = new IntPtr(NativeResizeGrip.HitTest(point, ClientSize, NativeResizeGrip.Width(DeviceDpi)));
             }
         }
 
         private void ApplyWindowAppearance()
         {
             if (!IsHandleCreated || IsDisposed) return;
+            // WebView2 has its own child HWND: reserve a native strip so it
+            // cannot consume restored-window edge/corner drag hit tests.
+            var grip = !contentFullscreen && WindowState == FormWindowState.Normal ? NativeResizeGrip.Width(DeviceDpi) : 0;
+            if (Padding.All != grip) Padding = new Padding(grip);
             var dark = 1; var corners = contentFullscreen || WindowState == FormWindowState.Maximized ? 1 : 2;
             var border = unchecked((int)0xfffffffe); // DWMWA_COLOR_NONE, including inactive windows.
             DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
@@ -124,6 +128,17 @@ namespace Vumiro.Client
             if (message == null || !message.TryGetValue("type", out type) || type as string != "window") return false;
             if (message.Count < 2 || message.Count > 3 || !message.TryGetValue("action", out actionValue) || !(actionValue is string)) return true;
             var action = (string)actionValue;
+            if (action == "nudge")
+            {
+                bool silent;
+                if (NativeNudge.TryParse(message, out silent))
+                {
+                    if (nativeNudge == null) nativeNudge = new NativeNudge(this, () => contentFullscreen);
+                    nativeNudge.Start(silent);
+                }
+                return true;
+            }
+            if (action == "nudge-cancel" && message.Count == 2) { nativeNudge?.Cancel(); return true; }
             if (action == "notify")
             {
                 object payload; DesktopNotificationData notification;
@@ -141,11 +156,12 @@ namespace Vumiro.Client
                 return true;
             }
             if (action == "notify-clear" && message.Count == 2) { desktopNotifications?.Dispose(); desktopNotifications = null; return true; }
-            if (action == "close") Close();
-            else if (action == "minimize") WindowState = FormWindowState.Minimized;
-            else if (action == "maximize" && !contentFullscreen) WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+            if (action == "close") { nativeNudge?.Cancel(); Close(); }
+            else if (action == "minimize") { nativeNudge?.Cancel(); WindowState = FormWindowState.Minimized; }
+            else if (action == "maximize" && !contentFullscreen) { nativeNudge?.Cancel(); WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; }
             else if (action == "drag" && !contentFullscreen && (Control.MouseButtons & MouseButtons.Left) != 0)
             {
+                nativeNudge?.Cancel();
                 var point = Cursor.Position;
                 var threshold = SystemInformation.DoubleClickSize;
                 if (captionClicks.IsDoubleClick(unchecked((uint)Environment.TickCount), point.X, point.Y,
@@ -164,6 +180,7 @@ namespace Vumiro.Client
             }
             else if (action == "resize" && !contentFullscreen && WindowState == FormWindowState.Normal && (Control.MouseButtons & MouseButtons.Left) != 0)
             {
+                nativeNudge?.Cancel();
                 object edgeValue; int hit;
                 if (message.TryGetValue("edge", out edgeValue) && edgeValue is string && ResizeEdges.TryGetValue((string)edgeValue, out hit))
                 { ReleaseCapture(); SendMessage(Handle, 0x00a1, new IntPtr(hit), IntPtr.Zero); }
@@ -174,6 +191,7 @@ namespace Vumiro.Client
         private void SetContentFullscreen(bool fullscreen)
         {
             if (fullscreen == contentFullscreen) return;
+            nativeNudge?.Cancel();
             if (fullscreen)
             {
                 windowState = WindowState;
