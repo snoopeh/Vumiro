@@ -27,9 +27,9 @@
   }
   function petals({art,layer,toggle}) {
     if(!art||!layer||!toggle)return;
-    const media=preference();let paused=false;
+    const media=preference();let paused=false,minimized=false;
     function update() {
-      const reduced=!!media?.matches,stopped=paused||document.hidden||reduced;
+      const reduced=!!media?.matches,stopped=paused||document.hidden||minimized||reduced;
       layer.hidden=reduced;toggle.hidden=reduced;
       toggle.setAttribute('aria-pressed',String(paused));
       toggle.textContent=paused?'Resume petals':'Pause petals';
@@ -37,6 +37,12 @@
     }
     toggle.addEventListener('click',()=>{paused=!paused;update();});
     document.addEventListener('visibilitychange',update);media?.addEventListener?.('change',update);update();
+    const host=window.vumiroDesktop||window.chrome?.webview;
+    host?.addEventListener?.('message',event=>{
+      if(event.data?.type!=='window-state'||typeof event.data.minimized!=='boolean')return;
+      minimized=event.data.minimized;update();
+    });
+    try{host?.postMessage?.({type:'window',action:'state'});}catch{ /* Browser visibility remains available if the host is unavailable. */ }
     return {update};
   }
   function connection({overlay,title,detail,retry,cancel,onRetry,onCancel,content=[],returnFocus}) {

@@ -5,14 +5,17 @@ import vm from 'node:vm';
 
 const path=new URL('../Vumiro.Client/WebServer/motion.js',import.meta.url);
 const source=fs.existsSync(path)?fs.readFileSync(path,'utf8'):'';
-function harness({reduced=false,storage=new Map()}={}) {
+function harness({reduced=false,storage=new Map(),native}={}) {
   const timers=new Map(),listeners=new Map();let next=0;
+  const hostListeners=new Map(),hostMessages=[];
   const media={matches:reduced,addEventListener(name,fn){this.changed=fn;},removeEventListener(){}};
   const document={hidden:false,getElementById:()=>null,addEventListener(name,fn){listeners.set(name,fn);},removeEventListener(name){listeners.delete(name);}};
   const app={document,sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},matchMedia:()=>media,setTimeout:(fn,ms)=>{const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),addEventListener(){},removeEventListener(){}};
+  const host={addEventListener:(name,fn)=>hostListeners.set(name,fn),postMessage:message=>hostMessages.push(message)};
+  if(native==='linux')app.vumiroDesktop=host;else if(native)app.chrome={webview:host};
   app.window=app;vm.createContext(app);vm.runInContext(source,app);
   assert.ok(app.VumiroMotion,'motion controller is available');
-  return {api:app.VumiroMotion,timers,media,document,listeners,advance(ms){for(const [id,timer] of [...timers])if(timer.ms<=ms){timers.delete(id);timer.fn();}}};
+  return {api:app.VumiroMotion,timers,media,document,listeners,hostMessages,hostState(data){hostListeners.get('message')?.({data});},advance(ms){for(const [id,timer] of [...timers])if(timer.ms<=ms){timers.delete(id);timer.fn();}}};
 }
 function element(){const classes=new Set();return {hidden:false,inert:false,dataset:{},textContent:'',attributes:{},classList:{add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)},addEventListener(name,fn){this[name]=fn;},removeEventListener(name){delete this[name];},setAttribute(name,value){this.attributes[name]=value;},focus(){this.focused=true;}};}
 function bootNodes(){return {overlay:element(),content:element(),skip:element(),art:{setCurrentTime(){},unpauseAnimations(){},pauseAnimations(){}}};}
@@ -45,6 +48,23 @@ test('petals pause while hidden, by user choice, and for reduced motion',()=>{
   toggle.click();assert.equal(actions.at(-1),'pause');assert.equal(toggle.attributes['aria-pressed'],'true');
   app.document.hidden=true;app.listeners.get('visibilitychange')();app.document.hidden=false;app.listeners.get('visibilitychange')();assert.equal(actions.at(-1),'pause');
   toggle.click();app.media.matches=true;app.media.changed();assert.equal(layer.hidden,true);assert.equal(actions.at(-1),'pause');
+});
+test('native minimize pauses petals even when the WebView document remains visible',()=>{
+  for(const native of ['windows','linux']){
+    const app=harness({native}),toggle=element(),actions=[];app.api.petals({art:{pauseAnimations:()=>actions.push('pause'),unpauseAnimations:()=>actions.push('play')},layer:element(),toggle});
+    assert.deepEqual(JSON.parse(JSON.stringify(app.hostMessages)),[{type:'window',action:'state'}]);assert.equal(app.document.hidden,false);
+    app.hostState({type:'window-state',minimized:true});assert.equal(actions.at(-1),'pause');
+    app.listeners.get('visibilitychange')();assert.equal(actions.at(-1),'pause');
+    app.hostState({type:'window-state',minimized:false,focused:false});assert.equal(actions.at(-1),'play');
+    toggle.click();app.hostState({type:'window-state',minimized:true});app.hostState({type:'window-state',minimized:false});assert.equal(actions.at(-1),'pause');
+    toggle.click();app.document.hidden=true;app.listeners.get('visibilitychange')();app.hostState({type:'window-state',minimized:false});assert.equal(actions.at(-1),'pause');
+  }
+});
+test('Linux native state publishes minimized and restored window state',()=>{
+  const linux=fs.readFileSync(new URL('../Vumiro.Linux/main.cjs',import.meta.url),'utf8'),sent=[];let minimized=true;
+  const app={mainWindow:{isDestroyed:()=>false,isMinimized:()=>minimized,isMaximized:()=>false,isFullScreen:()=>false,webContents:{mainFrame:{},send:(channel,value)=>sent.push(value)}},validAccountFrame:()=>true};
+  vm.createContext(app);vm.runInContext(linux.slice(linux.indexOf('function sendWindowState()'),linux.indexOf('function setUpdateState(')),app);
+  app.sendWindowState();assert.equal(sent.at(-1).minimized,true);minimized=false;app.sendWindowState();assert.equal(sent.at(-1).minimized,false);
 });
 test('connection screen follows joining, recovery, terminal errors and connected state',()=>{
   const app=harness(),nodes={overlay:element(),title:element(),detail:element(),retry:element(),cancel:element()},events=[];

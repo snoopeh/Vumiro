@@ -248,7 +248,7 @@ function sendToPage(message) {
 
 function sendWindowState() {
   if (mainWindow && !mainWindow.isDestroyed() && validAccountFrame(mainWindow.webContents, mainWindow.webContents.mainFrame))
-    mainWindow.webContents.send('vumiro:message', { type: 'window-state', maximized: mainWindow.isMaximized(), fullscreen: mainWindow.isFullScreen(), backdrop: false });
+    mainWindow.webContents.send('vumiro:message', { type: 'window-state', minimized: mainWindow.isMinimized(), maximized: mainWindow.isMaximized(), fullscreen: mainWindow.isFullScreen(), backdrop: false });
 }
 
 function setUpdateState(patch) {
@@ -600,6 +600,8 @@ async function createWindows() {
   window.on('leave-full-screen', sendWindowState);
   window.on('maximize', sendWindowState);
   window.on('unmaximize', sendWindowState);
+  window.on('minimize', sendWindowState);
+  window.on('restore', sendWindowState);
   window.on('closed', clearDesktopNotifications);
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => { if (isMainFrame && !isInPlace) clearDesktopNotifications(); });
 

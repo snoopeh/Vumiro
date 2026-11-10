@@ -192,7 +192,7 @@ namespace Vumiro.Client
         private void PublishWindowState()
         {
             if (!IsDisposed && browser != null && browser.CoreWebView2 != null)
-                browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "window-state", maximized = WindowState == FormWindowState.Maximized, fullscreen = contentFullscreen, backdrop = backdropEnabled }));
+                browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "window-state", minimized = WindowState == FormWindowState.Minimized, maximized = WindowState == FormWindowState.Maximized, fullscreen = contentFullscreen, backdrop = backdropEnabled }));
         }
 
         [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
