@@ -229,6 +229,14 @@ test('clicking a friend name opens their inspection card without copying',()=>{
   assert.equal(app.element('userCardName').textContent,'My friend');
 });
 
+test('selected friend nickname copies their tag without opening nickname editing',async()=>{
+  const app=friendActionsHarness('friend#123');
+  app.element('contactName').click();
+  await new Promise(setImmediate);
+  assert.deepEqual(app.copied,['friend#123']);
+  assert.equal(app.element('nicknameDialog').open,false);
+});
+
 test('inspection card tag has a copy hint and shows temporary copied feedback',async()=>{
   const app=friendActionsHarness();app.nickname.click();
   const tag=app.element('userCardTag');

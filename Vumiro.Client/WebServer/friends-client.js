@@ -576,7 +576,7 @@ async function copyFriendTag(id){const tag=directoryFriendTag(id);if(!tag){statu
 function editFriendNickname(id){const friend=friendById(id);if(!friend)return;selected=id;renderFriends();$('nickname').value=friend.nicknameOverride?friend.nickname:'';if(!$('nicknameDialog').open)$('nicknameDialog').showModal();$('nickname').focus();}
 
 $('editNickname').onclick=()=>editFriendNickname(selected);
-$('copyFriendTag').onclick=()=>copyFriendTag(profile?.id);$('userCardTag').onclick=()=>{if(userCardId)copyFriendTag(userCardId);};
+$('copyFriendTag').onclick=()=>copyFriendTag(profile?.id);$('contactName').onclick=()=>{if(selected)copyFriendTag(selected);};$('userCardTag').onclick=()=>{if(userCardId)copyFriendTag(userCardId);};
 $('userCardDialog').addEventListener('click',event=>{if(event.target===$('userCardDialog'))$('userCardDialog').close();});
 async function resizeBanner(file, isCurrent = () => true) {
   if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 10*1024*1024)
