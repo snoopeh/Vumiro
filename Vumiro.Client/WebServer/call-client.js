@@ -1191,6 +1191,10 @@
     })); } catch { /* A departing peer may close during sampling. */ } finally { sampling=false; }
   },2000);
   updateControls();
+  if(query.get('autojoin')==='1') {
+    globalThis.VumiroRoomConnection?.set('joining');
+    if(embedded)parent.postMessage({type:'vumiro-room-ui-ready',launchId:query.get('launchId')||''},location.origin);
+  }
   identityReady.then(value=>{
     if(!value) {
       const home=new URL('/friends.html',location.href);home.search=location.search;home.searchParams.delete('autojoin');home.searchParams.delete('embedded');location.replace(home.href);return;
@@ -1198,5 +1202,5 @@
     if(!query.get('name')) $('name').value=value.name;
     if(!$('room').value) $('room').value=code();if(roomName==='Your room' && !ownsRoom()) roomName='Vumiro room';renderRoom();
     if(query.get('autojoin')==='1') join();
-  }).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));
+  }).catch(error=>{const message=globalThis.VumiroI18n?.error(error)||error.message;status(message);globalThis.VumiroRoomConnection?.set('error',message);});
 })();

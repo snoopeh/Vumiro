@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js',import.meta.url),'utf8');
+const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const section=(from,to)=>source.slice(source.indexOf(from),source.indexOf(to,source.indexOf(from)));
 function harness(){
   const events=[],elements=new Map();let opened;
@@ -29,4 +29,12 @@ test('submitting a room password restores connection feedback while authenticati
   vm.runInContext(section("  $('passwordForm').onsubmit=",'  function policyFields()'),app);
   app.$('guestPassword').value='secret password';app.$('passwordForm').onsubmit({preventDefault(){}});
   assert.equal(supplied,'secret password');assert.equal(elements.get('passwordPrompt').hidden,true);assert.equal(events.at(-1)?.[0],'joining');
+});
+
+test('embedded room shows feedback and signals UI readiness before identity initialization completes',async()=>{
+  const events=[],posts=[];let reject;
+  const app={query:new URLSearchParams('autojoin=1&embedded=1&launchId=attempt-1'),embedded:true,location:{origin:'https://app.test'},parent:{postMessage:(...args)=>posts.push(args)},identityReady:new Promise((_,no)=>reject=no),updateControls(){},status(){},window:{},VumiroRoomConnection:{set:(...args)=>events.push(args)}};
+  vm.createContext(app);vm.runInContext(source.slice(source.lastIndexOf('  updateControls();'),source.lastIndexOf('})();')),app);
+  assert.equal(events[0]?.[0],'joining');assert.equal(posts[0]?.[0].type,'vumiro-room-ui-ready');assert.equal(posts[0]?.[0].launchId,'attempt-1');
+  reject(Error('Identity could not load'));await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(events.at(-1),['error','Identity could not load']);
 });

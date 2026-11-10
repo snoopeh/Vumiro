@@ -72,7 +72,22 @@
     if(!log)return;let timeout=0;
     log.addEventListener('scroll',()=>{log.classList.add('is-scrolling');clearTimeout(timeout);timeout=setTimeout(()=>{timeout=0;log.classList.remove('is-scrolling');},900);},{passive:true});
   }
-  window.VumiroMotion={boot,petals,connection,scrollbar,markLaunchSeen};
+  function roomLaunch({slot,getFrame,origin,onCancel,onRetry}) {
+    if(!slot)return null;
+    const style=document.createElement('style');style.textContent=`.roomLaunchSurface{position:absolute;inset:0;z-index:10;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 42%,#431c2480,transparent 65%),#121011;padding:24px;color:#faf8fa;text-align:center}.roomLaunchSurface[hidden]{display:none}.roomLaunchCard{max-width:460px}.roomLaunchMark{font-size:54px;font-weight:800;color:#ff233b;animation:roomLaunchPulse 1.5s ease-in-out infinite}.roomLaunchCard h2{margin:18px 0 12px;font-size:24px;letter-spacing:-.7px}.roomLaunchCard p{font-size:13px;line-height:1.7;color:#b8afb3}.roomLaunchActions{display:flex;gap:10px;justify-content:center;margin-top:24px}@keyframes roomLaunchPulse{50%{opacity:.45;transform:scale(.93)}}@media(prefers-reduced-motion:reduce){.roomLaunchMark{animation:none}}`;document.head.append(style);
+    slot.style.position='relative';
+    const surface=document.createElement('section'),card=document.createElement('div'),mark=document.createElement('div'),title=document.createElement('h2'),detail=document.createElement('p'),actions=document.createElement('div'),cancel=document.createElement('button'),retry=document.createElement('button');
+    surface.className='roomLaunchSurface';surface.hidden=true;surface.setAttribute('role','status');surface.setAttribute('aria-live','polite');card.className='roomLaunchCard';mark.className='roomLaunchMark';mark.innerHTML='<svg width="68" height="54" viewBox="0 0 300 240"><use href="#vumiro-mark"/></svg>';mark.setAttribute('aria-hidden','true');actions.className='roomLaunchActions';cancel.type=retry.type='button';cancel.textContent='Cancel';retry.textContent='Try again';retry.className='primary';actions.append(cancel,retry);card.append(mark,title,detail,actions);surface.append(card);slot.append(surface);
+    let active=null,timer=0;
+    function stop(){clearTimeout(timer);timer=0;if(active){active.frame.style.visibility='';active.frame.inert=false;}active=null;surface.hidden=true;}
+    function start(frame,id){stop();const attempt=active={frame,id};frame.style.visibility='hidden';frame.inert=true;surface.hidden=false;surface.setAttribute('aria-busy','true');title.textContent='Establishing connection';detail.textContent='Connecting securely. Your microphone and screen stay off until you choose to share.';retry.hidden=true;cancel.focus?.();
+      timer=setTimeout(()=>{timer=0;if(active!==attempt||getFrame()!==frame)return;surface.setAttribute('aria-busy','false');detail.textContent='This is taking longer than expected. You can retry or return to your friends.';retry.hidden=false;},15000);
+    }
+    function receive(event){if(!active||getFrame()!==active.frame||event.source!==active.frame.contentWindow||event.origin!==origin||event.data?.type!=='vumiro-room-ui-ready'||event.data.launchId!==active.id)return false;stop();return true;}
+    cancel.addEventListener('click',()=>{if(!active)return;stop();onCancel();});retry.addEventListener('click',()=>{if(active&&!retry.hidden)onRetry();});
+    return {start,stop,receive};
+  }
+  window.VumiroMotion={boot,petals,connection,scrollbar,markLaunchSeen,roomLaunch};
   const $=id=>document.getElementById(id);
   boot({overlay:$('bootReveal'),content:$('authContent'),skip:$('bootSkip'),art:$('bootArt')});
   petals({art:$('petalArt'),layer:$('loginPetals'),toggle:$('petalPause')});

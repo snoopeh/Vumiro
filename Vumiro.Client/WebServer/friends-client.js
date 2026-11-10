@@ -375,6 +375,7 @@
 const $ = id => document.getElementById(id), local = window.VumiroLocalProfile, query = new URLSearchParams(location.search);
 const online = new Set(), seen = new Map(), lookups = new Map(), socialAcks = new Map(), responding = new Map(), blocking = new Set(), notifiedRooms = new Map();
 let profile=null,friends=[],selected='',filter='all',socket=null,ready=false,reconnectTimer=0,retry=0,stopped=false,pending=null,frame=null,leaveTimer=0;
+let roomLaunch=null;
 let streamAudioReason='',streamAudioSupported=false,streamAudioHostId='',roomFrameLoaded=false;
 let appSounds=true,appSoundsDraft=true,appSoundVolume=100,appSoundVolumeDraft=100,ringTimer=0,profileSaving=false;
 try{appSounds=localStorage.getItem('vumiro-app-sounds')!=='off';const saved=JSON.parse(localStorage.getItem('vumiro-app-sound-settings'));if(saved&&typeof saved.enabled==='boolean'){appSounds=saved.enabled;appSoundVolume=soundVolume(saved.volume);}}catch{}
@@ -983,6 +984,7 @@ function openRoom(room,signaling,name='Your room',grant,access) {
   if(currentAccess.name)url.searchParams.set('roomName',currentAccess.name);
   for(const[key,value]of Object.entries(settings))url.searchParams.set(key,String(value));
   if(grant)url.searchParams.set('grant',JSON.stringify(grant));
+  const launchId=crypto.randomUUID();url.searchParams.set('launchId',launchId);
   url.searchParams.set('autojoin','1');url.searchParams.set('embedded','1');currentRoom=room;joined=sharing=false;
   const roomFrame=frame=document.createElement('iframe');roomFrame.title='Vumiro room';roomFrame.allow='display-capture; microphone; speaker-selection; autoplay; fullscreen';roomFrame.allowFullscreen=true;
   roomFrame.onload=()=>{
@@ -994,7 +996,7 @@ function openRoom(room,signaling,name='Your room',grant,access) {
     if(!linuxHost)roomFrame.contentWindow.postMessage({type:'vumiro-stream-audio',action:'state',supported:streamAudioSupported,reason:streamAudioReason},location.origin);
     if(webViewHost)webViewHost.postMessage({type:'stream-audio',action:'state'});
   };
-  roomFrame.src=url.href;$('callFrameSlot').append(roomFrame);
+  roomFrame.src=url.href;roomLaunch?.start(roomFrame,launchId);$('callFrameSlot').append(roomFrame);
   $('callTitle').textContent=currentAccess.name||(name==='Your room'?(globalThis.VumiroI18n?.t(name)||name):'Room with '+name);
   $('roomReturnTitle').textContent=$('callTitle').textContent;
   $('callArea').hidden=false;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('roomReturn').hidden=true;$('friendsBody').hidden=true;setRoomView(true);renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
@@ -1003,11 +1005,13 @@ function setRoomView(visible){document.body.classList.toggle('room-view',visible
 function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=false;$('roomReturn').hidden=false;setRoomView(false);}
 function returnToRoom(){if(!frame)return;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;setRoomView(true);}
 function stopStreamAudioHost(id=streamAudioHostId){if(!id||!webViewHost)return;webViewHost.postMessage({type:'stream-audio',action:'stop',id});if(streamAudioHostId===id)streamAudioHostId='';}
-function finishRoom(){if(pending?.existingRoom)clearPending('The room closed. Its invitation was cancelled.');clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;setRoomView(false);for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
+function retryRoomLaunch(){if(!frame)return;const url=new URL(frame.src),id=crypto.randomUUID();url.searchParams.set('launchId',id);roomLaunch?.start(frame,id);frame.src=url.href;}
+function finishRoom(){if(typeof roomLaunch!=='undefined')roomLaunch?.stop();if(pending?.existingRoom)clearPending('The room closed. Its invitation was cancelled.');clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;setRoomView(false);for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
 function leaveRoom(){if(!frame)return;frame.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);clearTimeout(leaveTimer);leaveTimer=setTimeout(finishRoom,1200);}
 addEventListener('message',event=>{
   if(!frame||event.source!==frame.contentWindow||event.origin!==location.origin)return;
   const data=event.data;
+  if(data?.type==='vumiro-room-ui-ready'){if(typeof roomLaunch!=='undefined')roomLaunch?.receive(event);return;}
   if(data?.type==='vumiro-chat-notification'){
     if(data.room!==currentRoom||typeof data.id!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(data.id)||typeof data.text!=='string'||!data.text.trim()||data.text.length>2000||!data.sender||!/^[A-Za-z0-9_-]{43}$/.test(data.sender.id||'')||data.sender.id===profile?.id||blocked.includes(data.sender.id)||blocking.has(data.sender.id)||typeof data.sender.name!=='string'||!data.sender.name.trim()||data.sender.name.length>48)return;
     const sender=friendById(data.sender.id)||{id:data.sender.id,name:data.sender.name,avatar:''};
@@ -1210,6 +1214,7 @@ $('saveAppSounds').onclick=async()=>{
 $('previewAppSound').onclick=()=>playUiCue('request',true,appSoundVolumeDraft);
 $('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.preventDefault();});$('profileDialog').addEventListener('close',()=>{if(document.querySelector('dialog.settingsScreen[open]'))return;++avatarSelection;++bannerSelection;window.VumiroCoverEditor?.cancel();coverDraft=undefined;window.VumiroCoverMedia?.release($('profileBannerPreview'));avatarWork=Promise.resolve();bannerWork=Promise.resolve();avatarDraft=profile.avatar||'';bannerDraft=profile.banner||'';appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;renderSoundSettings();resetNotificationDraft();});
 const notificationPanel=$('notificationDialog');
+roomLaunch=window.VumiroMotion?.roomLaunch({slot:$('callFrameSlot'),getFrame:()=>frame,origin:location.origin,onRetry:retryRoomLaunch,onCancel:()=>{frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);finishRoom();}});
 notificationCenter=window.VumiroNotificationCenter?.create({bell:$('notificationOpen'),panel:notificationPanel,list:$('notificationList'),empty:$('notificationEmpty'),onOpen:id=>{const item=notificationItems.find(item=>item.id===id);if(item)notificationAction(item);},onDismiss:id=>{const index=notificationItems.findIndex(item=>item.id===id);if(index>=0)notificationItems.splice(index,1);renderNotifications();}});
 if(notificationCenter)notificationPanel.close=()=>notificationCenter.close();
 else $('notificationOpen').onclick=openNotifications;
