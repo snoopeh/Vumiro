@@ -23,7 +23,8 @@ test('notification test actions are gated by LOCAL QA and never send synthetic e
   assert.ok(start >= 0 && end > start, 'QA event dispatcher exists before invite controls');
   const qa = client.slice(start, end);
   assert.match(qa, /window\.__VUMIRO_LOCAL_QA__!==true/);
-  assert.match(qa, /host\?\.postMessage\(\{type:'window',action:'notify'\}\)/);
+  assert.match(qa, /notifySocial\(/, 'QA previews use the same notification preferences and inbox');
+  assert.doesNotMatch(qa, /host\?\.postMessage\(\{type:'window',action:'notify'\}\)/);
   assert.doesNotMatch(qa, /send\(|social\(|answer\(/);
   assert.match(qa, /qa:true/);
   assert.match(client.slice(end), /if\(value\.qa\)\{clearPending\(/);

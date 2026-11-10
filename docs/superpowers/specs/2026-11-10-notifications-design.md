@@ -2,7 +2,7 @@
 
 Date: 2026-11-10
 Source: priority 2A, incoming friend additions/invites, room invites, and calls
-Status: design ready; human review and implementation pending
+Status: source implemented; human review pending
 
 ## Goal and current state
 
@@ -18,7 +18,7 @@ Make important social events noticeable and actionable without repeating alerts 
 
 Use explicit event categories: **Friend requests** (including accepted additions), **Room invites and join requests**, **Incoming calls**, and **Room activity**. Keep room chat cues in the existing App sounds controls unless chat notification settings are deliberately added later. Each event gets a stable local dedupe key from validated request nonce, invitation nonce, or room ID plus live-state transition. A reconnect or replay of the same event must not issue a fresh alert. Only authenticated, currently valid, unblocked, nonexpired events can enter the pipeline.
 
-Add a Notifications settings section with per-category **Visual alert** and **Sound** controls, a global volume control reused from App sounds, and **Save** / **Cancel** behavior consistent with other settings. Default friend requests, direct invites, and calls on; default passive room activity to in-app only to reduce noise. The user can mute visual presentation without losing an actionable pending request. Settings are per device; cross-device synchronization is a later explicit choice. A local QA preview exercises each category without sending a network event.
+Add a Notifications settings section with per-category **Visual alert** and **Sound** controls, a global volume control reused from App sounds, and **Save** / **Cancel** behavior consistent with other settings. Keep friend requests, direct invites, calls, and room activity enabled by default, preserving the existing room cue and background attention behavior. The user can mute visual presentation without losing an actionable pending request. Settings are per device; cross-device synchronization is a later explicit choice. A local QA preview exercises each category without sending a network event.
 
 ## User interaction
 
@@ -31,6 +31,12 @@ When Vumiro is in the foreground, use an in-app toast/list entry; when minimized
 Centralize event validation and deduplication in the friends client, after the existing signature, friend, block, and expiry checks. Keep presentation decisions in a small notification controller that reads one versioned preferences record; migrate existing app sound/volume values without resetting them. Send only an allowlisted category, dedupe ID, bounded title/body, and safe action token to the desktop host. Do not send arbitrary URLs, HTML, or executable instructions over the host bridge. Clear sensitive/actionable state on sign-out, account/identity change, or expiry; keep only a bounded number of recent local summaries and a short retention period.
 
 Windows is a .NET Framework 4.8 unpackaged WinForms host. Microsoft's current Windows App SDK notification quickstart requires .NET 6 or later, so implementation must select and verify a compatible native API or a supported fallback instead of assuming that quickstart can be pasted in. Linux should use Electron's native Notification adapter when supported. Platform adapters own focus/activation and OS feature detection; the shared web UI owns content and preferences. If native presentation is unavailable, in-app list and taskbar attention continue to work, and the UI must state that OS alerts are unavailable on that device.
+
+## Implemented review scope and limits
+
+The shared client now retains up to 64 notification summaries for the current app session, deduplicates validated events, checks whether actions are still available, and saves per-category visual and sound preferences. Incoming direct room invites use a `room_` nonce prefix and new calls use `call_`; the existing invite signature covers the nonce, so a directory update arriving late cannot change the category. Older unprefixed invites use neutral room-invitation wording. Existing room-activity sound and visual attention remain enabled by default.
+
+On Windows, visual attention currently flashes the taskbar when the app is unfocused; the inbox remains available in the lobby. Windows Notification Center popups and activation are not implemented in this review build. Linux continues to use its existing Electron OS notification path. The separate Windows popup decision remains open for product review.
 
 ## Accessibility, privacy, and acceptance
 

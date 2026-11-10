@@ -19,7 +19,7 @@ function harness(){
     location:{origin:'https://vumiro.local',href:'https://vumiro.local/friends.html'},query:new URLSearchParams(),WebSocket:{OPEN:1},ringTimer:0,migrateRoomHost:url=>url,
     $:element,friendById:id=>context.friends.find(friend=>friend.id===id),send:message=>sent.push(message),runtimeNow:()=>Date.now(),newRoom:()=>ownId+'_'+'c'.repeat(48),
     crypto:{randomUUID:()=>`room_invite_nonce_${++nonce}`},local:{sign:async()=> 'signed',verify:async()=>true,listFriends:async()=>context.friends},
-    renderFriends(){},renderRooms(){},renderRequests(){},status:value=>statuses.push(value),playUiCue(){},serviceState(){},rememberDirectoryProfile(){},announce(){},watch(){},publishRoom(){},directoryFriendTag:()=>'',stopStreamAudioHost(){},setRoomView(){},leaveTimer:0,
+    renderFriends(){},renderRooms(){},renderRequests(){},renderNotifications(){},notifySocial(){},notificationSettings:{call:{sound:true},roomInvite:{sound:true}},status:value=>statuses.push(value),playUiCue(){},serviceState(){},rememberDirectoryProfile(){},announce(){},watch(){},publishRoom(){},directoryFriendTag:()=>'',stopStreamAudioHost(){},setRoomView(){},leaveTimer:0,
     showRooms(){context.roomsShown=true;},openRoom:(...args)=>opened.push(args),canCall:()=>false,
     window:{VumiroServerClock:{sync(){},isSynced:()=>true}},namedFriendTagsAvailable:false,socialV2Available:true,usernameCollision:false,
     requests:[],rooms:[],lookups:new Map(),notifiedRooms:new Map(),host:null,peerProfiles:null,settleSocialAck(){},rejectSocialAcks(){},
@@ -82,6 +82,22 @@ test('direct invites use the existing host room and acceptance keeps the active 
   assert.equal(app.context.pending.existingRoom,true);assert.equal(app.posts.at(-1).value.ok,true);assert.match(app.posts.at(-1).value.message,/sent|accept/i);
   await app.receive({type:'answer',from:friendId,to:ownId,room,nonce:invite.nonce,expires:invite.expires,accepted:true,signature:'signed'});
   assert.equal(app.context.frame,app.frame);assert.equal(app.context.currentRoom,room);assert.equal(app.context.pending,null);assert.equal(app.opened.length,0);assert.match(app.posts.at(-1).value.message,/accepted/i);
+});
+
+test('signed direct-invite purpose is available before the room directory update',async()=>{
+  const app=harness();await app.api.inviteToCurrentRoom(app.context.friends[0]);
+  const invite=app.sent.find(message=>message.type==='invite');
+  assert.match(invite.nonce,/^room_/);
+  const start=source.indexOf('const notificationCategory='),end=source.indexOf(';const value=',start);
+  assert.ok(start>=0&&end>start);
+  const choose=nonce=>vm.runInNewContext(`(()=>{const rooms=[];const m={room:'${room}',nonce:'${nonce}'};${source.slice(start,end)};return notificationCategory;})()`);
+  assert.equal(choose(invite.nonce),'roomInvite');
+  assert.equal(choose('call_1234567890abcdef'),'call');
+  assert.equal(choose('plain-legacy-nonce'),'roomInvite');
+  assert.match(source,/nonce:'call_'\+crypto\.randomUUID\(\)/);
+  assert.doesNotMatch(source.slice(start,end),/rooms\.some/);
+  assert.match(source,/legacyInvite=!m\.nonce\.startsWith\('call_'\)&&!m\.nonce\.startsWith\('room_'\)/);
+  assert.match(source,/legacyInvite\?' sent a room invitation\.'/);
 });
 
 test('declined, unavailable and expired current-room invites report failure without leaving the room',async()=>{
