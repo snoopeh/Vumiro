@@ -37,15 +37,18 @@ test('package validation requires Linux and the built executable with its app re
 });
 
 test('runner requires successful packaged report and every focused UI assertion', () => {
-  const checks = ['packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
+  const checks = ['account-gate', 'fixture-authentication', 'packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
     'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'secure-store'];
-  const report = { ok: true, packaged: true, checks, rendererErrors: [], blockedRequests: 1, mediaRequests: 0 };
+  const report = { ok: true, packaged: true, checks, rendererErrors: [], blockedRequests: 1, mediaRequests: 0, authFixtureRequests: 4, memorySessionWrites: 1 };
   assert.doesNotThrow(() => validateReport(report));
   assert.throws(() => validateReport({ ...report, packaged: false }), /packaged/);
-  assert.throws(() => validateReport({ ...report, checks: checks.slice(1) }), /packaged-assets/);
+  assert.throws(() => validateReport({ ...report, checks: checks.filter(check=>check!=='packaged-assets') }), /packaged-assets/);
   assert.throws(() => validateReport({ ...report, rendererErrors: ['ReferenceError'] }), /renderer/);
   assert.throws(() => validateReport({ ...report, blockedRequests: 0 }), /network/);
   assert.throws(() => validateReport({ ...report, mediaRequests: 1 }), /media/);
+  assert.throws(() => validateReport({ ...report, authFixtureRequests: 0 }), /authentication fixture/);
+  assert.throws(() => validateReport({ ...report, memorySessionWrites: 0 }), /memory session/);
+  assert.throws(() => validateReport({ ...report, checks: checks.filter(check=>check!=='account-gate') }), /account-gate/);
 });
 
 test('offline driver permits only local app assets and rejects remote and malformed URLs', () => {
@@ -78,4 +81,36 @@ test('packaged main loads the smoke driver only with the explicit CLI flag', () 
     assert.equal(paths.length, enabled ? 0 : 1);
     if (!enabled) assert.equal(paths[0][0], 'userData');
   }
+});
+
+
+test('offline account fixture serves only exact in-process endpoints and verifies authentication headers',async()=>{
+  const { createSmokeAccountFixture }=require('../scripts/linux-smoke.cjs'),fixture=createSmokeAccountFixture();
+  const service='https://vumiro-rooms.vumiro-signaling.workers.dev',auth='https://vumiro-smoke.supabase.co';
+  const config=await (await fixture.serve(new Request(service+'/api/v1/account/config'))).json();
+  assert.equal(config.authUrl,auth);assert.equal(config.serviceEnabled,true);
+  for(const url of ['https://example.test',service+'/api/v1/account/data?extra=1',auth+'/auth/v1/token?grant_type=password&redirect_to=https://example.test',auth+'/auth/v1/user'])assert.equal(fixture.allows(url),false,url);
+  assert.equal((await fixture.serve(new Request(service+'/api/v1/account/data'))).status,401);
+  const signed=await fixture.serve(new Request(auth+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:config.publishableKey},body:JSON.stringify(fixture.credentials)}));
+  const session=await signed.json();assert.equal(signed.status,200);assert.equal(session.user.user_metadata.full_name,'Linux Smoke');
+  const device='22222222-2222-4222-8222-222222222222',headers={Authorization:'Bearer '+session.access_token,'X-Vumiro-Device':device};
+  const registration=await fixture.serve(new Request(service+'/api/v1/account/devices/register',{method:'POST',headers}));assert.equal(registration.status,201);
+  const token=(await registration.json()).deviceToken;
+  const data=await fixture.serve(new Request(service+'/api/v1/account/data',{headers:{...headers,'X-Vumiro-Device-Token':token}}));assert.equal(data.status,200);assert.equal((await data.json()).data,null);
+  assert.equal((await fixture.serve(new Request('https://example.test'))).status,403);
+  assert.ok(fixture.stats().requests>=4);
+});
+
+test('smoke credential adapter accepts only its synthetic session from its own main frame and keeps it in memory',async()=>{
+  const {createSmokeAccountFixture}=require('../scripts/linux-smoke.cjs'),fixture=createSmokeAccountFixture();
+  const contents={mainFrame:{url:'vumiro://app/auth.html'}},event={sender:contents,senderFrame:contents.mainFrame};
+  const signed=await fixture.serve(new Request('https://vumiro-smoke.supabase.co/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:'sb_publishable_vumiro_smoke_fixture_only'},body:JSON.stringify(fixture.credentials)}));
+  const session=await signed.json(),value=JSON.stringify({version:2,refreshToken:session.refresh_token,deviceId:'22222222-2222-4222-8222-222222222222',deviceToken:'',deviceAccountId:session.user.id});
+  assert.equal(fixture.secureStore(event,{action:'get'},contents),'');
+  assert.throws(()=>fixture.secureStore({...event,senderFrame:{url:'vumiro://app/auth.html'}},{action:'set',value},contents),/main frame/);
+  assert.throws(()=>fixture.secureStore(event,{action:'set',value:JSON.stringify({refreshToken:'unrelated-real-credential'})},contents),/synthetic/);
+  assert.equal(fixture.secureStore(event,{action:'set',value},contents),true);
+  assert.equal(fixture.secureStore(event,{action:'get'},contents),value);assert.equal(fixture.stats().writes,1);
+  assert.equal(fixture.secureStore(event,{action:'delete'},contents),true);assert.equal(fixture.secureStore(event,{action:'get'},contents),'');
+  contents.mainFrame.url='vumiro://app/call.html';assert.throws(()=>fixture.secureStore(event,{action:'get'},contents),/main frame/);
 });

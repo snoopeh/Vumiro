@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const requiredChecks = ['packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
+const requiredChecks = ['account-gate', 'fixture-authentication', 'packaged-assets', 'local-profile', 'legacy-ui-absent', 'offline-contact',
   'nickname-no-edit', 'nickname-modal-narrow', 'nickname-save', 'profile-backdrop', 'direct-room', 'secure-store'];
 
 export function buildLaunch(executable, directory, environment = process.env) {
@@ -39,6 +39,8 @@ export function validateReport(report) {
   if (!Array.isArray(report.rendererErrors) || report.rendererErrors.length) throw new Error('The renderer reported a JavaScript exception.');
   if (!Number.isSafeInteger(report.blockedRequests) || report.blockedRequests < 1) throw new Error('The offline network guard was not exercised.');
   if (report.mediaRequests !== 0) throw new Error('The smoke check attempted media capture.');
+  if (!Number.isSafeInteger(report.authFixtureRequests) || report.authFixtureRequests < 4) throw new Error('The authentication fixture was not exercised.');
+  if (!Number.isSafeInteger(report.memorySessionWrites) || report.memorySessionWrites < 1) throw new Error('The memory session adapter was not exercised.');
   for (const check of requiredChecks) if (!report.checks?.includes(check)) throw new Error(`Missing smoke assertion: ${check}`);
 }
 

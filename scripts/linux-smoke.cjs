@@ -12,15 +12,68 @@ function allowSmokeRequest(value) {
   } catch { return false; }
 }
 
+// Synthetic account transport lives only in the explicitly loaded smoke driver.
+// HTTPS is fulfilled in-process; neither these values nor real credentials reach a server or keyring.
+function createSmokeAccountFixture() {
+  const service='https://vumiro-rooms.vumiro-signaling.workers.dev',auth='https://vumiro-smoke.supabase.co';
+  const credentials=Object.freeze({email:'smoke@example.invalid',password:'smoke-fixture-password-not-a-secret'});
+  const key='sb_publishable_vumiro_smoke_fixture_only',accessToken='smoke.access.signature',refreshToken='smoke-refresh-not-a-real-token';
+  const user={id:'11111111-1111-4111-8111-111111111111',email:credentials.email,user_metadata:{full_name:'Linux Smoke'},app_metadata:{providers:['email']}};
+  const deviceToken='smoke-device-token-not-a-real-token-0000000000';
+  let memory='',deviceId='',requests=0,writes=0;
+  const paths=new Set([service+'/api/v1/account/config',service+'/api/v1/account/devices/register',service+'/api/v1/account/data',auth+'/auth/v1/token?grant_type=password',auth+'/auth/v1/token?grant_type=refresh_token']);
+  const allows=value=>{try{const url=new URL(value);return !url.username&&!url.password&&!url.port&&paths.has(url.href);}catch{return false;}};
+  const headers={'Content-Type':'application/json','Cache-Control':'no-store','Access-Control-Allow-Origin':'vumiro://app','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'Content-Type, apikey, Authorization, X-Vumiro-Device, X-Vumiro-Device-Token, X-Vumiro-Profile-Cards, X-Vumiro-Profile-Media','Vary':'Origin'};
+  const response=(status,value)=>new Response(status===204?null:JSON.stringify(value),{status,headers});
+  async function serve(request) {
+    if(!allows(request.url))return response(403,{message:'Offline smoke blocks this request.'});
+    if(request.method==='OPTIONS')return response(204);
+    const url=new URL(request.url);
+    if(request.url===service+'/api/v1/account/config'&&request.method==='GET'){
+      requests++;return response(200,{authUrl:auth,publishableKey:key,serviceEnabled:true,registrationEnabled:false,oauthProviders:[],privacyNoticeVersion:'2026-11-03'});
+    }
+    if(url.origin===auth&&request.method==='POST'&&request.headers.get('apikey')===key){
+      let body;try{body=await request.json();}catch{return response(400,{message:'Invalid smoke fixture request.'});}
+      const valid=url.searchParams.get('grant_type')==='password'?body?.email===credentials.email&&body?.password===credentials.password:body?.refresh_token===refreshToken;
+      if(!valid)return response(401,{message:'Only the synthetic smoke account is accepted.'});
+      requests++;return response(200,{access_token:accessToken,refresh_token:refreshToken,expires_in:3600,user});
+    }
+    if(request.headers.get('Authorization')!=='Bearer '+accessToken)return response(401,{message:'Synthetic account authorization is required.'});
+    if(url.pathname==='/api/v1/account/devices/register'&&request.method==='POST'){
+      const candidate=request.headers.get('X-Vumiro-Device');if(!/^[0-9a-f-]{36}$/i.test(candidate||''))return response(400,{message:'A smoke device identifier is required.'});
+      deviceId=candidate;requests++;return response(201,{deviceToken});
+    }
+    if(url.pathname==='/api/v1/account/data'&&request.method==='GET'&&deviceId&&request.headers.get('X-Vumiro-Device')===deviceId&&request.headers.get('X-Vumiro-Device-Token')===deviceToken){
+      requests++;return response(200,{account:{email:credentials.email},data:null,revision:0,devices:[]});
+    }
+    return response(403,{message:'Offline smoke blocks this operation.'});
+  }
+  function secureStore(event,request,contents) {
+    let frame;
+    try{frame=new URL(event.senderFrame.url);}catch{}
+    if(!contents||event.sender!==contents||event.senderFrame!==contents.mainFrame||!frame||!allowSmokeRequest(frame.href)||!['/auth.html','/friends.html'].includes(frame.pathname))throw Error('Smoke storage is restricted to its own account main frame.');
+    if(!request||!['get','set','delete'].includes(request.action)||Object.keys(request).sort().join(',')!==(request.action==='set'?'action,value':'action'))throw Error('Invalid smoke storage operation.');
+    if(request.action==='get')return memory;
+    if(request.action==='delete'){memory='';return true;}
+    let value;try{if(typeof request.value!=='string'||request.value.length>8192)throw Error();value=JSON.parse(request.value);}catch{throw Error('Smoke storage accepts only its synthetic session.');}
+    if(!value||Array.isArray(value)||Object.keys(value).some(name=>!['version','refreshToken','deviceId','deviceToken','deviceAccountId'].includes(name))||value.version!==2||value.refreshToken!==refreshToken||value.deviceAccountId!==user.id||!/^[0-9a-f-]{36}$/i.test(value.deviceId||'')||!['',deviceToken].includes(value.deviceToken))throw Error('Smoke storage accepts only its synthetic session.');
+    memory=request.value;writes++;return true;
+  }
+  return {credentials,allows,serve,secureStore,stats:()=>({requests,writes})};
+}
+
 function install({ app, session }) {
   const directory = process.env.VUMIRO_SMOKE_DIR;
   if (!directory || !path.isAbsolute(directory) || !fs.statSync(directory).isDirectory()) throw new Error('Smoke mode needs a disposable runner directory.');
+  const fixture=createSmokeAccountFixture();
+  let fixtureEnabled=false;
   const report = { ok: false, packaged: app.isPackaged, checks: [], rendererErrors: [], blockedRequests: 0, mediaRequests: 0 };
   let finished = false;
   const finish = error => {
     if (finished) return;
     finished = true; clearTimeout(timer);
     report.ok = !error;
+    report.authFixtureRequests=fixture.stats().requests;report.memorySessionWrites=fixture.stats().writes;
     if (error) report.error = error.message || String(error);
     fs.writeFileSync(path.join(directory, 'report.json'), JSON.stringify(report));
     app.exit(error ? 1 : 0);
@@ -40,8 +93,11 @@ function install({ app, session }) {
   const assets = new Set();
   function configure() {
     const ses = session.defaultSession;
+    // Intercept the entire HTTPS scheme. No request is forwarded to net.fetch,
+    // including unknown URLs. onBeforeRequest opens only exact fixture routes.
+    ses.protocol.handle('https',request=>fixtureEnabled?fixture.serve(request):new Response('Offline smoke mode',{status:503}));
     ses.webRequest.onBeforeRequest((details, callback) => {
-      const allowed = allowSmokeRequest(details.url);
+      const allowed = allowSmokeRequest(details.url) || fixtureEnabled&&fixture.allows(details.url);
       if (!allowed) report.blockedRequests++;
       callback({ cancel: !allowed });
     });
@@ -74,14 +130,31 @@ function install({ app, session }) {
         throw new Error(`UI assertion timed out: ${label}`);
       };
       const check = name => report.checks.push(name);
-      await wait(() => document.querySelector('#setupDialog')?.open || !!document.querySelector('#continueLocal'), 'local setup');
-      if (await evaluate(() => !!document.querySelector('#continueLocal'))) {
-        await evaluate(() => document.querySelector('#continueLocal').click());
-        await wait(() => document.querySelector('#setupDialog')?.open, 'local setup after continue');
-      }
-      await evaluate(() => { document.querySelector('#setupName').value = 'Linux Smoke'; document.querySelector('#createProfile').click(); });
-      await wait(() => !document.querySelector('#setupDialog')?.open && document.querySelector('#selfName')?.textContent === 'Linux Smoke', 'local profile creation');
-      check('local-profile');
+      await wait(() => location.pathname==='/auth.html' && !!document.querySelector('#accountForm'), 'signed-out account gate');
+      if(!await evaluate(()=>!window.VumiroAccount.getState().signedIn&&!document.querySelector('#continueLocal')&&!document.querySelector('#setupDialog')?.open))throw new Error('Anonymous app entry bypassed the account gate.');
+      check('account-gate');
+      const secure = await evaluate(async () => {
+        try { return { value: await window.vumiroDesktop.secureStore.get() }; }
+        catch (error) { return { error: error.message }; }
+      });
+      if (secure.value !== '' && !/secure storage service is unavailable|GNOME Keyring or KWallet/.test(secure.error || '')) throw new Error('Unexpected secure-store result in disposable profile.');
+      if (fs.existsSync(path.join(app.getPath('userData'), 'account-session.bin'))) throw new Error('Smoke profile unexpectedly contains account credentials.');
+      check('secure-store');
+      // Replace the native transport adapter only in this disposable smoke
+      // process. The preload and renderer account/profile globals stay real.
+      const {ipcMain}=require('electron');
+      ipcMain.removeHandler('vumiro:secure-store');
+      ipcMain.handle('vumiro:secure-store',(event,request)=>fixture.secureStore(event,request,window.webContents));
+      fixtureEnabled=true;
+      await window.loadURL('vumiro://app/auth.html?platform=linux');
+      await wait(()=>location.pathname==='/auth.html'&&document.querySelector('#accountSignIn')?.disabled===false,'fixture account availability');
+      await evaluate(credentials=>{
+        document.querySelector('#accountEmail').value=credentials.email;
+        document.querySelector('#accountPassword').value=credentials.password;
+        document.querySelector('#accountSignIn').click();
+      },fixture.credentials);
+      await wait(()=>location.pathname==='/friends.html'&&window.VumiroAccount?.getState().signedIn&&document.querySelector('#selfName')?.textContent==='Linux Smoke'&&!document.querySelector('#setupDialog')?.open,'real account-client authentication and lobby');
+      check('fixture-authentication');check('local-profile');
       if (!await evaluate(() => !document.querySelector('#topSettings, #TechnicalIdentity, #technicalIdentity, .technicalIdentity, #contactIdentity, #createRoomDialog'))) throw new Error('Retired UI is present.');
       check('legacy-ui-absent');
       // Disposable public fixture only; its private key is discarded before import.
@@ -119,13 +192,7 @@ function install({ app, session }) {
       await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point });
       await wait(() => !document.querySelector('#userCardDialog').open, 'profile backdrop dismissal');
       check('profile-backdrop');
-      const secure = await evaluate(async () => {
-        try { return { value: await window.vumiroDesktop.secureStore.get() }; }
-        catch (error) { return { error: error.message }; }
-      });
-      if (secure.value !== '' && !/secure storage service is unavailable|GNOME Keyring or KWallet/.test(secure.error || '')) throw new Error('Unexpected secure-store result in disposable profile.');
-      if (fs.existsSync(path.join(app.getPath('userData'), 'account-session.bin'))) throw new Error('Smoke profile unexpectedly contains account credentials.');
-      check('secure-store');
+      if (fs.existsSync(path.join(app.getPath('userData'), 'account-session.bin'))) throw new Error('Synthetic session escaped memory storage.');
       await evaluate(() => document.querySelector('#createRoom').click());
       await wait(() => {
         const frame = document.querySelector('#callFrameSlot iframe'), doc = frame?.contentDocument;
@@ -134,7 +201,7 @@ function install({ app, session }) {
           doc.querySelector('#captureInfo')?.textContent.includes('Choose Share screen or Microphone');
       }, 'direct room entry and packaged call UI');
       check('direct-room');
-      for (const asset of ['/friends.html', '/friends-client.js', '/local-profile.js', '/profile-cover.js', '/profile-crop.js', '/cover-editor.js', '/cover-transfer.js', '/peer-profile.js', '/account-client.js', '/identity-recovery.js', '/call.html', '/call-client.js']) {
+      for (const asset of ['/auth.html', '/friends.html', '/friends-client.js', '/local-profile.js', '/profile-cover.js', '/profile-crop.js', '/cover-editor.js', '/cover-transfer.js', '/peer-profile.js', '/account-client.js', '/identity-recovery.js', '/call.html', '/call-client.js']) {
         if (!assets.has(asset)) throw new Error(`Packaged asset did not load: ${asset}`);
       }
       if (report.rendererErrors.length) throw new Error(`Renderer exception: ${report.rendererErrors[0]}`);
@@ -146,4 +213,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, install };

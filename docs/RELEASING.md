@@ -46,7 +46,7 @@ Fast checks finish before native/package jobs start. Ordinary source pushes do n
 
 - Windows: exact legacy/complete manifests, executable versions, updater compatibility, archive limits, SHA256 manifests, and packaged HTML/JavaScript compared with source.
 - Linux: all three distribution files and hashes; the packaged Electron app starts under Xvfb with disposable storage, blocked network access and denied media permissions.
-- UI smoke: local profile creation, offline contact import, nickname click/edit/save at a narrow width, profile backdrop dismissal, direct room entry, packaged asset loading, and secure-store behavior without saved credentials.
+- UI smoke: signed-out account gating, synthetic account authentication through the packaged account client, automatic local profile creation, offline contact import, nickname click/edit/save at a narrow width, profile backdrop dismissal, direct room entry, packaged asset loading, and secure-store behavior without saved credentials.
 - Before publication: all seven required files must exist; their sizes, hashes, manifests, draft metadata and release-tag source SHA must agree.
 - After publication: verify public metadata, download and hash the complete Windows package and manifests, confirm GitHub's hashes for all files, and check the release discovery endpoints used by Windows and Linux.
 
@@ -68,6 +68,6 @@ node scripts/Build-Linux.mjs --unpacked
 xvfb-run -a node scripts/Test-LinuxSmoke.mjs
 ```
 
-The smoke test uses the actual `linux-unpacked/vumiro` executable and `resources/app.asar`, preserves Chromium's sandbox, times out failed startup and removes its disposable profile. It does not sign in or capture media. Building full distributions still uses `node scripts/Build-Linux.mjs`.
+The smoke test uses the actual `linux-unpacked/vumiro` executable and `resources/app.asar`, preserves Chromium's sandbox, times out failed startup and removes its disposable profile. It does not use real accounts or capture media. The smoke driver first checks the signed-out account gate and normal empty/unavailable secure-store behavior, then intercepts HTTPS with exact in-process account fixtures and supplies a process-memory native session adapter. The packaged preload, account client and local identity store remain unchanged; synthetic credentials never reach a network or keyring, and unexpected requests remain blocked. Building full distributions still uses `node scripts/Build-Linux.mjs`.
 
 These checks cover startup, packaging and selected regressions. Human QA remains responsible for acceptance, including real accounts, peer connections, screen/audio capture and desktop integration on target systems.
