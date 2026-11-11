@@ -133,17 +133,21 @@
     async function invite(mode){const friendId=$(mode==='lan'?'gamingLanFriend':'gamingRemoteFriend').value;if(!friendId)throw Error('Choose an online friend.');await requireSession().invite(friendId,mode);message('Invitation sent. Your friend must accept to connect.');}
     $('gamingLanInvite').onclick=()=>action(()=>invite('lan'));$('gamingRemoteInvite').onclick=()=>action(()=>invite('together'));
     $('gamingLanLeave').onclick=$('gamingRemoteLeave').onclick=()=>action(async()=>{await session?.stop();message('Gaming session ended.');});
-    $('gamingAcceptInvite').onclick=()=>action(async()=>{const value=invitation;if(!value)return;invitation=null;inviteDialog.close();open(value.mode==='lan'?'lan':'together');await requireSession().accept(value.id);});
+    $('gamingAcceptInvite').onclick=()=>action(async()=>{const value=invitation;if(!value||!await open(value.mode==='lan'?'lan':'together')||invitation!==value)return;invitation=null;inviteDialog.close();await requireSession().accept(value.id);});
     $('gamingDeclineInvite').onclick=()=>action(async()=>{const value=invitation;invitation=null;inviteDialog.close();if(value)await session?.decline(value.id);});
     inviteDialog.addEventListener('cancel',event=>{event.preventDefault();$('gamingDeclineInvite').click();});
     $('gamingShare').onclick=()=>action(()=>requireSession().startSharing({frameRate:Number($('gamingStreamFps').value)||60,bitrateMbps:Number($('gamingStreamBitrate').value)||15}));
     $('gamingStopShare').onclick=()=>action(()=>session?.stopSharing());$('gamingPlayAudio').onclick=()=>action(()=>$('gamingVideo').play());
     $('gamingRefresh').onclick=()=>action(async()=>{ensureSession();renderFriends();const result=await bridge.request('status');$('gamingRuntimeStatus').textContent=result.status?.runtime?.bundled?'Windows gaming components are bundled with Vumiro. Initial use may require Windows authorization.':'This development build is missing a bundled gaming component.';$('gamingControllerStatus').textContent=result.controller?.available?'Controller ready':'Included with Vumiro setup';});
-    function open(next){if(!['lan','together','mapping'].includes(next))return;if(!opened)$('browseApp')?.click();opened=true;route=next;section.hidden=false;document.body.classList.add('gaming-view');$('gamingSubnav').hidden=false;nav.setAttribute('aria-expanded','true');
+    async function open(next){if(!['lan','together','mapping'].includes(next))return false;if(!opened){
+      if(root.VumiroWorkspace){if(!await root.VumiroWorkspace.prepareExternal('gaming'))return false;}
+      else $('browseApp')?.click();
+      if(root.VumiroWorkspace?.isCurrent?.('gaming')===false)return false;
+      }opened=true;route=next;section.hidden=false;document.body.classList.add('gaming-view');$('gamingSubnav').hidden=false;nav.setAttribute('aria-expanded','true');
       const tabs={lan:'gamingLanNav',together:'gamingTogetherNav',mapping:'gamingMappingNav'};
       for(const [key,id]of Object.entries(tabs)){$(id).setAttribute('aria-current',key===next?'page':'false');$(`gaming${key==='lan'?'Lan':key==='together'?'Together':'Mapping'}Panel`).hidden=key!==next;}
       for(const button of document.querySelectorAll('.nav>button')){button.classList.toggle('active',button===nav);button.setAttribute('aria-current',button===nav?'page':'false');}
-      $('gamingTitle').textContent=t(next==='lan'?'LAN tunneling':next==='together'?'Game together':'Controller mappings');$('gamingTitle').focus();ensureSession();renderFriends();}
+      $('gamingTitle').textContent=t(next==='lan'?'LAN tunneling':next==='together'?'Game together':'Controller mappings');$('gamingTitle').focus();ensureSession();renderFriends();return true;}
     function releaseInput(){pressed.clear();session?.releaseInput();preview();}
     function close(){opened=false;section.hidden=true;document.body.classList.remove('gaming-view');nav.classList.remove('active');nav.setAttribute('aria-current','false');releaseInput();}
     nav.addEventListener('click',()=>open(route));$('gamingLanNav').onclick=()=>open('lan');$('gamingTogetherNav').onclick=()=>open('together');$('gamingMappingNav').onclick=()=>open('mapping');$('gamingToMappings').onclick=()=>open('mapping');

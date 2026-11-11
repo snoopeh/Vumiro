@@ -37,3 +37,9 @@ test('directory loss clears playback, invitation and connected controls immediat
  h.window.VumiroGamingDirectory.getContext=()=>null;h.windowEvents.get('vumiro:gaming-directory')();
  assert.equal(h.nodes.get('gamingSessionStatus').textContent,'offline');assert.equal(h.nodes.get('gamingShare').disabled,true);assert.equal(h.nodes.get('gamingStopShare').disabled,true);assert.equal(h.nodes.get('gamingVideo').srcObject,null);assert.equal(h.created.find(e=>e.id==='gamingInviteDialog').open,false);assert.equal(h.calls.filter(c=>c[0]==='stop').length,1);
 });
+
+test('workspace navigation cancellation leaves an invitation unaccepted',async()=>{
+ const h=harness();h.window.VumiroWorkspace={prepareExternal:async()=>false,isCurrent:()=>false};
+ h.callbacks().onInvitation({id:'abc',peerId:'friend',mode:'together'});await h.nodes.get('gamingAcceptInvite').onclick();
+ assert.equal(h.calls.some(c=>c[0]==='accept'),false);assert.equal(h.window.document.body.classList.contains('gaming-view'),false);
+});
