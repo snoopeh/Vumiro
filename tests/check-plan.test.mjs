@@ -21,7 +21,7 @@ test('default plans discover every top-level test and all native/backend checks'
   assert.deepEqual(result.tests, files);
   assert.equal(result.full, true);
   assert.equal(result.backend, true);
-  assert.equal(result.native.length, 12);
+  assert.equal(result.native.length, 13);
   assert.ok(result.native.some(check => check.project.endsWith('NativeAudioSmoke.csproj') && check.args.includes('--self-test')));
 });
 
@@ -93,7 +93,7 @@ test('known test changes expand to their feature group', async () => {
 
 test('all native group checks have existing projects, and manifest maps current tests', async () => {
   const result = await plan({ groups: ['native'] });
-  assert.equal(result.native.length, 12);
+  assert.equal(result.native.length, 13);
   for (const check of result.native) assert.ok(existsSync(path.join(root, check.project)), check.project);
   const manifest = JSON.parse(await readFile(path.join(root, 'scripts/feature-checks.json'), 'utf8'));
   const mapped = new Set(Object.values(manifest.groups).flatMap(group => group.tests));

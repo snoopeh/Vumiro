@@ -47,5 +47,16 @@
     frame.leftTrigger=down('lt')?255:0; frame.rightTrigger=down('rt')?255:0;
     return frame;
   }
-  return Object.freeze({DEFAULT_BINDINGS,validateBindings,frameFromKeys});
+  function frameFromGamepad(pad) {
+    const frame={buttons:0,leftX:0,leftY:0,rightX:0,rightY:0,leftTrigger:0,rightTrigger:0};
+    if(!pad?.connected||pad.mapping!=='standard')return frame;
+    const limit=(value,min,max)=>Math.max(min,Math.min(max,Math.round(value)));
+    const buttons=[4096,8192,16384,32768,256,512,0,0,32,16,64,128,1,2,4,8];
+    buttons.forEach((flag,index)=>{if(pad.buttons?.[index]?.pressed)frame.buttons|=flag;});
+    const axis=(index,invert=false)=>{const value=pad.axes?.[index];return typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)>.12?limit((invert?-value:value)*32767,-32768,32767):0;};
+    frame.leftX=axis(0);frame.leftY=axis(1,true);frame.rightX=axis(2);frame.rightY=axis(3,true);
+    for(const [name,index]of [['leftTrigger',6],['rightTrigger',7]]){const value=pad.buttons?.[index]?.value;frame[name]=typeof value==='number'&&Number.isFinite(value)?limit(value*255,0,255):0;}
+    return frame;
+  }
+  return Object.freeze({DEFAULT_BINDINGS,validateBindings,frameFromKeys,frameFromGamepad});
 });

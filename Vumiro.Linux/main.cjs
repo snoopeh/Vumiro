@@ -25,6 +25,10 @@ const ASSET_PATHS = new Map([
 
   ['/app-extras.js', 'text/javascript; charset=utf-8'],
   ['/friends.html', 'text/html; charset=utf-8'],
+  ['/ui-controls.js', 'text/javascript; charset=utf-8'],
+  ['/controller-art.js', 'text/javascript; charset=utf-8'],
+  ['/gaming-view.js', 'text/javascript; charset=utf-8'],
+  ['/gaming-lab.js', 'text/javascript; charset=utf-8'],
   ['/controller-mapping.js', 'text/javascript; charset=utf-8'],
   ['/gaming-directory.js', 'text/javascript; charset=utf-8'],
   ['/gaming-session.js', 'text/javascript; charset=utf-8'],

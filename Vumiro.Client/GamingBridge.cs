@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Vumiro.Client
@@ -8,6 +9,8 @@ namespace Vumiro.Client
     internal sealed partial class ClientWindow
     {
         private int gamingGeneration;
+        private bool gamingDiagnosticRunning;
+        private int gamingPendingNativeStarts;
         private async Task<bool> HandleGamingMessageAsync(Dictionary<string, object> message)
         {
             if (message == null || GamingText(message, "type") != "gaming") return false;
@@ -17,10 +20,37 @@ namespace Vumiro.Client
             Dictionary<string, object> result = null;
             string error = null, errorCode = null;
             var ok = false;
+            var admittedNativeStart = false;
             try {
                 if (IsDisposed || Disposing) return true;
                 var action = GamingText(message, "action");
-                if (action == "status") {
+                if (gamingDiagnosticRunning && (action == "lan-start" || action == "remote-controller-start"))
+                    throw new GamingServiceException("diagnostic-running", "Wait for the native self-test to finish before starting a session.");
+                if (action == "lan-start" || action == "remote-controller-start") {
+                    // Admission happens on the UI thread before the first await.
+                    // Keep it reserved through helper setup and controller retry.
+                    Interlocked.Increment(ref gamingPendingNativeStarts);
+                    admittedNativeStart = true;
+                }
+                if (action == "self-test") {
+                    if (!ClientRuntime.Current.IsLocalQa) throw new GamingServiceException("local-qa-only", "Native self-tests are available only in LOCAL QA.");
+                    var kind = GamingText(message, "kind");
+                    if (kind != "lan" && kind != "controller") throw new GamingServiceException("invalid-diagnostic", "Choose the LAN or controller native self-test.");
+                    var controllerReply = HandleGamingControllerAction("mapper-status", message) as Dictionary<string, object>;
+                    object controllerValue, activeValue;
+                    var controller = controllerReply != null && controllerReply.TryGetValue("controller", out controllerValue) ? controllerValue as Dictionary<string, object> : null;
+                    var active = controller != null && controller.TryGetValue("active", out activeValue) && activeValue is bool && (bool)activeValue;
+                    if (gamingDiagnosticRunning || Volatile.Read(ref gamingPendingNativeStarts) != 0 || gamingLanSessionId != null || active) result = GamingDiagnostics.Unavailable("Wait for pending setup and end the active gaming session before running a native self-test.");
+                    else {
+                        gamingDiagnosticRunning = true;
+                        try {
+                            result = kind == "controller" ? await Task.Run(() => GamingDiagnostics.NativeController(() => new GamingDiagnosticPad()))
+                                : await EnsureGamingHost().RequestAsync("self-test-lan", new Dictionary<string, object>());
+                            if (kind == "lan" && !GamingReplyOk(result)) result = GamingDiagnostics.Unavailable(GamingText(result, "error") ?? "The LAN helper could not run its native adapter check.");
+                        } finally { gamingDiagnosticRunning = false; }
+                    }
+                    ok = true;
+                } else if (action == "status") {
                     var lanReply = await HandleGamingLanActionAsync("lan-status", message);
                     if (generation != gamingGeneration || IsDisposed || Disposing) return true;
                     var controllerReply = HandleGamingControllerAction("mapper-status", message) as Dictionary<string, object>;
@@ -57,11 +87,18 @@ namespace Vumiro.Client
             }
             catch (GamingServiceException exception) { error = exception.Message; errorCode = exception.Code; }
             catch (Exception) { error = "Vumiro could not complete the gaming action. Rejoin the session and try again."; errorCode = "gaming-error"; }
+            finally { if (admittedNativeStart) Interlocked.Decrement(ref gamingPendingNativeStarts); }
             if (!IsDisposed && !Disposing && generation == gamingGeneration && browser.CoreWebView2 != null)
                 browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> {
                     { "type", "gaming-result" }, { "requestId", requestId }, { "ok", ok }, { "result", result }, { "error", error }, { "errorCode", errorCode }
                 }));
             return true;
+        }
+        private sealed class GamingDiagnosticPad : IGamingDiagnosticPad
+        {
+            private readonly VirtualGamepad pad = new VirtualGamepad();
+            public void Submit(GamingDiagnosticFrame value) { pad.Submit(new ControllerFrame { Buttons=value.Buttons,LeftX=value.LeftX,LeftY=value.LeftY,RightX=value.RightX,RightY=value.RightY,LeftTrigger=value.LeftTrigger,RightTrigger=value.RightTrigger }); }
+            public void Dispose() { pad.Dispose(); }
         }
         private static bool ControllerNeedsInstall(Dictionary<string, object> reply)
         {

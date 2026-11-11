@@ -13,26 +13,26 @@
     const style = document.createElement('style');
     style.dataset.vumiroAvatarEditor = '';
     style.textContent = `
-      dialog.vumiro-avatar-editor{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:24px;border:1px solid #3a3a43;border-radius:14px;background:#17171b;color:#f8f8f8;box-shadow:0 24px 90px #000b;font:14px/1.5 Sora,"Segoe UI",system-ui,sans-serif}
-      dialog.vumiro-avatar-editor::backdrop{background:#050507c9;backdrop-filter:blur(4px)}
+      dialog.vumiro-avatar-editor{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);padding:24px;border:1px solid #3d3d3d;border-radius:14px;background:#181818;color:#f8f8f8;box-shadow:0 24px 90px #000b;font:14px/1.5 Sora,"Segoe UI",system-ui,sans-serif}
+      dialog.vumiro-avatar-editor::backdrop{background:#060606c9;backdrop-filter:blur(4px)}
       .vae-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
       .vae-head h2{font-size:20px;letter-spacing:-.5px;margin:0 0 4px}
-      .vae-head p,.vae-help{margin:0;color:#a1a1aa;font-size:12px}
-      .vae-close{width:36px;height:36px;display:grid;place-items:center;border:1px solid #34343b;border-radius:8px;background:#222227;color:#eee;font-size:21px;cursor:pointer}
+      .vae-head p,.vae-help{margin:0;color:#a4a4a4;font-size:12px}
+      .vae-close{width:36px;height:36px;display:grid;place-items:center;border:1px solid #363636;border-radius:8px;background:#242424;color:#eee;font-size:21px;cursor:pointer}
       .vae-close:focus-visible,.vae-actions button:focus-visible,.vae-zoom:focus-visible,.vae-crop:focus-visible{outline:2px solid #e11d2e;outline-offset:3px}
-      .vae-crop-wrap{display:grid;place-items:center;padding:13px;background:#101013;border:1px solid #2d2d33;border-radius:12px}
-      .vae-crop{position:relative;width:min(100%,360px);aspect-ratio:1;overflow:hidden;border-radius:50%;background:#222227;cursor:grab;touch-action:none;outline:none;user-select:none}
+      .vae-crop-wrap{display:grid;place-items:center;padding:13px;background:#111111;border:1px solid #2f2f2f;border-radius:12px}
+      .vae-crop{position:relative;width:min(100%,360px);aspect-ratio:1;overflow:hidden;border-radius:50%;background:#242424;cursor:grab;touch-action:none;outline:none;user-select:none}
       .vae-crop:active{cursor:grabbing}
       .vae-image{position:absolute;left:0;top:0;max-width:none;max-height:none;pointer-events:none;user-select:none;will-change:transform}
       .vae-grid{position:absolute;inset:0;pointer-events:none;border:1px solid #ffffff55;border-radius:50%;box-shadow:inset 0 0 0 1px #0004}
       .vae-help{margin-top:12px;text-align:center}
       .vae-zoom-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;margin:20px 2px 0}
       .vae-zoom-row label{font-size:12px;font-weight:600}
-      .vae-zoom-row output{min-width:40px;text-align:right;color:#b8b8c0;font-size:11px;font-variant-numeric:tabular-nums}
+      .vae-zoom-row output{min-width:40px;text-align:right;color:#bbbbbb;font-size:11px;font-variant-numeric:tabular-nums}
       .vae-zoom{width:100%;accent-color:#e11d2e}
       .vae-error{min-height:18px;margin:10px 2px 0;color:#ff9ca8;font-size:12px}
       .vae-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-      .vae-actions button{padding:10px 15px;border:1px solid #38383f;border-radius:8px;background:#242429;color:#f8f8f8;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+      .vae-actions button{padding:10px 15px;border:1px solid #3a3a3a;border-radius:8px;background:#262626;color:#f8f8f8;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
       .vae-actions .vae-save{background:#e11d2e;border-color:#e11d2e}
       .vae-actions button:hover{filter:brightness(1.12)}
       @media(max-width:480px){dialog.vumiro-avatar-editor{padding:18px}.vae-crop-wrap{padding:8px}.vae-crop{width:min(100%,300px)}}
@@ -551,7 +551,10 @@ let workspaceNavigation=0,serverWorkspaceController=null;
 function activateWorkspace(view){
   workspaceView=view;
   if(view!=='servers'){serverWorkspaceController?.hide();if($('serverWorkspace'))$('serverWorkspace').hidden=true;}
-  if(view!=='gaming')window.VumiroGaming?.close();
+  if(view!=='gaming'){
+    window.VumiroGaming?.close();
+    for(const button of document.querySelectorAll('#gamingSubnav [aria-current]'))button.removeAttribute('aria-current');
+  }
   browseRoom();setRoomView(false);
   $('friendsBody').hidden=!['friends','conversations'].includes(view);
   document.body.classList.toggle('conversations-view',view==='conversations');
@@ -604,7 +607,7 @@ function avatar(element,person) { element.replaceChildren();try{if(person.avatar
 const canonicalRoomHost='vumiro-rooms.vumiro-signaling.workers.dev';
 const legacyRoomHosts=new Set(['screentask-rooms.screentask-room-signaling.workers.dev','screentask-rooms.vumiro-signaling.workers.dev','vumiro-rooms.screentask-room-signaling.workers.dev']);
 function migrateRoomHost(url) { if(legacyRoomHosts.has(url.hostname.toLowerCase()))url.hostname=canonicalRoomHost;return url; }
-function normalizeService(raw) { const url=migrateRoomHost(new URL(raw));if(url.protocol==='https:')url.protocol='wss:';if(url.protocol==='http:')url.protocol='ws:';if(!['ws:','wss:'].includes(url.protocol)||url.username||url.password)throw Error('Use a valid wss:// service URL.');if(url.protocol==='ws:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('Use wss:// for a service outside this device.');url.pathname='/call-signaling';url.search='';url.hash='';return url.href; }
+function normalizeService(raw) { const url=migrateRoomHost(new URL(raw));if(url.protocol==='https:')url.protocol='wss:';if(url.protocol==='http:')url.protocol='ws:';if(!['ws:','wss:'].includes(url.protocol)||url.username||url.password)throw Error('Use a valid wss:// service URL.');const qaOverride=typeof window!=='undefined'&&window.__VUMIRO_LOCAL_QA__===true&&typeof window.__VUMIRO_LOCAL_QA_SIGNALING__==='string'&&new URL(window.__VUMIRO_LOCAL_QA_SIGNALING__).origin===url.origin;if(url.protocol==='ws:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname)&&!qaOverride)throw Error('Use wss:// for a service outside this device.');url.pathname='/call-signaling';url.search='';url.hash='';return url.href; }
 function serviceState(text,connected=false) { $('serviceStatus').textContent=text;$('serviceDot').classList.toggle('online',connected);$('reconnectService').hidden=connected; }
 function send(message) { if(!socket||socket.readyState!==WebSocket.OPEN||!ready)throw Error('The service is offline. Reconnect to send this request.');const {from,...wire}=message;socket.send(JSON.stringify(message.type==='gaming-signal'?message:wire)); }
 function watch(){if(ready)send({type:'watch',ids:friends.map(friend=>friend.id)});}

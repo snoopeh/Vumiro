@@ -386,3 +386,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Controller diagram artwork
+
+The Xbox Series controller diagram in `Vumiro.Client/WebServer/controller-art.js` uses the CC0-1.0 free input prompts artwork by Nicolae (Xelu) Berbece / Those Awesome Guys, with SVG extraction by Haaldor. Source: [Xelu_prompts_SVG](https://github.com/haaldor/Xelu_prompts_SVG), revision `9b8c47f76882dc79f9c30e8bc6e10b337baf575e`, `Xbox_Series-69` controller diagram. Vumiro retains the sourced geometry and adds shading, accessibility and mapping feedback. The original selected vector and CC0 dedication are preserved in `vendor/controller-art/`; see [provenance](vendor/controller-art/PROVENANCE.md) and [license](vendor/controller-art/LICENSE-CC0.txt). Xbox is a Microsoft trademark; no endorsement is implied.

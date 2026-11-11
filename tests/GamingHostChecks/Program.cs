@@ -24,7 +24,7 @@ internal static class Program
         Check(!GamingHostProtocol.ValidPipeName("VumiroGaming-../other"), "pipe path rejected");
         Check(!GamingHostProtocol.ValidPipeName("other-"+new string('a',32)), "foreign pipe rejected");
         Check(GamingHost.Run(new[]{"--gaming-host","invalid-pipe","0"})==2,"helper rejects invalid launch without setup");
-        foreach (var action in new[] { "heartbeat", "lan-status", "controller-status", "install-controller" }) Check(GamingHostProtocol.ValidRequest(Request(action)), "allowed action " + action);
+        foreach (var action in new[] { "heartbeat", "lan-status", "controller-status", "install-controller", "self-test-lan" }) Check(GamingHostProtocol.ValidRequest(Request(action)), "allowed action " + action);
         Check(!GamingHostProtocol.ValidRequest(Request("run")), "arbitrary command rejected");
         var unsafeMessage=Request("install-controller");unsafeMessage["path"]="C:\\evil.exe";Check(!GamingHostProtocol.ValidRequest(unsafeMessage), "installer path rejected");
         var start=Request("lan-start");start["sessionId"]=new string('b',32);start["address"]="10.203.12.1";start["addresses"]=new object[]{"10.203.12.2"};
@@ -56,6 +56,8 @@ internal static class Program
             installed=false;var fresh=await ops.HandleAsync("install-controller",Request("install-controller"));
             Check((bool)fresh["ok"]&&installs==1,"explicit setup invokes fixed injected installer");
             var result=await ops.HandleAsync("lan-start",start);Check((bool)result["ok"],"helper starts own LAN session");
+            var diagnostic=await ops.HandleAsync("self-test-lan",Request("self-test-lan"));
+            Check((bool)diagnostic["ok"]&&!(bool)diagnostic["passed"],"active helper LAN refuses temporary adapter diagnostic");
             var changed=Request("lan-stop");changed["sessionId"]=new string('c',32);
             Check(!(bool)(await ops.HandleAsync("lan-stop",changed))["ok"],"stale session cannot stop current session");
             var stop=Request("lan-stop");stop["sessionId"]=start["sessionId"];

@@ -39,7 +39,7 @@ test('bridge reports unavailable platforms, times out and cleans pending request
 test('navigation and source assets include all gaming sections and packaged modules',()=>{
   const html=readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');
   for(const id of ['gamingNav','gamingSubnav','gamingLanNav','gamingTogetherNav','gamingMappingNav'])assert.ok(html.includes(`id="${id}"`),id);
-  for(const name of ['controller-mapping.js','gaming-directory.js','gaming-session.js','gaming-client.js']){
+  for(const name of ['ui-controls.js','controller-art.js','gaming-view.js','gaming-lab.js','controller-mapping.js','gaming-directory.js','gaming-session.js','gaming-client.js']){
     assert.ok(html.includes(`src="/${name}"`));
     for(const file of ['../scripts/bundle-client-web.mjs','../Vumiro.Linux/build/prepare-assets.mjs','../Vumiro.Linux/main.cjs','../cloudflare/prepare-assets.mjs','../cloudflare/worker.js'])assert.ok(readFileSync(new URL(file,import.meta.url),'utf8').includes(name),`${file}: ${name}`);
   }

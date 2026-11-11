@@ -29,9 +29,10 @@ namespace Vumiro.Client
                 GamingPayloads.NoLinks(expected);
                 if(!String.Equals(Path.GetFullPath(parent.MainModule.FileName),Path.GetFullPath(expected),StringComparison.OrdinalIgnoreCase)||parent.HasExited)return 5;
                 long lease=Environment.TickCount;
+                long diagnosticStarted=0;
                 Action disconnect=()=>{ try { cancel.Cancel();channel.Dispose(); } catch { } };
                 using(var watchdog=new Timer(_=>{
-                    try { if(parent.HasExited||unchecked((uint)(Environment.TickCount-(int)Interlocked.Read(ref lease)))>30000)disconnect(); } catch { disconnect(); }
+                    try { var diagnostic=Interlocked.Read(ref diagnosticStarted);var busy=diagnostic!=0&&unchecked((uint)(Environment.TickCount-(int)diagnostic))<90000;if(parent.HasExited||!busy&&unchecked((uint)(Environment.TickCount-(int)Interlocked.Read(ref lease)))>30000)disconnect(); } catch { disconnect(); }
                 },null,2000,2000))
                 using(var output=new GamingPipeWriter(channel,disconnect))
                 using(var operations=new GamingHostOperations(
@@ -49,6 +50,10 @@ namespace Vumiro.Client
                             if(installation!=null&&!installation.IsCompleted) {
                                 var busy=GamingHostProtocol.Error("Controller setup is already running.");busy["id"]=request["id"];if(!output.TryWrite(busy))break;
                             } else installation=ReplyAsync(operations,output,action,request,disconnect);
+                        } else if(action=="self-test-lan") {
+                            Interlocked.Exchange(ref diagnosticStarted,Environment.TickCount);
+                            try { await ReplyAsync(operations,output,action,request,disconnect).ConfigureAwait(false); }
+                            finally { Interlocked.Exchange(ref lease,Environment.TickCount);Interlocked.Exchange(ref diagnosticStarted,0); }
                         } else await ReplyAsync(operations,output,action,request,disconnect).ConfigureAwait(false);
                     }
                     return 0;
@@ -98,6 +103,11 @@ namespace Vumiro.Client
         internal async Task<Dictionary<string,object>> HandleAsync(string action,Dictionary<string,object> message)
         {
             if(action=="heartbeat")return new Dictionary<string,object>{{"ok",true}};
+            if(action=="self-test-lan") {
+                var report = lan != null ? GamingDiagnostics.Unavailable("End the active LAN session before checking the adapter.")
+                    : await Task.Run(()=>GamingDiagnostics.NativeLan(adapter)).ConfigureAwait(false);
+                report["ok"]=true;return report;
+            }
             if(action=="controller-status")return ControllerReply(true,null,false);
             if(action=="install-controller") {
                 if(controllerInstalled())return ControllerReply(true,null,false);

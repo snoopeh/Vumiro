@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="../Vumiro.Client/GamingPayloads.cs" Link="GamingPayloads.cs" />
     <Compile Include="../Vumiro.Client/GamingLan.cs" Link="GamingLan.cs" />
+    <Compile Include="../Vumiro.Client/GamingDiagnostics.cs" Link="GamingDiagnostics.cs" />
     <EmbeddedResource Include="../vendor/windows/wintun.dll" LogicalName="Vumiro.Gaming.Wintun" />
     <EmbeddedResource Include="../vendor/windows/ViGEmBus_1.22.0.exe" LogicalName="Vumiro.Gaming.ControllerInstaller" />
     <Reference Include="System.Web.Extensions" /><Reference Include="System.Security" />

@@ -36,7 +36,7 @@ namespace Vumiro.Client
                     waiting.Add(id,completion);
                     if(!writer.TryWrite(request)) { waiting.Remove(id);return GamingHostProtocol.Error("The gaming helper queue is full."); }
                 }
-                var timeout=Task.Delay(action=="install-controller"?240000:20000);
+                var timeout=Task.Delay(action=="install-controller"?240000:action=="self-test-lan"?90000:20000);
                 if(await Task.WhenAny(completion.Task,timeout).ConfigureAwait(false)!=completion.Task) {
                     lock(gate)waiting.Remove(id);return GamingHostProtocol.Error("The gaming helper did not answer in time.");
                 }

@@ -107,7 +107,7 @@ namespace Vumiro.Client
             if(message==null||!Regex.IsMatch(Text(message,"id")??"","\\A[0-9a-f]{32}\\z"))return false;
             var action=Text(message,"action");string[] extra;
             switch(action) {
-                case "heartbeat":case "lan-status":case "controller-status":case "install-controller":extra=new string[0];break;
+                case "heartbeat":case "lan-status":case "controller-status":case "install-controller":case "self-test-lan":extra=new string[0];break;
                 case "lan-start":extra=new[]{"sessionId","address","addresses"};break;
                 case "lan-set-peers":extra=new[]{"sessionId","addresses"};break;
                 case "lan-packet":extra=new[]{"sessionId","packet"};break;

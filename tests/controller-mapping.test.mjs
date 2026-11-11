@@ -8,6 +8,13 @@ const source = new URL('../Vumiro.Client/WebServer/controller-mapping.js', impor
 test('mapping module exists', () => assert.ok(fs.existsSync(source), 'controller mapping implementation missing'));
 const engine = fs.existsSync(source) ? require(fileURLToPath(source)) : null;
 const neutral = { buttons:0,leftX:0,leftY:0,rightX:0,rightY:0,leftTrigger:0,rightTrigger:0 };
+
+test('physical preview preserves analog pressure, Xbox flags and dead zones',()=>{
+ const buttons=Array.from({length:16},()=>({pressed:false,value:0}));buttons[0]={pressed:true,value:1};buttons[6]={pressed:false,value:.4};buttons[15]={pressed:true,value:1};
+ const frame=engine.frameFromGamepad({connected:true,mapping:'standard',axes:[-1,.5,.05,NaN],buttons});
+ assert.deepEqual(frame,{buttons:4104,leftX:-32767,leftY:-16383,rightX:0,rightY:0,leftTrigger:102,rightTrigger:0});
+ for(const pad of [null,{connected:false,mapping:'standard'},{connected:true,mapping:''}])assert.deepEqual(engine.frameFromGamepad(pad),neutral);
+});
 test('default mapping is complete and valid', () => {
   assert.ok(engine, 'mapping engine missing');
   assert.equal(Object.keys(engine.DEFAULT_BINDINGS).length, 24);

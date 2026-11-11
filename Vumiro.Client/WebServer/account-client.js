@@ -739,7 +739,27 @@
   $('accountSaveRecovery').onclick=()=>{if(!identityRecoveryCode)return;const url=URL.createObjectURL(new Blob([identityRecoveryCode+'\n'],{type:'text/plain;charset=utf-8'})),link=document.createElement('a');link.href=url;link.download='Vumiro-identity-recovery.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status('Identity recovery code saved.');};
   $('accountHideRecovery').onclick=()=>{$('accountRecoveryPanel').hidden=true;$('accountRecoveryCode').value='';};
   addEventListener('vumiro-profile-changed',scheduleSync);addEventListener('vumiro-friends-changed',scheduleSync);addEventListener('vumiro-account-data-changed',scheduleSync);
+  /* Private LOCAL QA profile entry. */
+  async function preparePrivateQaEntry(){
+    if(window.__VUMIRO_LOCAL_QA__!==true||typeof window.__VUMIRO_LOCAL_QA_SIGNALING__!=='string'||!window.__VUMIRO_LOCAL_QA_SIGNALING__)return false;
+    await window.VumiroLocalProfile.initialize();
+    if(!authPage){resolveStartup(true);return true;}
+    const card=document.querySelector('.authCard');if(!card)return false;
+    for(const child of card.children)child.hidden=true;
+    const section=document.createElement('section');section.className='qaProfileEntry';
+    const eyebrow=document.createElement('div');eyebrow.textContent='LOCAL QA · PRIVATE RELAY';
+    const title=document.createElement('h2');title.textContent='Ready for a test run?';
+    const description=document.createElement('p');description.textContent='Use a separate test identity for this private relay. Your installed profile and Vumiro account stay untouched.';
+    const label=document.createElement('label');label.textContent='Test profile name';label.htmlFor='gamingQaName';
+    const input=document.createElement('input');input.id='gamingQaName';input.maxLength=48;input.autocomplete='off';input.value=window.VumiroLocalProfile.profile()?.name||'Gaming tester';input.readOnly=!!window.VumiroLocalProfile.profile();
+    const feedback=document.createElement('p');feedback.setAttribute('role','status');
+    const button=document.createElement('button');button.id='gamingQaEnter';button.type='button';button.className='primary';button.textContent='Open private QA';
+    button.onclick=async()=>{button.disabled=true;try{if(!window.VumiroLocalProfile.profile())await window.VumiroLocalProfile.createProfile(input.value);navigate('friends.html');}catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}};
+    section.append(eyebrow,title,description,label,input,button,feedback);card.append(section);resolveStartup(false);return true;
+  }
+  /* End private LOCAL QA profile entry. */
   addEventListener('DOMContentLoaded',async()=>{
+    try{if(await preparePrivateQaEntry())return;}catch(error){status(error.message,true);resolveStartup(false);return;}
     let startupSucceeded=false;
     try {
       try {

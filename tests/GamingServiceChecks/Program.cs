@@ -31,6 +31,8 @@ internal static class Program
         Check((bool)Last(window)["ok"] && GamingHostClient.Created == 1, "LAN did not use helper");
         Check((string)((Dictionary<string, object>)((Dictionary<string, object>)Last(window)["result"])["lan"])["state"] == "starting", "starting adapter faked active");
         var host = GamingHostClient.Latest;
+        await window.Handle(new Dictionary<string,object>{{"type","gaming"},{"requestId","diagBusy"},{"action","self-test"},{"kind","lan"}});
+        Check(!(bool)((Dictionary<string,object>)Last(window)["result"])["passed"]&&!host.Actions.Contains("self-test-lan"),"active LAN refuses diagnostics");
         for (var i = 0; i < 500; i++) host.Emit("00112233445566778899aabbccddeeff");
         Check(window.Callbacks.Count <= 128, "unbounded helper UI callbacks"); window.Drain();
         Check(window.Replies.Count >= 128, "native packet events not posted");
@@ -52,18 +54,53 @@ internal static class Program
         var failure = new ClientWindow(); await failure.Handle(Message("lan-start"));
         Check(!(bool)Last(failure)["ok"] && !new JavaScriptSerializer().Serialize(Last(failure)).Contains("private path token"), "helper exception leaked details");
         failure.Stop(); GamingHostClient.NextReply = null;
+        ClientRuntime.Current.IsLocalQa=false;var released=new ClientWindow();await released.Handle(new Dictionary<string,object>{{"type","gaming"},{"requestId","diagRelease"},{"action","self-test"},{"kind","lan"}});Check(!(bool)Last(released)["ok"],"release diagnostic rejected");ClientRuntime.Current.IsLocalQa=true;
         var restart = new ClientWindow { ControllerAvailable = false }; GamingHostClient.NextReply = (action, message) => Task.FromResult(new Dictionary<string, object> { { "ok", true }, { "controller", new Dictionary<string, object> { { "restartRequired", true } } } });
         await restart.Handle(Message("remote-controller-start"));
         Check(!(bool)Last(restart)["ok"], "driver restart falsely reported active"); restart.Stop(); GamingHostClient.NextReply = null;
+        await CheckPendingAdmission("remote-controller-start");
+        await CheckPendingAdmission("lan-start");
         Console.WriteLine("PASS " + checks + " built-in gaming bridge checks.");
+    }
+    private static async Task CheckPendingAdmission(string action)
+    {
+        var startReply=new TaskCompletionSource<Dictionary<string,object>>();
+        var diagnosticReply=new TaskCompletionSource<Dictionary<string,object>>();
+        var diagnosticCalls=0;
+        GamingHostClient.NextReply=(command,message)=>{if(command=="self-test-lan"){diagnosticCalls++;return diagnosticReply.Task;}return startReply.Task;};
+        var window=new ClientWindow {ControllerAvailable=false};
+        var start=window.Handle(Message(action,"pendingStart"));
+        var diagnostic=window.Handle(new Dictionary<string,object>{{"type","gaming"},{"requestId","pendingDiag"},{"action","self-test"},{"kind","lan"}});
+        try {
+            Check(diagnosticCalls==0&&diagnostic.IsCompleted,"diagnostic admitted during pending "+action);
+            await diagnostic;
+            Check(!(bool)((Dictionary<string,object>)Last(window)["result"])["passed"],"pending start reported available for diagnostics");
+            window.ControllerAvailable=true;startReply.SetResult(GamingHostClient.Success("starting"));await start;
+            Check((bool)Last(window)["ok"],"pending start was interrupted or left untracked");
+            if(action=="remote-controller-start")Check(window.ControllerStarts==2,"controller retry missing after exclusive admission");
+            var liveDiagnostic=window.Handle(new Dictionary<string,object>{{"type","gaming"},{"requestId","liveDiag"},{"action","self-test"},{"kind","lan"}});
+            Check(liveDiagnostic.IsCompleted&&diagnosticCalls==0,"completed native start left a live device untracked");await liveDiagnostic;
+            Check(!(bool)((Dictionary<string,object>)Last(window)["result"])["passed"],"active device accepted diagnostic after pending admission ended");
+        } finally {
+            startReply.TrySetResult(GamingHostClient.Success("starting"));
+            diagnosticReply.TrySetResult(new Dictionary<string,object>{{"ok",true},{"passed",true},{"checks",new object[0]}});
+            await Task.WhenAll(start,diagnostic);window.Stop();GamingHostClient.NextReply=null;
+        }
+        GamingHostClient.NextReply=(command,message)=>Task.FromResult(new Dictionary<string,object>{{"ok",true},{"passed",true},{"checks",new object[0]}});
+        await window.Handle(new Dictionary<string,object>{{"type","gaming"},{"requestId","afterStopDiag"},{"action","self-test"},{"kind","lan"}});
+        Check((bool)((Dictionary<string,object>)Last(window)["result"])["passed"],"pending admission was not released after stop/completion");
+        window.Stop();GamingHostClient.NextReply=null;
     }
 }
 namespace Vumiro.Client
 {
+    internal sealed class ClientRuntime { internal static readonly ClientRuntime Current=new ClientRuntime();internal bool IsLocalQa=true; }
+    internal struct ControllerFrame {internal ushort Buttons;internal short LeftX,LeftY,RightX,RightY;internal byte LeftTrigger,RightTrigger;}
+    internal sealed class VirtualGamepad:IDisposable {internal void Submit(ControllerFrame f){}public void Dispose(){}}
     internal sealed partial class ClientWindow
     {
         private readonly TestBrowser browser = new TestBrowser(); private readonly JavaScriptSerializer json = new JavaScriptSerializer();
-        internal bool IsDisposed = false, Disposing = false, ControllerStopped, ControllerAvailable = true; internal bool IsHandleCreated = true; internal int ControllerCalls, ControllerStarts;
+        internal bool IsDisposed = false, Disposing = false, ControllerStopped, ControllerActive, ControllerAvailable = true; internal bool IsHandleCreated = true; internal int ControllerCalls, ControllerStarts;
         internal readonly Queue<Action> Callbacks = new Queue<Action>(); internal List<string> Replies { get { return browser.CoreWebView2.Replies; } }
         internal Task<bool> Handle(Dictionary<string, object> value) { return HandleGamingMessageAsync(value); } internal void Stop() { StopGaming(); }
         internal void BeginInvoke(Action action) { Callbacks.Enqueue(action); }
@@ -71,10 +108,10 @@ namespace Vumiro.Client
         private object HandleGamingControllerAction(string action, Dictionary<string, object> value)
         {
             ControllerCalls++; if (action != "mapper-status" && action != "controller-status" && action != "remote-controller-status" && action != "remote-controller-start" && action != "remote-controller-stop" && action != "remote-controller-frame") return null;
-            if (action == "remote-controller-start") { ControllerStarts++; if (ControllerStarts > 1 && !GamingHostClient.RestartRequired) ControllerAvailable = true; }
-            return new Dictionary<string, object> { { "ok", action != "remote-controller-start" || ControllerAvailable }, { "error", ControllerAvailable ? null : "Controller unavailable." }, { "controller", new Dictionary<string, object> { { "available", ControllerAvailable }, { "active", action == "remote-controller-start" && ControllerAvailable } } } };
+            if (action == "remote-controller-start") { ControllerStarts++; if (ControllerStarts > 1 && !GamingHostClient.RestartRequired) ControllerAvailable = true; ControllerActive=ControllerAvailable; }
+            return new Dictionary<string, object> { { "ok", action != "remote-controller-start" || ControllerAvailable }, { "error", ControllerAvailable ? null : "Controller unavailable." }, { "controller", new Dictionary<string, object> { { "available", ControllerAvailable }, { "active", ControllerActive } } } };
         }
-        private void StopGamingController() { ControllerStopped = true; }
+        private void StopGamingController() { ControllerStopped = true; ControllerActive=false; }
     }
     internal sealed class TestBrowser { internal readonly TestCore CoreWebView2 = new TestCore(); }
     internal sealed class TestCore { internal readonly List<string> Replies = new List<string>(); internal void PostWebMessageAsJson(string reply) { Replies.Add(reply); } }

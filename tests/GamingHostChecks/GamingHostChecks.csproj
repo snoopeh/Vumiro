@@ -5,6 +5,7 @@
     <Compile Include="../../Vumiro.Client/GamingPayloads.cs" Link="GamingPayloads.cs" />
     <Compile Include="../../Vumiro.Client/GamingHostClient.cs" Link="GamingHostClient.cs" />
     <Compile Include="../../Vumiro.Client/GamingLan.cs" Link="GamingLan.cs" />
+    <Compile Include="../../Vumiro.Client/GamingDiagnostics.cs" Link="GamingDiagnostics.cs" />
     <Compile Include="../../Vumiro.Client.Updater/GamingHost.cs" Link="GamingHost.cs" />
     <Reference Include="System.Web.Extensions" /><Reference Include="System.Security" />
     <EmbeddedResource Include="../../vendor/windows/wintun.dll" LogicalName="Vumiro.Gaming.Wintun" />

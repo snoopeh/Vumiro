@@ -15,14 +15,15 @@
     {"name": "gaming-controller", "project": "tests/GamingControllerChecks/GamingControllerChecks.csproj"},
     {"name": "gaming-dependencies", "project": "tests/GamingDependencyChecks/GamingDependencyChecks.csproj"},
     {"name": "gaming-lan", "project": "tests/GamingLanChecks/GamingLanChecks.csproj"},
-    {"name": "gaming-host", "project": "tests/GamingHostChecks/GamingHostChecks.csproj"}
+    {"name": "gaming-host", "project": "tests/GamingHostChecks/GamingHostChecks.csproj"},
+    {"name": "gaming-diagnostics", "project": "tests/GamingDiagnosticsChecks/GamingDiagnosticsChecks.csproj"}
   ],
   "groups": {
     "gaming": {
-      "sources": ["Vumiro.Client/WebServer/gaming-client.js", "Vumiro.Client/WebServer/controller-mapping.js", "Vumiro.Client/GamingBridge.cs", "Vumiro.Client/GamingServices.cs", "Vumiro.Client/GamingController.cs", "Vumiro.Client/VirtualGamepad.cs", "Vumiro.Client/GamingDependencies.cs", "Vumiro.Client/WebServer/gaming-session.js", "Vumiro.Client/WebServer/gaming-directory.js", "Vumiro.Client/GamingLan.cs", "Vumiro.Client/GamingLanBridge.cs", "Vumiro.Client/GamingHostClient.cs", "Vumiro.Client/GamingPayloads.cs", "Vumiro.Client.Updater/GamingHost.cs", "cloudflare/gaming-signals.js", "cloudflare/gaming-signals.test.js"],
-      "tests": ["tests/gaming-client.test.mjs", "tests/controller-mapping.test.mjs", "tests/gaming-lifecycle.test.mjs", "tests/gaming-session.test.mjs", "tests/gaming-directory.test.mjs"],
+      "sources": ["Vumiro.Client/WebServer/gaming-client.js", "Vumiro.Client/WebServer/controller-mapping.js", "Vumiro.Client/GamingBridge.cs", "Vumiro.Client/GamingServices.cs", "Vumiro.Client/GamingController.cs", "Vumiro.Client/VirtualGamepad.cs", "Vumiro.Client/GamingDependencies.cs", "Vumiro.Client/WebServer/gaming-session.js", "Vumiro.Client/WebServer/gaming-directory.js", "Vumiro.Client/GamingLan.cs", "Vumiro.Client/GamingLanBridge.cs", "Vumiro.Client/GamingHostClient.cs", "Vumiro.Client/GamingPayloads.cs", "Vumiro.Client.Updater/GamingHost.cs", "cloudflare/gaming-signals.js", "cloudflare/gaming-signals.test.js", "Vumiro.Client/WebServer/ui-controls.js", "Vumiro.Client/WebServer/controller-art.js", "Vumiro.Client/WebServer/gaming-view.js", "Vumiro.Client/WebServer/gaming-lab.js", "Vumiro.Client/GamingDiagnostics.cs", "scripts/Start-GamingQa.ps1", "scripts/Start-GamingQaRelay.ps1", "scripts/New-GamingQaKit.ps1", "scripts/Copy-GamingQaNotices.ps1", "scripts/GamingQaRelay.mjs"],
+      "tests": ["tests/gaming-client.test.mjs", "tests/controller-mapping.test.mjs", "tests/gaming-lifecycle.test.mjs", "tests/gaming-session.test.mjs", "tests/gaming-directory.test.mjs", "tests/controller-art.test.mjs", "tests/ui-controls.test.mjs", "tests/gaming-view.test.mjs", "tests/gaming-lab.test.mjs", "tests/gaming-qa-entry.test.mjs", "tests/button-labels.test.mjs", "tests/gaming-qa-signaling.test.mjs", "tests/gaming-qa-relay.test.mjs", "tests/workspace-navigation.test.mjs"],
       "backend": true,
-      "native": ["gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host"]
+      "native": ["gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host", "gaming-diagnostics"]
     },
     "accounts": {
       "sources": ["Vumiro.Client/WebServer/account-client.js", "Vumiro.Client/WebServer/auth.html", "Vumiro.Client/WebServer/identity-recovery.js", "cloudflare/accounts.js", "cloudflare/accounts.test.js", "cloudflare/account-routes.test.js"],
@@ -32,7 +33,7 @@
     },
     "friends": {
       "sources": ["Vumiro.Client/WebServer/friend-nudges.js", "Vumiro.Client/WebServer/incoming-call.js", "Vumiro.Client/WebServer/notification-center.js", "Vumiro.Client/WebServer/nudge.js", "cloudflare/friend-directory.js", "cloudflare/friend-tags.test.js", "cloudflare/accounts.js"],
-      "tests": ["tests/friend-nudges.test.mjs", "tests/incoming-call.test.mjs", "tests/friend-tag-client.test.mjs", "tests/sidebar.test.mjs", "tests/social-notifications.test.mjs", "tests/notification-center.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/nudge.test.mjs", "tests/nudge-effect.test.mjs", "tests/linux-nudge.test.mjs", "tests/room-invites.test.mjs", "tests/room-invite-dialog.test.mjs", "tests/invite-volume.test.mjs", "tests/event-feedback.test.mjs", "tests/app-sound-settings.test.mjs"],
+      "tests": ["tests/friend-nudges.test.mjs", "tests/incoming-call.test.mjs", "tests/friend-tag-client.test.mjs", "tests/sidebar.test.mjs", "tests/social-notifications.test.mjs", "tests/notification-center.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/nudge.test.mjs", "tests/nudge-effect.test.mjs", "tests/linux-nudge.test.mjs", "tests/room-invites.test.mjs", "tests/room-invite-dialog.test.mjs", "tests/invite-volume.test.mjs", "tests/event-feedback.test.mjs", "tests/app-sound-settings.test.mjs", "tests/workspace-navigation.test.mjs"],
       "backend": true,
       "native": ["notifications", "window"]
     },
@@ -58,7 +59,7 @@
       "sources": [],
       "tests": ["tests/native-notification-bridge.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/startup-updates.test.mjs", "tests/diagnostics.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/nudge-effect.test.mjs"],
       "backend": false,
-      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host"]
+      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host", "gaming-diagnostics"]
     },
     "linux": {
       "sources": [],
