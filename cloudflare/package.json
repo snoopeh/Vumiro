@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prepare-assets": "node prepare-assets.mjs",
-    "test": "node --test accounts.test.js account-routes.test.js profile-media-raster.test.js friend-tags.test.js",
+    "test": "node --test accounts.test.js account-routes.test.js profile-media-raster.test.js friend-tags.test.js gaming-signals.test.js",
     "dev": "npm run prepare-assets && wrangler dev --config wrangler.storage.jsonc --ip 127.0.0.1",
     "deploy": "npm run prepare-assets && wrangler deploy --config wrangler.storage.jsonc && wrangler deploy --config wrangler.jsonc"
   },

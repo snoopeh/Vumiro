@@ -1,96 +1,45 @@
 using System;
 using System.Collections.Generic;
-using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Windows.Forms;
 using Vumiro.Client;
-namespace Vumiro.Client {
- internal sealed partial class ClientWindow : Form { }
- internal static class GamingServices { internal static string FindInstalledExecutable(string component) { return null; } }
-}
+namespace Vumiro.Client { internal sealed partial class ClientWindow : Form { } }
 internal static class Program {
- static void Check(bool ok,string message){if(!ok)throw new Exception(message);}
- [StructLayout(LayoutKind.Sequential)] struct XInputGamepad { internal ushort Buttons; internal byte LeftTrigger,RightTrigger; internal short LeftX,LeftY,RightX,RightY; }
- [StructLayout(LayoutKind.Sequential)] struct XInputState { internal uint Packet; internal XInputGamepad Gamepad; }
- [DllImport("xinput1_4.dll")] static extern uint XInputGetState(uint index,out XInputState state);
- static int Connected(){int count=0;for(uint i=0;i<4;i++){XInputState state;if(XInputGetState(i,out state)==0)count++;}return count;}
- static bool WaitFor(Func<bool> check){for(int i=0;i<40;i++){if(check())return true;Thread.Sleep(50);}return false;}
- static bool IsActive(ClientWindow window){var reply=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-status",null);return (bool)((Dictionary<string,object>)reply["controller"])["active"];}
- static void Integration(){
-  int baseline=Connected();Check(baseline<4,"all XInput slots already occupied");
-  using(var window=new ClientWindow())try {
-   var start=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-start",new Dictionary<string,object>{{"bindings",new Dictionary<string,object>{{"a","Space"}}}});
-   Check((bool)start["ok"],"real controller startup failed: "+start["error"]);
-   Check(IsActive(window),"real mapper did not become active");
-   Check(WaitFor(()=>Connected()==baseline+1),"virtual Xbox controller absent from XInput");
-   window.HandleGamingControllerAction("mapper-stop",null);
-   Check(WaitFor(()=>Connected()==baseline),"stop left a virtual Xbox controller connected");
-   start=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-start",new Dictionary<string,object>{{"bindings",new Dictionary<string,object>{{"a","Space"}}}});
-   Check((bool)start["ok"],"real controller restart failed");
-   Check(WaitFor(()=>Connected()==baseline+1),"restarted controller absent from XInput");
-   Thread.Sleep(5500);
-   Check(!IsActive(window),"expired heartbeat left mapper active");
-   Check(WaitFor(()=>Connected()==baseline),"expired heartbeat left a virtual Xbox controller connected");
-   Console.WriteLine("Real ViGEmBus/XInput integration passed: connect, stop/remove, restart, watchdog/remove.");
-  }finally{window.StopGamingController();}
- }
- [STAThread] static int Main(string[] args){
-  try {
-   Dictionary<string,string> b; string error;
-   Check(ControllerMapping.TryValidate(new Dictionary<string,object>{{"leftUp","KeyW"},{"leftRight","KeyD"},{"a","Space"}},out b,out error),"valid profile rejected");
-   var frame=ControllerMapping.Frame(b,new HashSet<string>{"KeyW","KeyD","Space"});
-   Check(frame.LeftX==23169&&frame.LeftY==23169&&frame.Buttons==0x1000,"normalized diagonal/button mismatch");
-   Check(!ControllerMapping.TryValidate(new Dictionary<string,object>{{"a","KeyA"},{"b","KeyA"}},out b,out error),"duplicate accepted");
-   Check(!ControllerMapping.TryValidate(new Dictionary<string,object>{{"a","Escape"}},out b,out error),"Escape must remain emergency stop");
-   Check(!ControllerMapping.TryValidate(new Dictionary<string,object>{{"unknown","KeyA"}},out b,out error),"unknown target accepted");
-   Check(!ControllerMapping.TryValidate(new Dictionary<string,object>{{"a","F24"}},out b,out error),"unsupported key accepted");
-   Check(ControllerMapping.KeyCode(0x41,0,0)=="KeyA","letter code mismatch");
-   Check(ControllerMapping.KeyCode(0x10,0x36,0)=="ShiftRight","right shift mismatch");
-   Check(ControllerMapping.KeyCode(0x11,0,1)=="ControlRight","right control mismatch");
-   Check(ControllerMapping.KeyCode(0x0D,0,1)=="NumpadEnter","numpad enter mismatch");
-   Check(ControllerMapping.KeyCode(0x59,0x15,0)=="KeyY","physical layout-independent key mismatch");
-   Check(ControllerMapping.KeyCode(0x28,0x50,0)=="Numpad2","NumLock-off key mismatch");
-   Check(ControllerMapping.SystemShortcut("Tab",true,false),"Alt+Tab must pass through");
-   Check(ControllerMapping.SystemShortcut("F4",true,false),"Alt+F4 must pass through");
-   Check(ControllerMapping.SystemShortcut("KeyD",false,true),"Windows shortcuts must pass through");
-   Check(!ControllerMapping.SystemShortcut("Tab",false,false),"plain Tab should remain bindable");
-   Check(ControllerMapping.StreamWindow("C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","SDL_app","Gaming PC - Moonlight"),"trusted streaming window rejected");
-   Check(!ControllerMapping.StreamWindow("C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","Qt5152QWindowIcon","Moonlight"),"Moonlight settings must not capture");
-   Check(!ControllerMapping.StreamWindow("C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","SDL_app","Add PC"),"unrecognized title must not capture");
-   Check(!ControllerMapping.StreamWindow("C:\\untrusted\\Moonlight.exe","C:\\Program Files\\Moonlight Game Streaming\\Moonlight.exe","SDL_app","Gaming PC - Moonlight"),"untrusted executable must not capture");
-   Check(ControllerMapping.TryValidate(new Dictionary<string,object>{{"a","Space"}},out b,out error),"valid button");
-   var state=new ControllerCaptureState(b);
-   Check(state.Key("Space",true,true),"mapped down not consumed");
-   Check(state.Current.Buttons==0x1000,"button not held");
-   state.Focus(false); Check(state.Current.Buttons==0,"focus loss did not release");
-   state.Focus(true); Check(state.Current.Buttons==0,"focus regain replays held input");
-   state.Key("Space",true,true); Check(state.Current.Buttons==0,"auto-repeat resurrected a held key after focus loss");
-   state.Key("Space",false,true); state.Key("Space",true,true); Check(state.Current.Buttons==0x1000,"fresh press after focus regain ignored");
-   state.Key("KeyP",true,false); Check(state.Current.Buttons==0,"foreign unmapped input must neutralize controls");
-   Check(!state.Key("KeyP",true,true),"unmapped key swallowed");
-   state.Key("Space",true,true); state.Release(); Check(state.Current.Buttons==0,"stop did not release");
-   Check(!state.Key("Space",true,false),"foreign foreground key swallowed");
-   Check(state.Current.Buttons==0,"foreign foreground changed state");
-   using(var window=new ClientWindow()) {
-    Check(window.HandleGamingControllerAction("unknown",null)==null,"unknown action claimed");
-    var rejected=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-start",new Dictionary<string,object>{{"bindings",new Dictionary<string,object>{{"a","Escape"}}}});
-    Check(!(bool)rejected["ok"],"invalid start must fail");
-    var status=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-status",null);
-    var controller=(Dictionary<string,object>)status["controller"];
-    Check(!(bool)controller["active"]&&!(bool)controller["capturing"],"status falsely active");
-    Console.WriteLine("Installed ViGEmBus readiness: "+controller["available"]+"; "+controller["message"]);
-    if(Array.IndexOf(args,"--missing-client")>=0) {
-     Check(!(bool)controller["available"],"missing client falsely reported ready");
-     var missing=(Dictionary<string,object>)window.HandleGamingControllerAction("mapper-start",new Dictionary<string,object>{{"bindings",new Dictionary<string,object>{{"a","Space"}}}});
-     Check(!(bool)missing["ok"],"missing client falsely started");
-     Check(!(bool)((Dictionary<string,object>)missing["controller"])["active"],"missing client left active mapper");
-     Console.WriteLine("Missing managed ViGEm client: unavailable status and failed start verified.");
-    }
-    window.StopGamingController(); window.StopGamingController();
+ static void Check(bool ok,string text){if(!ok)throw new Exception(text);}
+ static Dictionary<string,object> Frame(int buttons=0){return new Dictionary<string,object>{{"buttons",buttons},{"leftX",23169},{"leftY",23169},{"rightX",0},{"rightY",0},{"leftTrigger",255},{"rightTrigger",0}};}
+ [StructLayout(LayoutKind.Sequential)] struct Pad {internal ushort Buttons;internal byte LT,RT;internal short LX,LY,RX,RY;}
+ [StructLayout(LayoutKind.Sequential)] struct State {internal uint Packet;internal Pad Gamepad;}
+ [DllImport("xinput1_4.dll")] static extern uint XInputGetState(uint index,out State state);
+ static int Count(){int n=0;for(uint i=0;i<4;i++){State s;if(XInputGetState(i,out s)==0)n++;}return n;}
+ static bool Wait(Func<bool> fn){for(int i=0;i<40;i++){if(fn())return true;Thread.Sleep(50);}return false;}
+ [STAThread]static int Main(string[]args){try{
+  ControllerFrame f;Check(GamingRemoteInput.TryFrame(Frame(0x1000),out f)&&f.Buttons==0x1000&&f.LeftX==23169,"valid frame");
+  foreach(var key in new[]{"buttons","leftX","leftTrigger"}){var b=Frame();b[key]=999999;Check(!GamingRemoteInput.TryFrame(b,out f),"invalid bounded "+key);}
+  var missing=Frame();missing.Remove("rightY");Check(!GamingRemoteInput.TryFrame(missing,out f),"missing axis");
+  var reserved=Frame(0x400);Check(!GamingRemoteInput.TryFrame(reserved,out f),"reserved button");
+  var fractional=Frame();fractional["leftX"]=0.5;Check(!GamingRemoteInput.TryFrame(fractional,out f),"fractional axis");
+  long now=0;var frames=new List<ControllerFrame>();int closed=0;
+  var input=new GamingRemoteInput("0123456789abcdef0123456789abcdef",frames.Add,()=>closed++,()=>now);
+  Check(!input.Receive("ffffffffffffffffffffffffffffffff",0,Frame()),"wrong session accepted");
+  Check(input.Receive(input.SessionId,0,Frame(0x1000)),"first frame rejected");
+  Check(!input.Receive(input.SessionId,0,Frame()),"replay accepted");
+  Check(!input.Receive(input.SessionId,-1,Frame()),"negative sequence accepted");
+  now=301;input.Tick();Check(frames[frames.Count-1].Buttons==0&&frames[frames.Count-1].LeftX==0,"watchdog stuck input");
+  now=400;Check(input.Receive(input.SessionId,1,Frame(0x2000)),"fresh input rejected");
+  now=5501;input.Tick();Check(input.Active&&closed==0&&frames[frames.Count-1].Buttons==0,"idle pad must remain attached and neutral");now=5600;Check(input.Receive(input.SessionId,2,Frame()),"refocus after idle rejected");input.Dispose();input.Dispose();Check(closed==1,"double disposal");
+  Check(!input.Receive(input.SessionId,3,Frame()),"input after stop");
+  if(args.Length==1&&args[0]=="--integration"){
+   int before=Count();Check(before<4,"No free XInput slot");
+   using(var window=new ClientWindow()){
+    var session="0123456789abcdef0123456789abcdef";
+    var reply=(Dictionary<string,object>)window.HandleGamingControllerAction("remote-controller-start",new Dictionary<string,object>{{"sessionId",session}});
+    Check((bool)reply["ok"],"real pad startup failed");Check(Wait(()=>Count()==before+1),"pad missing from XInput");
+    window.HandleGamingControllerAction("remote-controller-frame",new Dictionary<string,object>{{"sessionId",session},{"sequence",1},{"frame",Frame(0x1000)}});
+    window.StopGamingController();Check(Wait(()=>Count()==before),"pad remained connected");
    }
-   Console.WriteLine("Gaming controller checks passed (mapping, validation, key codes, focus release, lifecycle).");
-   if(Array.IndexOf(args,"--integration")>=0)Integration();
-   return 0;
-  }catch(Exception e){Console.Error.WriteLine(e);return 1;}
- }
+   Console.WriteLine("Real remote input/XInput integration passed.");
+  }
+  Console.WriteLine("Remote controller validation, ordering and watchdog checks passed.");return 0;
+ }catch(Exception e){Console.Error.WriteLine(e);return 1;}}
 }

@@ -1,6 +1,7 @@
 // Bounded public coordination; persist requests, pseudonymous friend-tag
 // assignments and expiring hashed allocation budgets. No private keys or media.
 import { DurableObject } from 'cloudflare:workers';
+import { validateGamingSignal, verifyGamingSignal } from './gaming-signals.js';
 
 export const FRIEND_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
@@ -523,6 +524,7 @@ export class FriendDirectory extends DurableObject {
     if (message?.type === 'room-alias') { await this.roomAlias(ws,session,message);return; }
     if (message?.type === 'room-resolve') { this.resolveRoomAlias(ws,session,message);return; }
     if (message?.type === 'social') { await this.social(ws, session, message); return; }
+    if (message?.type === 'gaming-signal') { await this.relayGaming(ws, session, message); return; }
     if (message?.type === 'profile-signal') { await this.relayProfile(ws, session, message); return; }
     if (message?.type === 'room-state') {
       if (!onlyFields(message, ['type', 'room', 'live'], ['mode']) || typeof message.live !== 'boolean' ||
@@ -720,6 +722,24 @@ export class FriendDirectory extends DurableObject {
     if (!this.save(ws, session) || !this.save(target, targetSession)) return;
     if (this.send(target, {...message, from: session.id, profile: publicProfile(session)})) this.send(ws, {type: 'social-sent', to: message.to, nonce: message.nonce});
     else this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce});
+  }
+
+  async relayGaming(ws, session, message) {
+    const now=Date.now();
+    if(!validateGamingSignal(message,session.id,undefined,now)) { this.error(ws,'invalid-gaming-signal','Invalid gaming invitation or negotiation.',message.nonce);return; }
+    if(!budget(session,'gamingRate',192,10000,now)) { this.save(ws,session);this.error(ws,'rate-limit','Wait before starting another gaming connection.',message.nonce);return; }
+    if(!this.save(ws,session))return;
+    const clean=await verifyGamingSignal(message,session,verify,now);
+    const current=read(ws);
+    if(!current?.auth||current.departed||this.owner(current.id)!==ws||current.id!==session.id)return;
+    if(!clean){this.error(ws,'invalid-gaming-signature','Invalid gaming signature.',message.nonce);return;}
+    const target=this.owner(clean.to),time=Date.now();
+    if(clean.expires<=time||!target||!mutual(current,read(target))){this.send(ws,{type:'unavailable',to:clean.to,nonce:clean.nonce});return;}
+    current.gamingSeen=(current.gamingSeen||[]).filter(item=>Array.isArray(item)&&item[1]>time);
+    if(current.gamingSeen.some(item=>item[0]===clean.nonce)||current.gamingSeen.length>=128)return;
+    current.gamingSeen.push([clean.nonce,clean.expires]);
+    if(!this.save(ws,current))return;
+    if(!this.send(target,clean))this.send(ws,{type:'unavailable',to:clean.to,nonce:clean.nonce});
   }
 
   async relayProfile(ws, session, message) {

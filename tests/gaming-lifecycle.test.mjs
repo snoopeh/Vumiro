@@ -3,39 +3,37 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
-const engine=createRequire(import.meta.url)('../Vumiro.Client/WebServer/controller-mapping.js');
+const mapping=createRequire(import.meta.url)('../Vumiro.Client/WebServer/controller-mapping.js');
 function harness(){
-  const nodes=new Map(),sent=[],timers=[],events=new Map();let receive,observeBody;
-  const keyboard={value:'keyboard'},physical={value:'physical'};
-  function element(){const classes=new Set();return {dataset:{},value:'',hidden:false,classList:{add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name),toggle(){}},setAttribute(){},append(){},replaceChildren(){},insertBefore(){},addEventListener(){},querySelectorAll(selector){return selector==='[name=gamingInputMode]'?[keyboard,physical]:[];},focus(){},click(){}};}
-  const doc={readyState:'complete',body:element(),head:element(),getElementById(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);},createElement:element,querySelector:element,querySelectorAll(){return [];},addEventListener(type,fn){if(!events.has(type))events.set(type,[]);events.get(type).push(fn);}};
-  const win={document:doc,chrome:{webview:{postMessage:m=>sent.push(m),addEventListener(type,fn){receive=fn;},removeEventListener(){}}},localStorage:{getItem(){return null;}},VumiroControllerMapping:engine,addEventListener(){},MutationObserver:class{constructor(fn){observeBody=fn;}observe(){}},VumiroI18n:{catalogs:{en:{},es:{},'pt-BR':{}},locales:[{code:'en'},{code:'es'},{code:'pt-BR'}],t:key=>key,refresh(){}}};
-  vm.runInNewContext(readFileSync(new URL('../Vumiro.Client/WebServer/gaming-client.js',import.meta.url),'utf8'),{window:win,document:doc,setTimeout,clearTimeout,setInterval(fn,ms){timers.push({fn,ms});return timers.length;},clearInterval(){}});
-  const reply=(request,result)=>receive({data:{type:'gaming-result',requestId:request.requestId,ok:true,result}});
-  const settle=()=>new Promise(r=>setImmediate(r));
-  return {nodes,sent,physical,win,reply,settle,beat:()=>timers.find(t=>t.ms===1000).fn(),enterRoom(){doc.body.classList.add('room-view');observeBody?.();},key(event){for(const fn of events.get('keydown')||[])fn(event);},async open(){win.VumiroGaming.open('mapping');reply(sent[0],{status:{lan:{networks:[]},streaming:{host:{},client:{}}},controller:{active:false}});await settle();},drain(){for(const request of sent)reply(request,{controller:{active:false}});}};
+ const nodes=new Map(),events=new Map(),calls=[],signals=[],windowEvents=new Map(),created=[];let callbacks;
+ const docEvents=new Map();
+ function element(){const classes=new Set();const value={id:'',value:'',dataset:{},hidden:false,disabled:false,files:[],classList:{add:n=>classes.add(n),remove:n=>classes.delete(n),contains:n=>classes.has(n),toggle(){}},setAttribute(){},removeAttribute(){},append(){},replaceChildren(){},insertBefore(){},addEventListener(type,fn){events.set(this.id+':'+type,fn);},querySelectorAll(){return [];},closest(){return null;},focus(){},click(){},showModal(){this.open=true;},close(){this.open=false;},play(){return Promise.resolve();}};created.push(value);return value;}
+ const document={readyState:'complete',body:element(),head:element(),getElementById:id=>{if(!nodes.has(id)){const e=element();e.id=id;nodes.set(id,e);}return nodes.get(id);},createElement:element,querySelector:element,querySelectorAll:()=>[],addEventListener:(type,fn)=>docEvents.set(type,fn)};
+ const ctx={local:{profile:()=>({id:'self'})},send(){},getFriend:id=>({id,name:'Friend'}),listFriends:()=>[{id:'friend',name:'Friend'}],isOnline:()=>true};
+ const engine={snapshot:()=>({state:'idle',participants:[]}),invite:async(id,mode)=>calls.push(['invite',id,mode]),accept:async id=>calls.push(['accept',id]),decline:async id=>calls.push(['decline',id]),stop:async()=>calls.push(['stop']),releaseInput:()=>calls.push(['release']),setInputFocused:value=>calls.push(['focus',value]),setKey:(code,down)=>calls.push(['key',code,down]),setBindings(){},setInputMode(){},startSharing:async()=>calls.push(['share']),stopSharing:async()=>{},receive:async()=>{}};
+ const window={document,localStorage:{getItem(){return null;},setItem(){}},navigator:{},VumiroControllerMapping:mapping,VumiroGamingSession:{create(opts){callbacks=opts;return engine;}},VumiroGamingDirectory:{getContext:()=>ctx,subscribe:fn=>{signals.push(fn);return()=>{};}},addEventListener:(name,fn)=>windowEvents.set(name,fn),VumiroI18n:{catalogs:{en:{},'pt-BR':{}},t:k=>k,refresh(){}}};
+ vm.runInNewContext(readFileSync(new URL('../Vumiro.Client/WebServer/gaming-client.js',import.meta.url),'utf8'),{window,document,setTimeout,clearTimeout,setInterval:()=>1,clearInterval(){},console});
+ return{window,nodes,calls,events,docEvents,windowEvents,created,callbacks:()=>callbacks,engine};
 }
-test('feature vocabulary registers English sources so the shared translator can localize dynamic labels',()=>{
-  const h=harness();assert.equal(h.win.VumiroI18n.catalogs.en['Refresh status'],'Refresh status');assert.equal(h.win.VumiroI18n.catalogs['pt-BR']['Refresh status'],'Atualizar status');h.drain();
+test('LAN and remote play invite a saved friend through Vumiro without external apps',async()=>{
+ const h=harness();h.window.VumiroGaming.open('lan');h.nodes.get('gamingLanFriend').value='friend';await h.nodes.get('gamingLanInvite').onclick();assert.deepEqual(h.calls.at(-1),['invite','friend','lan']);h.nodes.get('gamingRemoteFriend').value='friend';await h.nodes.get('gamingRemoteInvite').onclick();assert.deepEqual(h.calls.at(-1),['invite','friend','together']);
 });
-test('entering a room while Gaming is open shows the room and stops the mapper',async()=>{
-  const h=harness();await h.open();const start=h.nodes.get('gamingMapperStart').onclick();h.reply(h.sent[1],{controller:{active:true}});await start;h.enterRoom();assert.equal(h.win.document.body.classList.contains('gaming-view'),false);assert.equal(h.sent.at(-1).action,'mapper-stop');h.drain();
+test('browsing away releases guest input while preserving a running LAN session',()=>{
+ const h=harness();h.window.VumiroGaming.open('mapping');h.window.VumiroGaming.close();assert.ok(h.calls.some(c=>c[0]==='release'));assert.equal(h.calls.filter(c=>c[0]==='stop').length,0);
 });
-test('close during pending mapper startup stops immediately and ignores late activation',async()=>{
-  const h=harness();await h.open();const start=h.nodes.get('gamingMapperStart').onclick();h.win.VumiroGaming.close();assert.equal(h.sent.at(-1).action,'mapper-stop');h.reply(h.sent[1],{controller:{active:true}});await start;assert.equal(h.sent.at(-1).action,'mapper-stop');h.beat();assert.equal(h.sent.filter(m=>m.action==='mapper-heartbeat').length,0);h.drain();await h.settle();
+test('normal navigation keys outside the focused video are never converted',()=>{
+ const h=harness();h.window.VumiroGaming.open('mapping');let blocked=false;h.docEvents.get('keydown')({code:'Tab',target:{closest:()=>null},preventDefault(){blocked=true;}});assert.equal(blocked,false);assert.equal(h.calls.filter(c=>c[0]==='key').length,0);
 });
-test('physical controller mode preserves normal mapped keyboard input',async()=>{
-  const h=harness();await h.open();h.physical.onchange();let converted=false;h.key({code:'KeyW',target:{closest(){return null;}},preventDefault(){converted=true;}});assert.equal(converted,false);assert.equal(h.nodes.get('gamingKeyboardEditor').hidden,true);assert.equal(h.sent.filter(m=>m.action==='mapper-start').length,0);h.drain();
+test('invitations require explicit acceptance before entering a game',async()=>{
+ const h=harness();h.callbacks().onInvitation({id:'abc',sessionId:'abc',peerId:'friend',mode:'together'});assert.equal(h.calls.filter(c=>c[0]==='accept').length,0);await h.nodes.get('gamingAcceptInvite').onclick();assert.deepEqual(h.calls.at(-1),['accept','abc']);
 });
-test('mapping preview preserves Tab navigation and Enter activation on ordinary controls',async()=>{
-  const h=harness();await h.open();
-  for(const code of ['Tab','Enter']){
-    let prevented=false;
-    h.key({code,target:{tagName:'BUTTON',closest(){return null;}},preventDefault(){prevented=true;}});
-    assert.equal(prevented,false,code+' keeps its native browser action');
-  }
-  h.drain();
+
+test('audio and video tracks sharing one stream do not reset the player source',()=>{
+ const h=harness(),video=h.window.document.getElementById('gamingVideo');let loads=0,current;Object.defineProperty(video,'srcObject',{get:()=>current,set:value=>{loads++;current=value;}});const stream={};h.callbacks().onTrack({stream,local:false});h.callbacks().onTrack({stream,local:false});assert.equal(loads,1);
 });
-test('late heartbeat reply cannot resume mapping after navigation',async()=>{
-  const h=harness();await h.open();const start=h.nodes.get('gamingMapperStart').onclick();h.reply(h.sent[1],{controller:{active:true}});await start;h.beat();const prior=h.sent[2];h.win.VumiroGaming.close();h.reply(h.sent[3],{controller:{active:false}});await h.settle();h.reply(prior,{controller:{active:true}});await h.settle();const count=h.sent.length;h.beat();assert.equal(h.sent.length,count);h.drain();
+
+test('directory loss clears playback, invitation and connected controls immediately',()=>{
+ const h=harness();h.callbacks().onState({state:'connected',mode:'together',role:'host',accepted:true,sharing:true});h.callbacks().onTrack({stream:{},local:false});h.callbacks().onInvitation({id:'abc',peerId:'friend',mode:'together'});
+ h.window.VumiroGamingDirectory.getContext=()=>null;h.windowEvents.get('vumiro:gaming-directory')();
+ assert.equal(h.nodes.get('gamingSessionStatus').textContent,'offline');assert.equal(h.nodes.get('gamingShare').disabled,true);assert.equal(h.nodes.get('gamingStopShare').disabled,true);assert.equal(h.nodes.get('gamingVideo').srcObject,null);assert.equal(h.created.find(e=>e.id==='gamingInviteDialog').open,false);assert.equal(h.calls.filter(c=>c[0]==='stop').length,1);
 });

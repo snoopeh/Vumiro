@@ -25,7 +25,7 @@ test('bridge correlates out-of-order replies and rejects actual native failures'
   const api=module(),messages=[];let listener;
   const host={postMessage:m=>messages.push(m),addEventListener:(type,fn)=>{listener=fn;},removeEventListener(){}};
   const bridge=api.createBridge(host,100);
-  const first=bridge.request('status'),second=bridge.request('lan-join',{networkId:'0123456789abcdef'});
+  const first=bridge.request('status'),second=bridge.request('lan-start',{sessionId:'0123456789abcdef0123456789abcdef',address:'10.203.1.1'});
   listener({data:{type:'gaming-result',requestId:messages[1].requestId,ok:true,result:{name:'joined'}}});
   listener({data:{type:'gaming-result',requestId:messages[0].requestId,ok:false,error:'Permission required'}});
   assert.equal((await second).name,'joined');await assert.rejects(first,/Permission required/);bridge.dispose();
@@ -39,7 +39,7 @@ test('bridge reports unavailable platforms, times out and cleans pending request
 test('navigation and source assets include all gaming sections and packaged modules',()=>{
   const html=readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');
   for(const id of ['gamingNav','gamingSubnav','gamingLanNav','gamingTogetherNav','gamingMappingNav'])assert.ok(html.includes(`id="${id}"`),id);
-  for(const name of ['controller-mapping.js','gaming-client.js']){
+  for(const name of ['controller-mapping.js','gaming-directory.js','gaming-session.js','gaming-client.js']){
     assert.ok(html.includes(`src="/${name}"`));
     for(const file of ['../scripts/bundle-client-web.mjs','../Vumiro.Linux/build/prepare-assets.mjs','../Vumiro.Linux/main.cjs','../cloudflare/prepare-assets.mjs','../cloudflare/worker.js'])assert.ok(readFileSync(new URL(file,import.meta.url),'utf8').includes(name),`${file}: ${name}`);
   }

@@ -29,3 +29,10 @@ The user explicitly authorized autonomous decisions and isolated development fol
 
 ## Integration result
 Feature commits remain on `codex/gaming`; the source was merged into the original checkout with per-file backups under `dist/gaming-integration/before`. Other agent changes remain uncommitted and were not staged, reset or included in feature commits. Combined checks passed 675 client tests, 89 backend tests and all ten native groups before the final localization/room-navigation polish; those final UI changes have focused regressions. The actual LOCAL QA WebView validated three routes, all 24 controller controls, rebinding, Tab behavior, real native mapper start/stop and layout. Two-PC gameplay and host Steam enumeration still require human QA.
+
+
+## Corrected architecture: built-in gaming
+
+The user explicitly rejected external-app integration. That initial approach is superseded. No third-party tunneling or streaming app is launched. Vumiro owns friend admission/signaling, WebRTC transport, LAN packet routing, screen sharing and input handling. Signed Wintun and ViGEmBus device components are bundled inside the existing executables with licenses and hash pins; Windows UAC is handled by the Vumiro helper, without manual downloads.
+
+Implementation: multi-friend LAN (host plus three guests), signed invitations, native adapter transport/validation, focused physical/keyboard remote control, real virtual Xbox controller, profile editor and embedded bootstrap are present. Loopback in real WebView2 verified decoded video/audio, controller/neutral release and two-guest LAN channels. Real two-PC/native-adapter gameplay QA, operator signaling deployment and restrictive-NAT TURN provisioning remain explicitly unaccepted. No release/deployment was authorized or performed.

@@ -129,7 +129,7 @@ namespace Vumiro.Client
             catch { Dispose(); throw; }
         }
         internal static bool Probe(out string message) {
-            try { using (var probe = new ViGEmClient()) { message = "ViGEmBus is ready. Escape stops keyboard mapping."; return true; } }
+            try { using (var probe = new ViGEmClient()) { message = "Virtual Xbox controller runtime is ready."; return true; } }
             catch (Exception e) { message = Describe(e); return false; }
         }
         internal static string Describe(Exception e) {
