@@ -1,38 +1,31 @@
-# Gaming implementation plan
+# Built-in gaming implementation
 
-## Goal and design
-Add Gaming to the existing main navigation with LAN tunneling, Game together and Controller mappings, using the app's dark theme and red accent. Preserve the concurrent agent's changes through a separate `codex/gaming` worktree and apply only this feature's diff at integration.
+## Goal
 
-Use the installed ZeroTier service for real encrypted virtual LAN membership and assigned addresses. Private network creation and member authorization use ZeroTier Central. Use installed Sunshine for hosting and Moonlight for pairing and launching remote sessions. Those components provide hardware accelerated video/audio and controller forwarding. Build the keyboard mapper into Vumiro: a native foreground-scoped keyboard hook drives a virtual Xbox controller through ViGEm; Moonlight forwards that controller to the remote host. A physical controller bypasses the mapper. The diagram is interactive SVG using theme colors and all standard controls.
+Gaming is a main-menu destination with LAN tunneling, Game together and Controller mappings. Vumiro supplies the transport and user flows. No external tunneling or streaming application, account, pairing flow or manual component download is required. The initial provider-integration design was rejected and replaced; its history remains in Git.
 
-Alternatives considered: implementing a new tunnel/streaming stack would require a separate driver, NAT traversal, codec and deployment program; merely opening vendor websites would not deliver membership or usable mapped input. Installed provider integration offers actual operations and visible setup/readiness without claiming the providers are bundled or replacing their account/pairing flows. ViGEm is end of life, so explicitly disclose its compatibility role and missing driver status.
+## Architecture and boundaries
 
-## Boundaries and acceptance
-- Gaming modules own their UI, profile persistence, RPC and native adapters; minimal edits to shared navigation, startup, resource and check manifests.
-- ZeroTier secrets stay native. Network IDs, hosts, components and mapper codes are validated. External URLs and executables are allowlisted. Never execute arbitrary page-provided commands.
-- Mapping activation is explicit. Release controls on focus change, stop, Escape, navigation and heartbeat expiry. Do not capture unrelated apps or text entry by default. Save custom profiles locally; export/import bounded validated JSON.
-- Show actual network state and assigned addresses, permission failures, unavailable providers and host/client readiness. Pairing/streaming launch acknowledgement does not mean a remote session is connected.
-- No version bump, release, production deployment, destructive reset or changes to the other agent's files beyond a narrow additive merge.
+- Existing P-256 friend identities sign invitations and every negotiation message. Both clients and the existing friend directory enforce expiry, replay protection and mutual unblocked friendship. An invitation requires explicit acceptance before native resources start.
+- Vumiro's WebRTC data channels carry original IPv4 packets. A host and up to three guests receive a reserved /24. Vumiro owns address assignment, unicast forwarding, broadcast/multicast replication, source validation and bounded queues. The signed Wintun component provides only the Windows layer-3 device interface.
+- Vumiro captures a selected window/screen and available audio, then streams through WebRTC. Focused guest keyboard mapping or a physical standard gamepad supplies input. A host-side virtual Xbox device exposes that input to Steam/games. A game must support local multiplayer and assign the extra controller a player slot.
+- The controller diagram uses the app theme and exposes all 24 mapped controls. Profiles are local, bounded and validated; import/export uses JSON. Ordinary navigation/text input remains available. Escape, blur and stale input neutralize controls; session termination removes native devices.
+- The existing updater executable also hosts the elevated, PID-authenticated and bounded gaming IPC service. Signed Wintun and ViGEmBus binaries ship embedded in both existing executables with pinned hashes and license notices. Windows authorization and an occasional driver-install reboot remain OS requirements. No driver/application code is represented as original Vumiro protocol work.
+- No default internet route is replaced. IPv6-only, raw Ethernet and IPX games are outside this IPv4 implementation. Windows Firewall rules for individual games still apply.
 
-## Slices
-- [x] Baseline focused checks; failing pure engine, RPC/profile and native validation tests.
-- [x] Native ZeroTier and Sunshine/Moonlight adapters with restricted bridge.
-- [x] Native virtual controller and pure keyboard mapping engine.
-- [x] Gaming navigation, setup/status flows, accessible controller diagram, mappings and local profiles.
-- [x] Resource packaging/check coverage and integration verification.
-- [x] Commit the isolated feature and merge narrowly into the original checkout preserving every concurrent edit.
+## Delivery
 
-## Validation
-Node behavior tests cover invalid persisted profiles/imports, conflicting bindings, normalized axes, RPC failure/timeouts and response correlation. Native console checks exercise network/host validation, HTTP behaviors and controller state boundaries without requiring a live peer or installed driver. Run client checks and native build. Hardware gameplay, LAN authorization, remote latency and Steam enumeration require two Windows computers with the optional providers and drivers; report that limitation precisely.
+Implementation was isolated on `codex/gaming`, then merged file by file into the original checkout. Shared navigation, direct-message hooks, workspace gates and packaging lists preserve concurrent changes. Before integration, all 289 files outside the gaming diff were hashed; every one remained unchanged. Originals are backed up under `dist/builtin-gaming-integration/before`. The original checkout's unrelated work was never staged or reset.
 
-The user explicitly authorized autonomous decisions and isolated development followed by integration; approval pauses from generic workflow skills are waived by those instructions.
+Integration adapted the other agent's existing navigation tests to the new gaming fixture and taught its backend test loader to resolve the added gaming module. Their behavior assertions and implementations remain intact.
 
-## Integration result
-Feature commits remain on `codex/gaming`; the source was merged into the original checkout with per-file backups under `dist/gaming-integration/before`. Other agent changes remain uncommitted and were not staged, reset or included in feature commits. Combined checks passed 675 client tests, 89 backend tests and all ten native groups before the final localization/room-navigation polish; those final UI changes have focused regressions. The actual LOCAL QA WebView validated three routes, all 24 controller controls, rebinding, Tab behavior, real native mapper start/stop and layout. Two-PC gameplay and host Steam enumeration still require human QA.
+## Verification and limits
 
+- Combined checkout: 741 client tests, 98 backend tests and all twelve native check groups passed in fresh runs. Reports are under `dist/checks/builtin-gaming-merged-final` and `dist/checks/builtin-gaming-merged-native`; the standalone backend rerun is `npm test` in `cloudflare`.
+- Both Windows package schemas built and passed package consistency validation in the isolated checkout. The driver payloads remain embedded without changing the frozen updater file sets.
+- A real LOCAL QA WebView2 loopback decoded synthetic video/audio, delivered controller input and neutral release, and routed two-guest LAN unicast/broadcast while rejecting source spoofing. Native calls were intercepted in that transport test. A separate integration check created a real virtual Xbox device, submitted input and removed it.
+- The merged native app rendered all three screens, exposed all 24 diagram controls, had no horizontal overflow and reported both device components bundled. Readiness checks did not invoke UAC or install anything.
+- Real two-PC/game/Steam latency and the elevated Wintun adapter path still require human QA. Client and signaling changes must ship together. No operator TURN endpoint has been provisioned; restrictive NATs can fail until relay infrastructure is supplied through validated ICE configuration.
+- No version bump, source push, release tag, publication or production deployment was performed. Automated evidence is not human acceptance.
 
-## Corrected architecture: built-in gaming
-
-The user explicitly rejected external-app integration. That initial approach is superseded. No third-party tunneling or streaming app is launched. Vumiro owns friend admission/signaling, WebRTC transport, LAN packet routing, screen sharing and input handling. Signed Wintun and ViGEmBus device components are bundled inside the existing executables with licenses and hash pins; Windows UAC is handled by the Vumiro helper, without manual downloads.
-
-Implementation: multi-friend LAN (host plus three guests), signed invitations, native adapter transport/validation, focused physical/keyboard remote control, real virtual Xbox controller, profile editor and embedded bootstrap are present. Loopback in real WebView2 verified decoded video/audio, controller/neutral release and two-guest LAN channels. Real two-PC/native-adapter gameplay QA, operator signaling deployment and restrictive-NAT TURN provisioning remain explicitly unaccepted. No release/deployment was authorized or performed.
+The user authorized autonomous implementation, isolation and merge; generic workflow approval pauses do not apply.
