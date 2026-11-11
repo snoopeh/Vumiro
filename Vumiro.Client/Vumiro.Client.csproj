@@ -9,7 +9,9 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="$(PkgNefarius_ViGEm_Client)/lib/netstandard2.0/Nefarius.ViGEm.Client.dll" LogicalName="Vumiro.Gaming.ViGEmClient" />
     <ProjectReference Include="../Vumiro.Client.Updater/Vumiro.Client.Updater.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Security" />

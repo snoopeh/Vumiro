@@ -19,6 +19,7 @@ namespace Vumiro.Client
         [STAThread]
         private static void Main()
         {
+            GamingDependencies.Register();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (ClientRuntime.Current.IsLocalQa)
@@ -80,6 +81,7 @@ namespace Vumiro.Client
             loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => {
+                StopGaming();
                 oauthLogin.Dispose();
                 StopStreamAudio();
                 trayIcon.Visible = false;
@@ -158,7 +160,7 @@ namespace Vumiro.Client
                 browser.CoreWebView2.NavigationStarting += (s, e) => {
                     Uri target;
                     if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out target) || target.GetLeftPart(UriPartial.Authority) != Origin) e.Cancel = true;
-                    if (!e.Cancel) { StopStreamAudio(); oauthLogin.Cancel(); }
+                    if (!e.Cancel) { StopGaming(); StopStreamAudio(); oauthLogin.Cancel(); }
                 };
                 browser.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; };
                 browser.CoreWebView2.WebMessageReceived += async (s, e) => {
@@ -173,6 +175,7 @@ namespace Vumiro.Client
                         if (HandleWindowMessage(message)) return;
                         if (HandleLocalQaMessage(message)) return;
                         if (source.AbsolutePath != "/friends.html") return;
+                        if (await HandleGamingMessageAsync(message)) return;
                         if (HandleDiagnosticsMessage(message)) return;
                         if (HandleStreamAudioMessage(message)) return;
                         object type, action;

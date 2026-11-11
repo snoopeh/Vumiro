@@ -1,5 +1,17 @@
 # Third-party components
 
+## Gaming controller client and optional providers
+
+The Windows executable embeds [Nefarius.ViGEm.Client 1.21.256](https://www.nuget.org/packages/Nefarius.ViGEm.Client/1.21.256), including the upstream client library resources. Copyright © Nefarius Software Solutions e.U. 2017–2023. Licensed under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+ZeroTier, Sunshine, Moonlight and the ViGEmBus driver are separately installed optional providers, subject to their own terms. Vumiro does not redistribute those applications or install drivers automatically. See [Gaming](docs/GAMING.md) for setup and ViGEmBus end-of-life information.
+
 Vumiro continues [Eslam Hamouda's ScreenTask](https://github.com/EslaMx7/ScreenTask) under GPL-3.0-or-later. Original Git history and copyright notices remain in the restore history. See [COPYING](COPYING).
 
 ## Microsoft WebView2 and .NET Framework

@@ -10,9 +10,18 @@
     {"name": "local-service", "project": "tests/LocalQaServiceChecks/LocalQaServiceChecks.csproj"},
     {"name": "updater", "project": "tests/ClientUpdateChecks/ClientUpdateChecks.csproj"},
     {"name": "audio", "project": "tests/NativeAudioSmoke/NativeAudioSmoke.csproj", "args": ["--", "--self-test"]},
-    {"name": "diagnostics", "project": "tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj"}
+    {"name": "diagnostics", "project": "tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj"},
+    {"name": "gaming-services", "project": "tests/GamingServiceChecks/GamingServiceChecks.csproj"},
+    {"name": "gaming-controller", "project": "tests/GamingControllerChecks/GamingControllerChecks.csproj"},
+    {"name": "gaming-dependencies", "project": "tests/GamingDependencyChecks/GamingDependencyChecks.csproj"}
   ],
   "groups": {
+    "gaming": {
+      "sources": ["Vumiro.Client/WebServer/gaming-client.js", "Vumiro.Client/WebServer/controller-mapping.js", "Vumiro.Client/GamingBridge.cs", "Vumiro.Client/GamingServices.cs", "Vumiro.Client/GamingController.cs", "Vumiro.Client/VirtualGamepad.cs", "Vumiro.Client/GamingDependencies.cs"],
+      "tests": ["tests/gaming-client.test.mjs", "tests/controller-mapping.test.mjs", "tests/gaming-lifecycle.test.mjs"],
+      "backend": false,
+      "native": ["gaming-services", "gaming-controller", "gaming-dependencies"]
+    },
     "accounts": {
       "sources": ["Vumiro.Client/WebServer/account-client.js", "Vumiro.Client/WebServer/auth.html", "Vumiro.Client/WebServer/identity-recovery.js", "cloudflare/accounts.js", "cloudflare/accounts.test.js", "cloudflare/account-routes.test.js"],
       "tests": ["tests/account-client.test.mjs", "tests/account-cover.test.mjs", "tests/account-entry.test.mjs", "tests/identity-recovery.test.mjs", "tests/oauth-desktop.test.mjs", "tests/profile-card-data.test.mjs"],
@@ -47,7 +56,7 @@
       "sources": [],
       "tests": ["tests/native-notification-bridge.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/startup-updates.test.mjs", "tests/diagnostics.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/nudge-effect.test.mjs"],
       "backend": false,
-      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics"]
+      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies"]
     },
     "linux": {
       "sources": [],

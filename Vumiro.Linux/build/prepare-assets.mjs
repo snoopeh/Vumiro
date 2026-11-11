@@ -13,7 +13,7 @@ const expectedAssets = [
   'chat-pane.js',
   'chat-scrollbar.js',
   'call.html',
-  'friends-client.js',
+  'controller-mapping.js', 'gaming-client.js', 'friends-client.js',
   'friends.html',
   'auth.html',
   'local-profile.js',

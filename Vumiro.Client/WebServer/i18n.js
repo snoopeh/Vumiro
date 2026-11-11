@@ -3,6 +3,10 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Gaming": "Gaming",
+    "LAN tunneling": "LAN tunneling",
+    "Game together": "Game together",
+    "Controller mappings": "Controller mappings",
     "Welcome to Vumiro": "Welcome to Vumiro",
     "Minimize window": "Minimize window",
     "Maximize window": "Maximize window",
@@ -1681,6 +1685,10 @@
     "Messages are still being signed. Your draft is ready to send when they finish.": "Messages are still being signed. Your draft is ready to send when they finish."
   },
   "es": {
+    "Gaming": "Juegos",
+    "LAN tunneling": "LAN virtual",
+    "Game together": "Jugar juntos",
+    "Controller mappings": "Mapeo de mandos",
     "Welcome to Vumiro": "Bienvenido a Vumiro",
     "Minimize window": "Minimizar ventana",
     "Maximize window": "Maximizar ventana",
@@ -3359,6 +3367,10 @@
     "Messages are still being signed. Your draft is ready to send when they finish.": "Los mensajes aún se están firmando. Tu borrador estará listo para enviar cuando terminen."
   },
   "pt-BR": {
+    "Gaming": "Jogos",
+    "LAN tunneling": "Rede LAN virtual",
+    "Game together": "Jogar juntos",
+    "Controller mappings": "Mapeamento de controles",
     "Welcome to Vumiro": "Bem-vindo ao Vumiro",
     "Minimize window": "Minimizar janela",
     "Maximize window": "Maximizar janela",
@@ -5037,6 +5049,10 @@
     "Messages are still being signed. Your draft is ready to send when they finish.": "As mensagens ainda estão sendo assinadas. Seu rascunho estará pronto para enviar quando terminarem."
   },
   "ja": {
+    "Gaming": "ゲーム",
+    "LAN tunneling": "仮想LAN",
+    "Game together": "一緒にプレイ",
+    "Controller mappings": "コントローラー設定",
     "Welcome to Vumiro": "Vumiroへようこそ",
     "Minimize window": "ウィンドウを最小化する",
     "Maximize window": "ウィンドウの最大化",
@@ -6715,6 +6731,10 @@
     "Messages are still being signed. Your draft is ready to send when they finish.": "メッセージの署名処理中です。完了後に下書きを送信できます。"
   },
   "zh-CN": {
+    "Gaming": "游戏",
+    "LAN tunneling": "虚拟局域网",
+    "Game together": "一起玩游戏",
+    "Controller mappings": "控制器映射",
     "Welcome to Vumiro": "欢迎使用Vumiro",
     "Minimize window": "最小化窗口",
     "Maximize window": "最大化窗口",
@@ -8393,6 +8413,10 @@
     "Messages are still being signed. Your draft is ready to send when they finish.": "消息仍在签名中。完成后即可发送草稿。"
   },
   "ru": {
+    "Gaming": "Игры",
+    "LAN tunneling": "Виртуальная LAN",
+    "Game together": "Играть вместе",
+    "Controller mappings": "Назначение кнопок",
     "Welcome to Vumiro": "Добро пожаловать в Vumiro",
     "Minimize window": "Свернуть окно",
     "Maximize window": "Развернуть окно",
