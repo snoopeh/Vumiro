@@ -41,6 +41,6 @@ test('navigation and source assets include all gaming sections and packaged modu
   for(const id of ['gamingNav','gamingSubnav','gamingLanNav','gamingTogetherNav','gamingMappingNav'])assert.ok(html.includes(`id="${id}"`),id);
   for(const name of ['controller-mapping.js','gaming-client.js']){
     assert.ok(html.includes(`src="/${name}"`));
-    for(const file of ['../scripts/bundle-client-web.mjs','../Vumiro.Linux/build/prepare-assets.mjs','../Vumiro.Linux/main.cjs','../cloudflare/prepare-assets.mjs'])assert.ok(readFileSync(new URL(file,import.meta.url),'utf8').includes(name),`${file}: ${name}`);
+    for(const file of ['../scripts/bundle-client-web.mjs','../Vumiro.Linux/build/prepare-assets.mjs','../Vumiro.Linux/main.cjs','../cloudflare/prepare-assets.mjs','../cloudflare/worker.js'])assert.ok(readFileSync(new URL(file,import.meta.url),'utf8').includes(name),`${file}: ${name}`);
   }
 });
