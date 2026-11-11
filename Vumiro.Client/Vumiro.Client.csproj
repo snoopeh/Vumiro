@@ -9,7 +9,12 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../vendor/windows/wintun.dll" LogicalName="Vumiro.Gaming.Wintun" />
+    <EmbeddedResource Include="../vendor/windows/ViGEmBus_1.22.0.exe" LogicalName="Vumiro.Gaming.ControllerInstaller" />
+    <EmbeddedResource Include="$(PkgNefarius_ViGEm_Client)/lib/netstandard2.0/Nefarius.ViGEm.Client.dll" LogicalName="Vumiro.Gaming.ViGEmClient" />
+    <EmbeddedResource Include="Brand/vumiro.ico" LogicalName="Vumiro.DesktopIcon" />
     <ProjectReference Include="../Vumiro.Client.Updater/Vumiro.Client.Updater.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Security" />

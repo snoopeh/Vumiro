@@ -86,13 +86,14 @@ namespace Vumiro.Client
         private readonly List<DesktopNotificationPopup> popups = new List<DesktopNotificationPopup>();
         private readonly HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
         private readonly Queue<string> order = new Queue<string>();
+        private bool disposed;
         internal DesktopNotificationCenter(Form owner, Action<string> activate) { this.owner = owner; this.activate = activate; }
         internal void Show(DesktopNotificationData data)
         {
-            if (owner.IsDisposed || !seen.Add(data.Id)) return;
+            if (disposed || owner.IsDisposed || data == null || !seen.Add(data.Id)) return;
             order.Enqueue(data.Id); while (order.Count > 256) seen.Remove(order.Dequeue());
             while (popups.Count >= 3) popups[0].Close();
-            var popup = new DesktopNotificationPopup(data, () => activate(data.Id));
+            var popup = new DesktopNotificationPopup(data, () => { if (!disposed && !owner.IsDisposed) activate(data.Id); });
             popup.FormClosed += (sender, args) => { popups.Remove(popup); Arrange(); };
             popup.Shown += (sender, args) => Arrange();
             popups.Add(popup); Arrange(); popup.Show();
@@ -109,7 +110,7 @@ namespace Vumiro.Client
                 bottom -= popup.Height + 10;
             }
         }
-        public void Dispose() { foreach (var popup in popups.ToArray()) popup.Close(); popups.Clear(); seen.Clear(); order.Clear(); }
+        public void Dispose() { disposed = true; foreach (var popup in popups.ToArray()) popup.Close(); popups.Clear(); seen.Clear(); order.Clear(); }
     }
 
     internal sealed class DesktopNotificationPopup : Form
@@ -123,13 +124,13 @@ namespace Vumiro.Client
         internal DesktopNotificationPopup(DesktopNotificationData data, Action activate)
         {
             this.data = data; this.activate = activate; avatar = DesktopNotificationData.DecodeAvatar(data.Avatar);
+            Text = "Vumiro notification";
             AutoScaleMode = AutoScaleMode.Dpi; ClientSize = new Size(360, 112); FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.Manual; ShowInTaskbar = false; TopMost = true; DoubleBuffered = true;
-            BackColor = Color.FromArgb(29, 29, 37); ForeColor = Color.White; Cursor = Cursors.Hand;
+            BackColor = Color.FromArgb(26, 23, 24); ForeColor = Color.FromArgb(246, 240, 235); Cursor = Cursors.Hand;
             AccessibleName = data.SenderName + ": " + data.Body; AccessibleRole = AccessibleRole.Alert;
             lifetime = new Timer { Interval = data.Category == "call" ? 12000 : 7000 };
             lifetime.Tick += (sender, args) => Close(); Shown += (sender, args) => lifetime.Start();
-            MouseEnter += (sender, args) => lifetime.Stop(); MouseLeave += (sender, args) => lifetime.Start();
         }
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams { get { var value = base.CreateParams; value.ExStyle |= 0x08000000 | 0x00000080; return value; } }
@@ -147,15 +148,15 @@ namespace Vumiro.Client
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var outline = new Pen(Color.FromArgb(65, 65, 79))) g.DrawRectangle(outline, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
-            using (var badge = new SolidBrush(Color.FromArgb(79, 40, 60))) g.FillEllipse(badge, 16, 24, 48, 48);
+            using (var outline = new Pen(Color.FromArgb(65, 60, 61))) g.DrawRectangle(outline, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
+            using (var badge = new SolidBrush(Color.FromArgb(38, 33, 34))) g.FillEllipse(badge, 16, 24, 48, 48);
             if (avatar != null)
             {
                 var before = g.Save(); using (var mask = new GraphicsPath()) { mask.AddEllipse(16, 24, 48, 48); g.SetClip(mask); g.DrawImage(avatar, 16, 24, 48, 48); } g.Restore(before);
             }
             else TextRenderer.DrawText(g, data.SenderName.Substring(0, 1).ToUpperInvariant(), senderFont, new Rectangle(16, 24, 48, 48), Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
             TextRenderer.DrawText(g, data.SenderName, senderFont, new Rectangle(78, 18, ClientSize.Width - 116, 25), ForeColor, TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
-            TextRenderer.DrawText(g, data.Body, bodyFont, new Rectangle(78, 46, ClientSize.Width - 94, 56), Color.FromArgb(195, 195, 207), TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, data.Body, bodyFont, new Rectangle(78, 46, ClientSize.Width - 94, 56), Color.FromArgb(195, 188, 189), TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             TextRenderer.DrawText(g, "×", bodyFont, new Rectangle(ClientSize.Width - 30, 8, 24, 24), Color.Silver, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
         protected override void Dispose(bool disposing)

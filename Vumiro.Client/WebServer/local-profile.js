@@ -387,23 +387,26 @@
     const cover=await coverManifest();
     return {version:1,profile:{name:identity.name,username:identity.username||'',avatar:identity.avatar||'',...cardFields(identity),...(cover?{cover}:{})},friends,blocked:await listBlocked(),settings:{}};
   }
-  async function applyAccountSnapshot(snapshot, restoredCover = undefined) {
-    if (!identity) throw Error('Create a local profile before restoring account data.');
+  async function applyAccountSnapshot(snapshot, restoredCover = undefined, recoveredIdentity = null) {
+    if (!identity&&!recoveredIdentity) throw Error('Create a local profile before restoring account data.');
+    const expectedIdentity=identity;
+    if(recoveredIdentity)await validateRecoveredIdentity(recoveredIdentity);
+    const restoredIdentity=recoveredIdentity?{id:recoveredIdentity.identityId,key:recoveredIdentity.publicKey,privateKey:recoveredIdentity.privateKey,...(recoveredIdentity.transition?{transition:recoveredIdentity.transition}:{})}:expectedIdentity;
     if (!snapshot || snapshot.version !== 1 || !snapshot.profile || !Array.isArray(snapshot.friends) || snapshot.friends.length > 128 || !Array.isArray(snapshot.blocked) || snapshot.blocked.length > 64) throw Error('The saved account data is invalid.');
     if(Object.keys(snapshot.profile).some(key=>!['name','username','avatar','bio','banner','connections','cover'].includes(key)))throw Error('The saved profile is invalid.');
-    const restored = restoredCover ? await validatedOwnCover(restoredCover, snapshot.profile.banner || '') : null;
+    const restored = restoredCover ? await validatedOwnCover(restoredCover, snapshot.profile.banner || '',restoredIdentity.id) : null;
     if (snapshot.profile.cover && (!restored || Object.keys(restored.manifest).some(key=>restored.manifest[key]!==snapshot.profile.cover[key]))) throw Error('Download the finished high-resolution cover before restoring this profile.');
     const profilePatch={name:cleanName(snapshot.profile.name),username:cleanUsername(snapshot.profile.username||''),avatar:cleanAvatar(snapshot.profile.avatar||''),...cardFields(snapshot.profile)};
     if(snapshot.blocked.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(id))||new Set(snapshot.blocked).size!==snapshot.blocked.length)throw Error('The saved block list is invalid.');
     // A snapshot can contain this installation's current identity when it was
     // produced by a different device. It is not a valid friend/block locally,
     // but it must not make the rest of a cross-device restore fail.
-    const blocked=snapshot.blocked.filter(id=>id!==identity.id);
+    const blocked=snapshot.blocked.filter(id=>id!==restoredIdentity.id);
     // Validate every imported public key and field before opening the write
     // transaction. Any malformed item leaves the existing profile untouched.
     const wanted = new Map();
     for (const raw of snapshot.friends) {
-      if(raw?.id===identity.id)continue;
+      if(raw?.id===restoredIdentity.id)continue;
       const contact=await validateContact(raw);
       if(raw.nickname!=null&&typeof raw.nickname!=='string')throw Error('The saved nickname is invalid.');
       const nickname=typeof raw.nickname==='string'&&raw.nickname.trim()?cleanName(raw.nickname):'';
@@ -421,11 +424,11 @@
       req.onerror=()=>{failure=Error('Could not read the local profile.');tx.abort();};
       req.onsuccess=()=>{
         try {
-          if(!req.result||req.result.id!==identity.id)throw Error('The local identity changed during restore.');
-          candidate={...req.result,...profilePatch};state.put(candidate,'profile');
+          if(identity?.id!==expectedIdentity?.id||req.result?.id!==expectedIdentity?.id)throw Error('The local identity changed during restore.');
+          candidate={...req.result,...(recoveredIdentity?restoredIdentity:{}),...profilePatch};state.put(candidate,'profile');
           if(restored) {
-            const old=state.get('profile-cover');old.onsuccess=()=>state.put(old.result?.owner===identity.id&&old.result.manifest?.digest===restored.manifest.digest?{...restored,source:old.result.source,crop:old.result.crop}:restored,'profile-cover');
-          } else if(profilePatch.banner!==(req.result.banner||''))state.delete('profile-cover');
+            const old=state.get('profile-cover');old.onsuccess=()=>state.put(old.result?.owner===restoredIdentity.id&&old.result.manifest?.digest===restored.manifest.digest?{...restored,source:old.result.source,crop:old.result.crop}:restored,'profile-cover');
+          } else if(recoveredIdentity&&recoveredIdentity.identityId!==expectedIdentity?.id||profilePatch.banner!==(req.result?.banner||''))state.delete('profile-cover');
           const cache=state.get('cover-cache-index');cache.onsuccess=()=>{for(const item of cache.result||[])state.delete('cover-cache:'+item.id);state.delete('cover-cache-index');};
           friends.clear();for(const friend of wanted.values())friends.put(friend);
           state.put(blocked,'blocked-ids');

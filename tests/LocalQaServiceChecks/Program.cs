@@ -22,7 +22,14 @@ internal static class Program
             await qa.Configure();
             if (!qa.Scripts.Exists(script => script.Contains("Object.defineProperty(window, '__VUMIRO_LOCAL_QA_SIGNALING__'") && script.Contains(local) && script.Contains("writable: false") && script.Contains("configurable: false")))
                 throw new Exception("Loopback service override must be immutable and installed before each document.");
-            foreach (var invalid in new[] { "ws://example.com:8787/call-signaling", "https://127.0.0.1:8787/call-signaling", "ws://127.0.0.1:8787/other", "ws://user@127.0.0.1:8787/call-signaling", "ws://127.0.0.1:8787/call-signaling?extra=1", "ws://127.0.0.1:8787/call-signaling#fragment", "not a URI", "" })
+            foreach (var allowed in new[] { "ws://10.0.0.8:8787/call-signaling", "ws://172.16.3.4:8787/call-signaling", "ws://192.168.1.4:8787/call-signaling", "wss://private-qa.example.test/call-signaling" })
+            {
+                Environment.SetEnvironmentVariable("VUMIRO_DEV_SIGNALING_URL", allowed);
+                var remoteQa = new ClientWindow(); await remoteQa.Configure();
+                if (!remoteQa.Scripts.Exists(script => script.Contains("Object.defineProperty(window, '__VUMIRO_LOCAL_QA_SIGNALING__'") && script.Contains(allowed)))
+                    throw new Exception("Private two-PC QA signaling was rejected: " + allowed);
+            }
+            foreach (var invalid in new[] { "ws://example.com:8787/call-signaling", "ws://8.8.8.8/call-signaling", "ws://172.32.0.1/call-signaling", "https://127.0.0.1:8787/call-signaling", "ws://127.0.0.1:8787/other", "ws://user@127.0.0.1:8787/call-signaling", "ws://127.0.0.1:8787/call-signaling?extra=1", "ws://127.0.0.1:8787/call-signaling#fragment", "not a URI", "" })
             {
                 Environment.SetEnvironmentVariable("VUMIRO_DEV_SIGNALING_URL", invalid);
                 var rejected = new ClientWindow();

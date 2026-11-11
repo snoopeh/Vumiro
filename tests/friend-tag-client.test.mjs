@@ -184,7 +184,7 @@ test('an exact named handle can send a request without an ambiguous name selecti
 function actionSection(start,end){const first=source.indexOf(start),last=source.indexOf(end,first);assert.ok(first>=0&&last>first);return source.slice(first,last);}
 
 function friendActionsHarness(handle=''){
-  const elements=new Map(),copied=[],renamed=[],messages=[],timers=[];
+  const elements=new Map(),copied=[],renamed=[],messages=[],timers=[],conversations=[];
   let document;
   class Element {
     constructor(){this.children=[];this.value='';this.hidden=false;this.open=false;this.attributes={};}
@@ -203,26 +203,59 @@ function friendActionsHarness(handle=''){
   const context={
     document,$:element,friends:[friend],selected:friend.id,userCardId:friend.id,profile:{id:'own-id'},directoryTags:{[friend.id]:'#12345-67890'},directoryHandles:{[friend.id]:handle},
     online:new Set(),filter:'all',pending:null,frame:null,updateAvailable:false,linuxHost:false,
-    friendById:id=>id===friend.id?friend:null,avatar(){},setBanner(){},renderLinks(){},canCall:()=>false,renderProfileDetails(){},renderRooms(){},
+    rooms:[],friendById:id=>context.friends.find(value=>value.id===id),avatar(){},setBanner(){},renderLinks(){},canCall:()=>false,renderProfileDetails(){},renderRooms(){},
     setTimeout(callback){timers.push(callback);return timers.length;},
     status:message=>messages.push(message),navigator:{clipboard:{async writeText(value){copied.push(value);}}},
     local:{async renameFriend(id,nickname){renamed.push({id,nickname});friend.nickname=nickname;}},
-    async reloadFriends(){context.renderFriends();}
+    async reloadFriends(){context.renderFriends();},openDirectConversation:id=>conversations.push(id)
   };
+  context.window=context;
   vm.runInNewContext(
     actionSection('function directoryFriendTag(','function rememberDirectoryProfile(')+
     actionSection('function renderUserCard(){','async function resizeBanner(')+
     actionSection('function renderDetails(){','async function reloadFriends(')+
     actionSection("$('nicknameForm').onsubmit=","$('removeFriend').onclick="),context);
   context.renderFriends();
-  const buttons=element('friendsList').children[0].children[1].children[0].children;
-  return {element,context,copied,renamed,messages,timers,nickname:buttons[0],nameChildren:buttons};
+  const buttons=element('friendsList').children.find(node=>node.className?.startsWith('friend')).children[1].children[0].children;
+  return {element,context,copied,renamed,messages,timers,conversations,nickname:buttons[0],nameChildren:buttons};
 }
+
+test('Friends overview rows open profiles and offer one message action that enters conversations',()=>{
+  const app=friendActionsHarness(),row=app.element('friendsList').children.find(node=>node.className?.startsWith('friend'));
+  row.click();assert.deepEqual(app.conversations,[]);assert.equal(app.element('userCardDialog').open,true);
+  app.element('userCardDialog').close();
+  const message=row.children.find(node=>node.className==='messageAction');assert.ok(message,'overview includes a message action');
+  message.click();assert.deepEqual(app.conversations,['friend-id']);assert.equal(app.element('userCardDialog').open,false);
+  assert.equal(row.children.some(node=>node.className==='callAction'),false);
+});
+
+test('conversation rows select chat with keyboard activation and preserve profile access in header',()=>{
+  const app=friendActionsHarness();app.context.workspaceView='conversations';app.context.renderFriends();
+  const row=app.element('friendsList').children.find(node=>node.className?.startsWith('friend'));
+  let prevented=false;row.onkeydown({target:row,key:'Enter',preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);assert.deepEqual(app.conversations,['friend-id']);assert.equal(row.children.some(node=>node.className==='messageAction'),false);
+});
+
+test('people search and online filters keep selection while grouping real live and recent activity',()=>{
+  const app=friendActionsHarness(),context=app.context;context.workspaceView='conversations';
+  context.friends.push({id:'online',name:'Online person',nickname:'Online person'},{id:'recent',name:'Recent person',nickname:'Recent person'});
+  context.online.add('online');context.rooms=[{owner:'online',live:true}];
+  context.VumiroDirectChatController={conversation:id=>({storedAt:id==='recent'?123:0,unread:id==='recent'}),refresh(){}};
+  context.renderFriends();
+  assert.deepEqual(app.element('friendsList').children.filter(node=>node.className==='peopleGroup').map(node=>node.textContent),['Live now','Recent conversations','Offline']);
+  assert.equal(app.element('friendsList').children.find(node=>node.attributes?.['aria-label']==='Message Recent person').children.at(-1).className,'directUnread');
+  context.filter='online';context.renderFriends();
+  assert.deepEqual(app.element('friendsList').children.filter(node=>node.className?.startsWith('friend')).map(node=>node.attributes['aria-label']),['Message Online person']);
+  assert.equal(context.selected,'friend-id');
+  context.filter='all';app.element('search').value='recent';context.renderFriends();
+  assert.deepEqual(app.element('friendsList').children.filter(node=>node.className?.startsWith('friend')).map(node=>node.attributes['aria-label']),['Message Recent person']);
+  assert.equal(context.selected,'friend-id');
+});
 
 test('inspection card pencil opens the nickname editor and friend rows have no pencil',()=>{
   const app=friendActionsHarness();
   assert.equal(app.nameChildren.length,1);
-  app.nickname.click();
+  app.element('directChatProfile').click();
   assert.equal(app.element('userCardDialog').open,true);
   app.element('userCardEditNickname').click();
   assert.equal(app.element('nicknameDialog').open,true);
@@ -230,9 +263,12 @@ test('inspection card pencil opens the nickname editor and friend rows have no p
   assert.equal(app.context.document.activeElement,app.element('nickname'));
 });
 
-test('clicking a friend name opens their inspection card without copying',()=>{
+test('clicking an overview name opens their profile without copying',()=>{
   const app=friendActionsHarness();
   app.nickname.click();
+  assert.deepEqual(app.conversations,[]);
+  assert.equal(app.element('userCardDialog').open,true);
+  app.element('directChatProfile').click();
   assert.deepEqual(app.copied,[]);
   assert.equal(app.element('nicknameDialog').open,false);
   assert.equal(app.element('userCardDialog').open,true);
@@ -248,7 +284,7 @@ test('selected friend nickname copies their tag without opening nickname editing
 });
 
 test('inspection card tag has a copy hint and shows temporary copied feedback',async()=>{
-  const app=friendActionsHarness();app.nickname.click();
+  const app=friendActionsHarness();app.element('directChatProfile').click();
   const tag=app.element('userCardTag');
   assert.equal(tag.title,'Click to copy friend tag');
   tag.click();await new Promise(setImmediate);
@@ -261,7 +297,7 @@ test('inspection card tag has a copy hint and shows temporary copied feedback',a
 });
 
 test('inspection card displays and copies the directory named handle without a redundant username',async()=>{
-  const app=friendActionsHarness('friend#123');app.context.friends[0].username='friend';app.nickname.click();
+  const app=friendActionsHarness('friend#123');app.context.friends[0].username='friend';app.element('directChatProfile').click();
   assert.equal(app.element('userCardTag').textContent,'friend#123');
   assert.equal(app.element('userCardUsername').hidden,true);
   app.element('userCardTag').click();await new Promise(setImmediate);

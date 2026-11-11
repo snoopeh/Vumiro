@@ -21,7 +21,8 @@ namespace Vumiro.Client
         private void InitializeWindowChrome()
         {
             FormBorderStyle = FormBorderStyle.None;
-            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            Icon = DesktopBranding.LoadIcon();
+            if (!ClientRuntime.Current.IsLocalQa) DesktopBranding.RefreshInstalledShortcuts(Application.ExecutablePath);
             HandleCreated += (s, e) => ApplyWindowAppearance();
             browser.NavigationStarting += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; nativeNudge?.Cancel(); };
             FormClosed += (s, e) => { desktopNotifications?.Dispose(); desktopNotifications = null; nativeNudge?.Dispose(); nativeNudge = null; };
@@ -142,7 +143,7 @@ namespace Vumiro.Client
             if (action == "notify")
             {
                 object payload; DesktopNotificationData notification;
-                if (message.Count == 3 && message.TryGetValue("notification", out payload) && DesktopNotificationData.TryParse(payload, out notification) && !ContainsFocus)
+                if (message.Count == 3 && message.TryGetValue("notification", out payload) && DesktopNotificationData.TryParse(payload, out notification))
                 {
                     if (desktopNotifications == null) desktopNotifications = new DesktopNotificationCenter(this, id => {
                         if (IsDisposed || browser?.CoreWebView2 == null) return;
@@ -150,8 +151,6 @@ namespace Vumiro.Client
                         browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new { type = "notification-activate", id }));
                     });
                     desktopNotifications.Show(notification);
-                    var flash = new FlashInfo { Size = (uint)Marshal.SizeOf(typeof(FlashInfo)), Window = Handle, Flags = 3, Count = 3, Timeout = 0 };
-                    FlashWindowEx(ref flash);
                 }
                 return true;
             }

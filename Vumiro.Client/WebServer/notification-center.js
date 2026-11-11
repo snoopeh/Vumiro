@@ -13,20 +13,20 @@
   function create({ bell, panel, list, empty, count, onOpen = () => {}, onDismiss = () => {}, labels = {} }) {
     if (document.head && !document.querySelector('style[data-vumiro-notifications]')) {
       const style = document.createElement('style'); style.dataset.vumiroNotifications = '';
-      style.textContent = `.notificationPanel{position:fixed;z-index:95;right:20px;top:76px;width:min(390px,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;padding:18px;border:1px solid #ffffff1f;border-radius:18px;background:#18181ef2;backdrop-filter:blur(22px);box-shadow:0 24px 75px #0008;opacity:0;visibility:hidden;transform:translateX(30px);pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),opacity .2s,visibility .24s}
+      style.textContent = `.notificationPanel{position:fixed;z-index:95;right:20px;top:76px;width:min(390px,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;padding:18px;border:1px solid #ffffff1f;border-radius:18px;background:#1a1a1af2;backdrop-filter:blur(22px);box-shadow:0 24px 75px #0008;opacity:0;visibility:hidden;transform:translateX(30px);pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),opacity .2s,visibility .24s}
 .notificationPanel.isOpen{opacity:1;visibility:visible;transform:translateX(0);pointer-events:auto}
 .notificationPanel .dialogHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .notificationPanel h2{margin:0;font-size:16px}.notificationPanel ol{list-style:none;padding:0;margin:0;display:grid;gap:8px}
 .notificationPopups{position:fixed;inset:auto 22px 24px auto;margin:0;border:0;padding:0;background:transparent;overflow:visible;z-index:150;width:min(370px,calc(100vw - 32px));display:grid;gap:10px;pointer-events:none;color:inherit}
 .notificationPopups[popover]:not(:popover-open){display:none}
 .notificationPopups::backdrop{background:transparent;pointer-events:none}
-.notificationCard{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ffffff16;border-radius:13px;background:#202028;color:#f8f8fa;min-width:0}
+.notificationCard{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #ffffff16;border-radius:13px;background:#232323;color:#f9f9f9;min-width:0}
 .notificationPopups .notificationCard{pointer-events:auto;box-shadow:0 14px 45px #0007;animation:notificationArrive .28s cubic-bezier(.2,.8,.2,1)}
 .notificationPopups .notificationCard:has(.notificationBody:not(:disabled)){cursor:pointer}
 .notificationAvatar{flex:none;width:42px;height:42px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:#4b273a;color:#fff;font-weight:700;font-size:18px}
 button.notificationBody{display:grid;gap:4px;flex:1;min-width:0;border:0;padding:0;background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
-.notificationBody strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.notificationBody span{font-size:12px;color:#b8b8c6;line-height:1.45;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{align-self:flex-start;border:0;background:transparent;color:#aaaabd;cursor:pointer;padding:0 4px;font-size:20px;line-height:22px}
+.notificationBody strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.notificationBody span{font-size:12px;color:#bdbdbd;line-height:1.45;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+button.notificationBody:disabled{opacity:1;cursor:default}.notificationDismiss{align-self:flex-start;border:0;background:transparent;color:#b0b0b0;cursor:pointer;padding:0 4px;font-size:20px;line-height:22px}
 .notificationBody:focus-visible,.notificationDismiss:focus-visible{outline:2px solid #f06b82;outline-offset:4px;border-radius:4px}
 @keyframes notificationArrive{from{opacity:0;transform:translateX(35px)}to{opacity:1;transform:translateX(0)}}
 @media(prefers-reduced-motion:reduce){.notificationPanel{transition:none}.notificationPopups .notificationCard{animation:none}}

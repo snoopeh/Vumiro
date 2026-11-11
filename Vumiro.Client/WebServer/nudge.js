@@ -6,7 +6,7 @@
   const desktop=window.chrome?.webview||window.vumiroDesktop;
   const host=desktop?.platform==='linux'&&!(desktop.capabilities?.nativeWindowNudge&&desktop.capabilities?.screenNudgeGlow)?null:desktop;
   const style=document.createElement('style');style.textContent=`
-    .vumiro-nudge-frame{position:fixed;inset:0;pointer-events:none;z-index:2147483000;border-radius:12px;box-shadow:inset 0 0 24px 10px #ffd4486b,inset 0 0 76px 18px #ffdf572b;filter:blur(2px);animation:vumiro-nudge-glow 900ms ease-out both}
+    .vumiro-nudge-frame{position:fixed;inset:0;pointer-events:none;z-index:2147483000;border-radius:12px;box-shadow:inset 0 0 24px 10px #f6f0eb45,inset 0 0 76px 18px #f6f0eb1a;filter:blur(2px);animation:vumiro-nudge-glow 900ms ease-out both}
 
     @keyframes vumiro-nudge-glow{0%,100%{opacity:0}20%,65%{opacity:1}}
 

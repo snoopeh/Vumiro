@@ -1,6 +1,8 @@
 // Bounded public coordination; persist requests, pseudonymous friend-tag
 // assignments and expiring hashed allocation budgets. No private keys or media.
 import { DurableObject } from 'cloudflare:workers';
+import { handleDirectMessage, persistDirectAcl, initializeDirectMessages } from './direct-messages.js';
+import { validateGamingSignal, verifyGamingSignal } from './gaming-signals.js';
 
 export const FRIEND_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
@@ -11,7 +13,7 @@ const TAG_ALLOCATION_HOUR = 3600000;
 const ROOM_ALIAS_TTL = 86400000;
 const ROOM_ALIAS_TOKEN = /^[A-Za-z0-9_-]{12}$/;
 const ROOM_ALIAS_CODE = /^[A-HJ-NP-Z2-9]{8}$/;
-const CAPABILITIES = {roomAliases:1};
+const CAPABILITIES = {roomAliases:1,directMessages:1};
 const encoder = new TextEncoder();
 
 function encoded(bytes) {
@@ -124,6 +126,7 @@ function profileSignal(value) {
 export class FriendDirectory extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    initializeDirectMessages(this);
     const sql=ctx.storage.sql;
     sql.exec('CREATE TABLE IF NOT EXISTS friend_tags (identity_id TEXT PRIMARY KEY, tag TEXT NOT NULL UNIQUE)');
     // A signed transition can move a tag once. Remembering that move prevents a
@@ -512,6 +515,7 @@ export class FriendDirectory extends DurableObject {
       return;
     }
     if (this.owner(session.id) !== ws) return;
+    if (['dm-send','dm-history','dm-inbox'].includes(message?.type)) { await handleDirectMessage(this,ws,session,message);return; }
     if (['watch', 'profile-announce', 'lookup', 'room-state', 'room-alias', 'room-resolve'].includes(message?.type)) {
       if (!budget(session, 'controlRate', 24, 10000, now)) { this.error(ws, 'rate-limit', 'Wait before sending more directory updates.', message.nonce); this.save(ws, session); return; }
       if (!this.save(ws, session)) return;
@@ -523,6 +527,7 @@ export class FriendDirectory extends DurableObject {
     if (message?.type === 'room-alias') { await this.roomAlias(ws,session,message);return; }
     if (message?.type === 'room-resolve') { this.resolveRoomAlias(ws,session,message);return; }
     if (message?.type === 'social') { await this.social(ws, session, message); return; }
+    if (message?.type === 'gaming-signal') { await this.relayGaming(ws, session, message); return; }
     if (message?.type === 'profile-signal') { await this.relayProfile(ws, session, message); return; }
     if (message?.type === 'room-state') {
       if (!onlyFields(message, ['type', 'room', 'live'], ['mode']) || typeof message.live !== 'boolean' ||
@@ -543,6 +548,7 @@ export class FriendDirectory extends DurableObject {
       }
       session.watch = [...new Set(message.ids)].filter(id => id !== session.id);
       if (!this.save(ws, session)) return;
+      persistDirectAcl(this,session,true);
       for (const id of session.watch) {
         const owner = this.owner(id);
         if (!this.send(ws, this.presenceEvent(session, id, owner))) break;
@@ -609,6 +615,7 @@ export class FriendDirectory extends DurableObject {
     session.name = message.name; session.username = username; session.socialVersion=message.socialVersion===2?2:1; session.blocked = blocks;session.transition=transition;
     if (!this.save(ws, session)) return;
     this.send(ws, {type: 'profile-ready', profile: publicProfile(session), namedFriendTagsVersion:1, capabilities:CAPABILITIES, socialVersion:2, serverTime:Date.now()});
+    persistDirectAcl(this,session);
     this.presence(session.id);
     this.sendIdentityTransitions(session);
     for (const id of session.watch) this.send(ws, this.presenceEvent(session, id, this.owner(id)));
@@ -720,6 +727,24 @@ export class FriendDirectory extends DurableObject {
     if (!this.save(ws, session) || !this.save(target, targetSession)) return;
     if (this.send(target, {...message, from: session.id, profile: publicProfile(session)})) this.send(ws, {type: 'social-sent', to: message.to, nonce: message.nonce});
     else this.send(ws, {type: 'unavailable', to: message.to, nonce: message.nonce});
+  }
+
+  async relayGaming(ws, session, message) {
+    const now=Date.now();
+    if(!validateGamingSignal(message,session.id,undefined,now)) { this.error(ws,'invalid-gaming-signal','Invalid gaming invitation or negotiation.',message.nonce);return; }
+    if(!budget(session,'gamingRate',192,10000,now)) { this.save(ws,session);this.error(ws,'rate-limit','Wait before starting another gaming connection.',message.nonce);return; }
+    if(!this.save(ws,session))return;
+    const clean=await verifyGamingSignal(message,session,verify,now);
+    const current=read(ws);
+    if(!current?.auth||current.departed||this.owner(current.id)!==ws||current.id!==session.id)return;
+    if(!clean){this.error(ws,'invalid-gaming-signature','Invalid gaming signature.',message.nonce);return;}
+    const target=this.owner(clean.to),time=Date.now();
+    if(clean.expires<=time||!target||!mutual(current,read(target))){this.send(ws,{type:'unavailable',to:clean.to,nonce:clean.nonce});return;}
+    current.gamingSeen=(current.gamingSeen||[]).filter(item=>Array.isArray(item)&&item[1]>time);
+    if(current.gamingSeen.some(item=>item[0]===clean.nonce)||current.gamingSeen.length>=128)return;
+    current.gamingSeen.push([clean.nonce,clean.expires]);
+    if(!this.save(ws,current))return;
+    if(!this.send(target,clean))this.send(ws,{type:'unavailable',to:clean.to,nonce:clean.nonce});
   }
 
   async relayProfile(ws, session, message) {

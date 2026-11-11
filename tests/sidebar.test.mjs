@@ -188,3 +188,78 @@ test('a delayed section cannot replace the section selected most recently',async
   assert.equal(app.events.filter(value=>['audio','notifications'].includes(value)).at(-1),'notifications');
   assert.equal(app.profileDialog.open,true);assert.equal(app.closes,0);
 });
+
+
+function workspaceHarness(){
+  const elements=new Map(),classes=new Set(),events=[],opened=[],friend={id:'friend',nickname:'Friend'};
+  const node=id=>{if(!elements.has(id))elements.set(id,{hidden:false,textContent:'',classList:{toggle(){},add(){},remove(){}},setAttribute(){},focus(){},click(){}});return elements.get(id);};
+  const context={$:node,document:{body:{classList:{toggle(name,value){value?classes.add(name):classes.delete(name);},remove(name){classes.delete(name);}}},querySelectorAll:()=>[]},profile:{id:'owner'},selected:friend.id,frame:null,friendById:id=>id===friend.id?friend:null,browseRoom(){},setRoomView(){},renderFriends(){},status(){},startDirectMessages(){},dispatchEvent:event=>events.push(event),CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},window:{VumiroDirectChatController:{visible:false,active:'',hide(){this.visible=false;},async open(id){this.visible=true;this.active=id;opened.push(id);}},VumiroGaming:{close(){}}}};
+  const start=source.indexOf('/* Workspace destinations. */'),end=source.indexOf('/* End workspace destinations. */',start);
+  assert.ok(start>=0&&end>start,'workspace routing exists');
+  vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+  return {context,node,classes,events,opened};
+}
+
+test('Friends and Conversations are distinct destinations and return safely from the server sandbox',async()=>{
+  const h=workspaceHarness();h.node('serverWorkspace').hidden=false;
+  await h.context.showFriendsOverview();assert.equal(h.context.window.VumiroDirectChatController.visible,false);assert.equal(h.node('directChatPane').hidden,true);assert.equal(h.node('workspaceHeading').textContent,'Friends');assert.equal(h.node('serverWorkspace').hidden,true);
+  await h.context.openDirectConversation('friend');assert.deepEqual(h.opened,['friend']);assert.equal(h.context.workspaceView,'conversations');
+  await h.context.showFriendsOverview();assert.equal(h.context.window.VumiroDirectChatController.visible,false);assert.equal(h.context.selected,'friend');
+});
+
+test('a kept settings draft prevents switching to Servers or Conversations',async()=>{
+  const h=workspaceHarness();let opened=0;h.context.document.querySelectorAll=()=>[{classList:{contains:()=>true}}];h.context.window.VumiroSettingsExit={requestClose:async()=>false};h.context.window.VumiroServers={create(){opened++;return {open(){}};}};
+  assert.equal(await h.context.showServerWorkspace(),false);assert.equal(opened,0);
+  assert.equal(await h.context.openDirectConversation('friend'),false);assert.deepEqual(h.opened,[]);
+});
+
+test('server navigation leaves a running room browsing and hides conversation controls',async()=>{
+  const h=workspaceHarness();let browsed=0;h.context.browseRoom=()=>browsed++;h.context.window.VumiroDirectChatController.visible=true;
+  h.context.window.VumiroServers={create:()=>({async open(){h.node('serverWorkspace').hidden=false;},hide(){h.node('serverWorkspace').hidden=true;}})};
+  await h.context.showServerWorkspace();assert.equal(browsed,1);assert.equal(h.context.workspaceView,'servers');assert.equal(h.node('friendsBody').hidden,true);assert.equal(h.context.window.VumiroDirectChatController.visible,false);
+  await h.context.showFriendsOverview();assert.equal(h.node('serverWorkspace').hidden,true);assert.equal(h.node('friendsBody').hidden,false);
+});
+
+
+test('opening a room hides the server workspace and conversation pane without disposing their drafts',async()=>{
+  const h=workspaceHarness();await h.context.openDirectConversation('friend');h.node('serverWorkspace').hidden=false;
+  h.context.window.VumiroWorkspace.suspendForRoom();
+  assert.equal(h.node('serverWorkspace').hidden,true);assert.equal(h.context.window.VumiroDirectChatController.visible,false);assert.equal(h.node('directChatPane').hidden,true);assert.equal(h.context.selected,'friend');
+});
+
+test('initializing direct messages prepares unread transport without replacing the Friends overview',()=>{
+  const start=source.indexOf('function startDirectMessages(){'),end=source.indexOf('/* Workspace destinations. */',start);let opens=0;
+  const context={profile:{id:'owner'},local:{},send(){},friendById(){},friends:[],blocked:[],blocking:new Set(),status(){},renderFriends(){},runtimeNow(){},notifySocial(){},selected:''};
+  context.window={VumiroDirectMessages:{create:()=>({})},VumiroDirectChat:{create:()=>({open(){opens++;}})}};
+  vm.runInNewContext(source.slice(start,end),context);context.startDirectMessages();
+  assert.ok(context.window.VumiroDirectChatController);assert.equal(opens,0);
+});
+
+test('Support entry uses the shared settings navigation above the profile card',async()=>{
+  const app=settingsHarness();await app.context.route('support');assert.equal(app.context.currentSection,'support');assert.equal(app.profileDialog.open,true);
+  const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');assert.ok(html.indexOf('id="supportNav"')<html.indexOf('id="selfProfile"'));
+});
+
+
+test('in-place profile identity replacement destroys the visible server workspace without dismissing settings',async()=>{
+  const h=workspaceHarness(),records=new Map();h.context.profile={id:'A'.repeat(43),name:'Person A'};
+  class Element{
+    constructor(tag){this.tagName=tag;this.children=[];this.dataset={};this.attributes={};this.handlers={};this.value='';this.textContent='';this.style={};}
+    append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=[];this.append(...nodes);}
+    setAttribute(key,value){this.attributes[key]=value;}addEventListener(key,fn){(this.handlers[key]??=[]).push(fn);}removeEventListener(key,fn){this.handlers[key]=(this.handlers[key]||[]).filter(item=>item!==fn);}focus(){}
+    async dispatch(type){for(const fn of this.handlers[type]||[])await fn({preventDefault(){}});}
+  }
+  const mount=h.node('serverWorkspace');Object.assign(mount,new Element('section'));Object.setPrototypeOf(mount,Element.prototype);h.context.document.createElement=tag=>new Element(tag);
+  h.context.window.localStorage={getItem:key=>records.get(key)||null,setItem:(key,value)=>records.set(key,value)};
+  vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/server-workspace.js',import.meta.url),'utf8'),h.context);
+  await h.context.showServerWorkspace();
+  const all=(node=mount)=>[node,...node.children.flatMap(child=>all(child))],find=action=>all().find(node=>node.dataset.action===action);
+  await find('channel-welcome').dispatch('click');find('message').value='private A draft';await find('message').dispatch('input');
+  let settingsOpen=true,exits=0;h.context.document.querySelectorAll=selector=>selector==='dialog[open]'&&settingsOpen?[{classList:{contains:()=>true}}]:[];
+  h.context.window.VumiroSettingsExit={async requestClose(){exits++;return false;}};
+  Object.assign(h.context,{lobbyInitialized:true,local:{profile:()=>({id:'B'.repeat(43),name:'Person B'})},renderOwnProfile(){},clearNotificationSession(){},clearPending(){},connect(){}});
+  const start=source.indexOf('async function shareOwnProfile()'),end=source.indexOf("addEventListener('vumiro-profile-changed'",start);
+  vm.runInContext(source.slice(start,end),h.context);await h.context.shareOwnProfile();
+  assert.equal(mount.hidden,true);assert.equal(mount.children.length,0,'previous identity content is removed immediately');assert.equal(h.context.workspaceView,'friends');assert.equal(exits,0);assert.equal(settingsOpen,true);
+  settingsOpen=false;await h.context.showServerWorkspace();await find('channel-welcome').dispatch('click');assert.equal(find('message').value,'');
+});

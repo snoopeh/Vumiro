@@ -103,7 +103,8 @@ test('live legacy and signed chat alert on every screen while self, history and 
   for(const version of [1,2]){
     const cues=[],seen=new Set(),view={hidden:true},peer={id:'B'.repeat(43)},identity={id:'A'.repeat(43),key:'own'},peers=new Map([[peer.id,peer]]);
     const app={identity,peers,seenMessages:seen,profileCache:new Map(),chatRoom:'room',chatEpoch:1,document:{hidden:false},$:()=>view,validChatMessage:()=>true,validChatReply:()=>true,rememberMessage:key=>{if(seen.has(key))return false;seen.add(key);return true;},storeChatMessage:message=>{const key=message.author.id+':'+message.id;if(seen.has(key))return false;seen.add(key);return true;},local:{validateContact:async author=>author,verify:async()=>true},chatSignatureText:()=>'',chatLine(){},playCallCue:kind=>cues.push(kind)};
-    vm.createContext(app);vm.runInContext(section(room,'  async function acceptRoomChat(','  function queueChatHistory('),app);
+    app.persistRoomChat=()=>{};
+    vm.createContext(app);vm.runInContext(section(room,'  function validSignedRoomChat(','  function storeChatMessage(')+section(room,'  async function acceptRoomChat(','  function queueChatHistory('),app);
     let index=0;const message=()=>({version,id:'msg'+index++,room:'room',text:'Hello',timestamp:Date.now(),author:{id:peer.id,key:'other',name:'Friend'},signature:'valid'});
     const first=message();await app.acceptRoomChat(peer,first);assert.deepEqual(cues,['chat']);await app.acceptRoomChat(peer,first);assert.equal(cues.length,1);
     view.hidden=false;await app.acceptRoomChat(peer,message());assert.equal(cues.length,2);

@@ -13,7 +13,7 @@ function harness() {
     append(...values){this.children.push(...values);for(const value of values)if(value&&typeof value==='object')value.parentElement=this;}
     replaceChildren(...values){this.children=values;}
     addEventListener(name,handler){this.listeners[name]=handler;}
-    insertBefore(value,before){const at=this.children.indexOf(before);this.children.splice(at<0?0:at,0,value);}
+    insertBefore(value,before){this.children=this.children.filter(child=>child!==value);const at=this.children.indexOf(before);this.children.splice(at<0?0:at,0,value);}
     setAttribute(name,value){this[name]=value;}
     removeAttribute(name){delete this[name];}
     querySelector(){return this.children[0];}
@@ -82,7 +82,7 @@ test('rapid submissions queue while signing and keep a newly typed draft',async(
   const signing=new Promise(resolve=>{release=resolve;});let first=true;
   app.local.sign=async text=>{if(first){first=false;await signing;}return signature(text);};
   app.$('chatText').value='First';const sentFirst=app.sendRoomChat({preventDefault(){}});
-  assert.equal(app.$('chatText').value,'','accepted drafts clear before signing completes');
+  assert.equal(app.$('chatText').value,'First','accepted drafts stay visible until signing succeeds');
   const duplicate=app.sendRoomChat({preventDefault(){}});
   app.$('chatText').value='Second';const sentSecond=app.sendRoomChat({preventDefault(){}});
   app.$('chatText').value='Third';const sentThird=app.sendRoomChat({preventDefault(){}});
@@ -217,6 +217,16 @@ test('verified text rows offer Reply and a one-level citation to a retained orig
   const citation=descendants(app.$('chatLog').children[1]).find(item=>item.className==='chat-reply-citation');
   assert.ok(citation);assert.match(citation.textContent,/Friend.*Original text/);citation.onclick();assert.equal(row.scrolled,true);
 });
+
+test('reply controls reveal on hover or keyboard focus and context menus focus the action',async()=>{
+  const app=uiHarness();app.setChatRoom('room-one');const p=peer(app),target=envelope(app);await app.acceptRoomChat(p,target,true);
+  const row=app.$('chatLog').children[0],button=descendants(row).find(item=>item.className==='chat-reply-action');assert.equal(row.tabIndex,0);let prevented=0;
+  row.oncontextmenu({preventDefault(){prevented++;}});assert.equal(prevented,1);assert.ok(row.classes.has('chat-actions-open'));assert.equal(button.focused,true);
+  row.onfocusout({relatedTarget:null});assert.equal(row.classes.has('chat-actions-open'),false);
+  row.onkeydown({key:'F10',shiftKey:true,target:row,preventDefault(){prevented++;}});assert.equal(prevented,2);assert.ok(row.classes.has('chat-actions-open'));
+  row.onkeydown({key:'Escape'});assert.equal(row.classes.has('chat-actions-open'),false);assert.equal(row.focused,true);
+  const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call.html',import.meta.url),'utf8');assert.match(html,/\.chat-reply-action\{[^}]*opacity:0[^}]*pointer-events:none/);assert.match(html,/li:hover \.chat-reply-action/);assert.match(html,/li:focus-within \.chat-reply-action/);
+});
 test('unavailable reply citations use neutral text and evicted messages lose Reply',async()=>{
   const app=uiHarness();app.setChatRoom('room-one');const p=peer(app);
   const orphan=envelope(app,{id:'r'.repeat(32),replyTo:{authorId:'C'.repeat(43),id:'missing'.padEnd(16,'x')}});orphan.replySignature=signature(app.chatReplySignatureText(orphan));
@@ -333,4 +343,44 @@ test('two room transports recover a staged file offer after disconnect and recon
   assert.match(firstButton.textContent,/Receive recover.txt/);sender.clearPeerChat(firstSenderPeer);receiver.clearPeerChat(firstReceiverPeer);
   const [newSenderPeer]=connectApps(sender,receiver);const buttons=receiver.$('chatLog').children.flatMap(row=>row.children[0].children.filter(node=>node.className==='chat-file'));assert.equal(buttons.length,2);const button=buttons.at(-1);button.onclick();
   for(let i=0;i<20&&newSenderPeer.fileSending;i++)await new Promise(setImmediate);assert.equal(button.download,'recover.txt');assert.equal(button.href,'blob:accepted');assert.equal(firstButton.onclick,null);
+});
+
+test('verified outgoing and incoming room messages are archived once without blocking delivery',async()=>{
+  const app=harness(),saved=[];app.VumiroChatStorage={create:({owner})=>{assert.equal(owner,app.identity.id);return {history:async()=>({messages:[]}),append:async(room,message)=>saved.push({room,message})};}};
+  await app.setChatRoom('room-one');const p=peer(app);app.$('chatText').value='Keep this message';await app.sendRoomChat({preventDefault(){}});const message=envelope(app);await app.acceptRoomChat(p,message);await app.acceptRoomChat(p,message);const forged=envelope(app,{id:'f'.repeat(32)});forged.text='forged';await app.acceptRoomChat(p,forged);await new Promise(setImmediate);
+  assert.deepEqual(saved.map(value=>value.message.text),['Keep this message','Before you arrived']);assert.ok(saved.every(value=>value.room==='room-one'));assert.equal(p.sent.filter(value=>value.type==='chat').length,1);
+});
+
+test('archive restoration verifies old signatures, room and reply binding without notifications or write loops',async()=>{
+  const app=harness(),old=envelope(app,{timestamp:Date.now()-7*86400000}),forged=envelope(app,{id:'f'.repeat(32)}),wrong=envelope(app,{id:'w'.repeat(32),room:'other-room'});forged.text='changed';let writes=0,notifications=0;app.playCallCue=()=>notifications++;app.VumiroChatStorage={create:()=>({history:async()=>({messages:[old,forged,wrong]}),append:async()=>writes++})};
+  await app.setChatRoom('room-one');assert.equal(app.lines.length,1);assert.equal(app.lines[0][0],old.text);assert.equal(notifications,0);assert.equal(writes,0);const p=peer(app);app.queueChatHistory(p);assert.equal(p.sent.length,0,'old private archives do not bypass network history age limits');
+});
+
+test('archive failures are visible while signed room delivery continues',async()=>{
+  const app=harness();app.VumiroChatStorage={create:()=>({history:async()=>({messages:[]}),append:async()=>{throw Object.assign(Error('backup offline'),{localSaved:true});}})};await app.setChatRoom('room-one');const p=peer(app);app.$('chatText').value='Still send';await app.sendRoomChat({preventDefault(){}});await new Promise(setImmediate);assert.equal(p.sent[0].text,'Still send');assert.match(app.$('chatStatus').textContent,/kept locally.*backup unavailable/i);
+});
+
+test('pending archive reads cannot restore messages into another room',async()=>{
+  const app=harness();let resolve;app.VumiroChatStorage={create:()=>({history:room=>room==='room-one'?new Promise(done=>{resolve=done;}):Promise.resolve({messages:[]}),append:async()=>{}})};const restoring=app.setChatRoom('room-one');await app.setChatRoom('room-two');resolve({messages:[envelope(app)]});await restoring;assert.equal(app.lines.length,0);
+});
+
+test('pending archival writes remain scoped to the identity that accepted the message',async()=>{
+  const app=harness(),saved=[];app.VumiroChatStorage={create:({owner})=>({history:async()=>({messages:[]}),append:async(room,message)=>saved.push({owner,message})})};await app.setChatRoom('room-one');const old=app.identity.id;app.persistRoomChat(envelope(app));app.identity={id:'C'.repeat(43),key:'other-key',name:'Other'};await new Promise(setImmediate);assert.equal(saved[0].owner,old);
+});
+
+test('signed archived messages display their original date rather than the current time',()=>{
+  const app=uiHarness(),message=envelope(app,{timestamp:Date.now()-7*86400000});app.setChatRoom('room-one');app.storeChatMessage(message);const row=app.chatLine(message.text,message.author.id,message.timestamp,message),time=descendants(row).find(value=>value.className==='message-time');assert.equal(time.title,new Date(message.timestamp).toISOString());assert.match(time.textContent,/\d/);
+});
+
+test('local history remains visible with a private backup availability warning',async()=>{
+  const app=harness();app.VumiroChatStorage={create:()=>({history:async()=>({messages:[envelope(app)],warning:'Local history loaded; private archive unavailable.'})})};await app.setChatRoom('room-one');assert.equal(app.lines.length,1);assert.match(app.$('chatStatus').textContent,/local history.*private archive unavailable/i);
+});
+
+test('history that finishes loading after live chat is still rendered in chronological order',async()=>{
+  const app=uiHarness();let resolve;app.VumiroChatStorage={create:()=>({history:()=>new Promise(done=>{resolve=done;}),append:async()=>{}})};const restoring=app.setChatRoom('room-one'),p=peer(app),old=envelope(app,{timestamp:Date.now()-7*86400000}),live=envelope(app,{id:'l'.repeat(32),text:'Live message'});await app.acceptRoomChat(p,live);resolve({messages:[old]});await restoring;
+  assert.deepEqual(app.$('chatLog').children.map(row=>descendants(row).find(value=>value.className==='message-time').title),[new Date(old.timestamp).toISOString(),new Date(live.timestamp).toISOString()]);
+});
+
+test('pending archive reads cannot restore the previous identity’s private history',async()=>{
+  const app=harness();let resolve;app.VumiroChatStorage={create:()=>({history:()=>new Promise(done=>{resolve=done;}),append:async()=>{}})};const restoring=app.setChatRoom('room-one');app.identity={id:'C'.repeat(43),key:'other-key',name:'Other'};resolve({messages:[envelope(app)]});await restoring;assert.equal(app.lines.length,0);
 });

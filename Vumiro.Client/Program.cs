@@ -19,6 +19,7 @@ namespace Vumiro.Client
         [STAThread]
         private static void Main()
         {
+            GamingDependencies.Register();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             if (ClientRuntime.Current.IsLocalQa)
@@ -60,6 +61,7 @@ namespace Vumiro.Client
         private readonly ClientUpdates updates;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         private readonly OAuthLogin oauthLogin = new OAuthLogin();
+        private readonly string launchId = Guid.NewGuid().ToString("N");
 
         internal ClientWindow()
         {
@@ -80,6 +82,7 @@ namespace Vumiro.Client
             loading.BringToFront();
             Shown += async (s, e) => await OpenAsync();
             FormClosed += (s, e) => {
+                StopGaming();
                 oauthLogin.Dispose();
                 StopStreamAudio();
                 trayIcon.Visible = false;
@@ -149,6 +152,8 @@ namespace Vumiro.Client
                     ClientDiagnostics.Current.Enqueue("runtime", new Dictionary<string, object> { { "webviewMajor", webviewVersion.Major }, { "webviewBuild", webviewVersion.Build } });
                 browser.CoreWebView2.ProcessFailed += (s, e) => ClientDiagnostics.Current.Enqueue("webview-failed", new Dictionary<string, object> { { "code", (int)e.ProcessFailedKind } });
                 browser.CoreWebView2.SetVirtualHostNameToFolderMapping(new Uri(Origin).Host, ClientRuntime.Current.WebRoot, CoreWebView2HostResourceAccessKind.DenyCors);
+                await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("Object.defineProperty(window,'__VUMIRO_LAUNCH_ID__',{value:" + json.Serialize(launchId) + ",writable:false,configurable:false});");
+                await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("Object.defineProperty(window,'__VUMIRO_WAIT_FOR_HOST__',{value:true,writable:false,configurable:false});");
                 await EnableLocalQaToolsAsync();
                 browser.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -158,7 +163,7 @@ namespace Vumiro.Client
                 browser.CoreWebView2.NavigationStarting += (s, e) => {
                     Uri target;
                     if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out target) || target.GetLeftPart(UriPartial.Authority) != Origin) e.Cancel = true;
-                    if (!e.Cancel) { StopStreamAudio(); oauthLogin.Cancel(); }
+                    if (!e.Cancel) { StopGaming(); StopStreamAudio(); oauthLogin.Cancel(); }
                 };
                 browser.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; };
                 browser.CoreWebView2.WebMessageReceived += async (s, e) => {
@@ -173,6 +178,7 @@ namespace Vumiro.Client
                         if (HandleWindowMessage(message)) return;
                         if (HandleLocalQaMessage(message)) return;
                         if (source.AbsolutePath != "/friends.html") return;
+                        if (await HandleGamingMessageAsync(message)) return;
                         if (HandleDiagnosticsMessage(message)) return;
                         if (HandleStreamAudioMessage(message)) return;
                         object type, action;
@@ -195,6 +201,7 @@ namespace Vumiro.Client
                         if (IsDisposed) return;
                         browser.Enabled = true;
                         DismissStartupOverlay();
+                        await browser.CoreWebView2.ExecuteScriptAsync("window.__VUMIRO_HOST_READY__=true;window.dispatchEvent(new Event('vumiro-host-ready'));");
                         PublishWindowState();
                         WriteLocalQaStatus("ready");
                     }

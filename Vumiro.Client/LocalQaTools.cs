@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Threading.Tasks;
 
 namespace Vumiro.Client
@@ -14,9 +15,7 @@ namespace Vumiro.Client
             await browser.CoreWebView2.CallDevToolsProtocolMethodAsync("Network.setCacheDisabled", "{\"cacheDisabled\":true}");
             var service = Environment.GetEnvironmentVariable("VUMIRO_DEV_SIGNALING_URL");
             Uri localService;
-            var hasLocalService = Uri.TryCreate(service, UriKind.Absolute, out localService) && localService.IsLoopback &&
-                (localService.Scheme == "ws" || localService.Scheme == "wss") && localService.UserInfo.Length == 0 &&
-                localService.AbsolutePath == "/call-signaling" && localService.Query.Length == 0 && localService.Fragment.Length == 0;
+            var hasLocalService = Uri.TryCreate(service, UriKind.Absolute, out localService) && IsQaSignalingUri(localService);
             if (hasLocalService)
                 await browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                     "Object.defineProperty(window, '__VUMIRO_LOCAL_QA_SIGNALING__', {value:" + json.Serialize(localService.AbsoluteUri) + ", writable: false, configurable: false});");
@@ -35,6 +34,19 @@ namespace Vumiro.Client
                     tools.append(label, reload); bar.insertBefore(tools, bar.querySelector('.windowControls, .authWindowControls'));
                     document.title = 'Vumiro · ' + label.textContent;
                 });");
+        }
+
+        private static bool IsQaSignalingUri(Uri value)
+        {
+            if (value == null || value.UserInfo.Length != 0 || value.AbsolutePath != "/call-signaling" || value.Query.Length != 0 || value.Fragment.Length != 0) return false;
+            if (value.Scheme == "wss") return true;
+            if (value.Scheme != "ws") return false;
+            if (value.IsLoopback) return true;
+            IPAddress address;
+            if (!IPAddress.TryParse(value.Host.Trim('[', ']'), out address)) return false;
+            var bytes = address.GetAddressBytes();
+            if (bytes.Length == 4) return bytes[0] == 10 || bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31 || bytes[0] == 192 && bytes[1] == 168;
+            return bytes.Length == 16 && (bytes[0] & 0xfe) == 0xfc;
         }
 
         private bool HandleLocalQaMessage(Dictionary<string, object> message)

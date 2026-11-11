@@ -6,6 +6,9 @@
   <ItemGroup>
     <ProjectReference Include="../../Vumiro.Client.Updater/Vumiro.Client.Updater.csproj" ReferenceOutputAssembly="false" />
     <Compile Include="Program.cs" />
+    <Compile Include="../../Vumiro.Client/DesktopBranding.cs" Link="DesktopBranding.cs" />
+    <EmbeddedResource Include="../../Vumiro.Client/Brand/vumiro.ico" LogicalName="Vumiro.DesktopIcon" />
+    <Reference Include="System.Drawing" />
     <Compile Include="../../Vumiro.Client/ClientUpdates.cs" Link="ClientUpdates.cs" />
     <Compile Include="../../Vumiro.Client/ClientUpdateInstaller.cs" Link="ClientUpdateInstaller.cs" />
     <Compile Include="../../Vumiro.Client/ClientRuntime.cs" Link="ClientRuntime.cs" />

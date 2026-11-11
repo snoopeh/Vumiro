@@ -189,3 +189,28 @@ test('signed peer exchange carries card metadata under 64 KiB and rejects tamper
     assert.deepEqual(plain(received[1].value.connections),[]);
   } finally { profiles.reset(); }
 });
+
+test('account restore atomically replaces an empty device identity with its recovered account identity',async()=>{
+  const device=local(),owner=local();await device.createProfile('New device');await owner.createProfile('Account owner');
+  const pair=await webcrypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  const spki=await webcrypto.subtle.exportKey('spki',pair.publicKey),pkcs8=await webcrypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const recovered={identityId:Buffer.from(await webcrypto.subtle.digest('SHA-256',spki)).toString('base64url'),publicKey:Buffer.from(spki).toString('base64url'),privateKey:await webcrypto.subtle.importKey('pkcs8',pkcs8,{name:'ECDSA',namedCurve:'P-256'},false,['sign'])};
+  await device.applyAccountSnapshot(await owner.accountSnapshot(),undefined,recovered);
+  assert.equal(device.profile().id,recovered.identityId);assert.equal(device.profile().name,'Account owner');
+  const signature=await device.sign('restored identity');assert.equal(await device.verify({key:recovered.publicKey},'restored identity',signature),true);
+});
+
+test('invalid account contacts cannot partially install a recovered identity',async()=>{
+  const device=local();await device.createProfile('Preserved');const before=device.profile();
+  const pair=await webcrypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);const spki=await webcrypto.subtle.exportKey('spki',pair.publicKey),pkcs8=await webcrypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const recovered={identityId:Buffer.from(await webcrypto.subtle.digest('SHA-256',spki)).toString('base64url'),publicKey:Buffer.from(spki).toString('base64url'),privateKey:await webcrypto.subtle.importKey('pkcs8',pkcs8,{name:'ECDSA',namedCurve:'P-256'},false,['sign'])};
+  const snapshot=await device.accountSnapshot();snapshot.friends=[{id:'invalid',key:'invalid',name:'Invalid'}];
+  await assert.rejects(device.applyAccountSnapshot(snapshot,undefined,recovered));assert.deepEqual(device.profile(),before);
+});
+
+test('account restore can install a recovered identity on a brand new device without generating a temporary key',async()=>{
+  const device=local(),owner=local();await owner.createProfile('Account owner');
+  const pair=await webcrypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);const spki=await webcrypto.subtle.exportKey('spki',pair.publicKey),pkcs8=await webcrypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const recovered={identityId:Buffer.from(await webcrypto.subtle.digest('SHA-256',spki)).toString('base64url'),publicKey:Buffer.from(spki).toString('base64url'),privateKey:await webcrypto.subtle.importKey('pkcs8',pkcs8,{name:'ECDSA',namedCurve:'P-256'},false,['sign'])};
+  await device.applyAccountSnapshot(await owner.accountSnapshot(),undefined,recovered);assert.equal(device.profile().id,recovered.identityId);
+});

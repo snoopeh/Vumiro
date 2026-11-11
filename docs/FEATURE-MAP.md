@@ -8,16 +8,17 @@ node scripts/Check-Client.mjs --group streaming --group friends
 node scripts/Check-Client.mjs --changed-since HEAD --reuse
 ```
 
-The default `node scripts/Check-Client.mjs` keeps the complete client/backend suite. `--group all` explicitly selects it. The LOCAL QA launcher retains its seven native checks; feature selection can narrow those checks for iteration. Check output records the selected groups and the reason for expansion. Successful automated checks mean ready for human QA, not accepted or released.
+The default `node scripts/Check-Client.mjs` keeps the complete client/backend suite. `--group all` explicitly selects it. The LOCAL QA launcher retains its thirteen native checks; feature selection can narrow those checks for iteration. Check output records the selected groups and the reason for expansion. Successful automated checks mean ready for human QA, not accepted or released.
 
 | Group | Scope | Backend | Native checks |
 | --- | --- | --- | --- |
+| `gaming` | Built-in gaming, signed friend sessions, virtual LAN, WebRTC game sharing and mapped/physical controller input | Yes | Services, controller, dependency, LAN and host |
 | `accounts` | Account entry, authentication, identity recovery, account profile data | Yes | OAuth callbacks, local service isolation |
 | `friends` | Directory, tags, invitations, notifications, nudges, sidebar | Yes | Notification payloads, window/nudge/resize |
-| `chat` | Chat pane, scrolling, room messages, media, emoji | No | None |
+| `chat` | Direct conversations, local server sandbox, chat pane, scrolling, room messages, media, emoji | No | None |
 | `streaming` | Call layout, audio preferences, standalone `stream-mosaic.js`, connection recovery | No | Audio recovery, window/nudge/resize |
 | `profile` | Profile cards, crop, cover encoding and transfer | Yes | None |
-| `native` | Windows host integration, updater, diagnostics, bridges | No | All seven |
+| `native` | Windows host integration, updater, diagnostics, bridges | No | All thirteen |
 | `linux` | Linux host, trusted asset routes, smoke driver | No | None |
 | `release` | Versions, asset manifests, packaging, shipping, release verification | No | Updater |
 | `tooling` | Check planning, receipts, reports, local launcher checks | No | None |
@@ -30,4 +31,4 @@ The large `call-client.js`, `friends-client.js`, `local-profile.js`, `peer-profi
 
 `--reuse` can reuse successful version/syntax/client results only when their receipt matches the current inputs. Source, configuration, environment and runtime changes invalidate reuse; backend and native checks always run fresh. It does not replace human QA. Keep changes within their feature module where possible and avoid editing shared files for unrelated cleanup.
 
-`tests/CoverEncodingChecks` is an additional Windows/WebView2 runtime check for visual cover QA. It opens a browser host and takes the repository root as its argument; run it deliberately when reviewing cover rendering. It is outside the seven default native checks.
+`tests/CoverEncodingChecks` is an additional Windows/WebView2 runtime check for visual cover QA. It opens a browser host and takes the repository root as its argument; run it deliberately when reviewing cover rendering. It is outside the thirteen default native checks.
