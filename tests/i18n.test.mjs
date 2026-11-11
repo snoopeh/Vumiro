@@ -12,6 +12,19 @@ function load(saved, languages=['en'], document) {
   if(fs.existsSync(path))vm.runInContext(fs.readFileSync(path,'utf8'),app);
   return {api:app.VumiroI18n,values};
 }
+
+test('Friends and server sandbox labels explain local-only behavior in every language',()=>{
+  const {api}=load('pt-BR');
+  assert.equal(api.t('Conversations'),'Conversas');
+  assert.equal(api.t('Local sandbox'),'Ambiente de testes local');
+  assert.equal(api.t('Voice is not connected'),'A voz não está conectada');
+  assert.equal(api.t('Only you can see these messages.'),'Só você pode ver estas mensagens.');
+  for(const code of ['es','pt-BR','ja','zh-CN','ru']){
+    api.setLocale(code);
+    for(const key of ['Conversations','Local sandbox','Voice is not connected','Only you can see these messages.'])
+      assert.notEqual(api.t(key),key,code+' explains '+key);
+  }
+});
 test('lobby language selector stays in the settings menu while sign-in keeps its visible control',()=>{
   function fixture(withSidebar,withSettings=false){
     let dialog=null;
@@ -63,6 +76,66 @@ test('chat resize and authenticated entry copy are available in all six language
     assert.ok(Object.hasOwn(api.catalogs[code],key),`${code}: ${key}`);
     if(code!=='en')assert.notEqual(api.catalogs[code][key],key);
   }
+});
+test('room catalogs describe shared app rooms rather than bedrooms',()=>{
+  const {api}=load();
+  assert.equal(api.catalogs['pt-BR'].Rooms,'Salas');
+  assert.equal(api.catalogs.es.Rooms,'Salas');
+  for(const code of ['pt-BR','es'])for(const [key,value]of Object.entries(api.catalogs[code])){
+    if(/\brooms?\b/i.test(key))assert.doesNotMatch(value,code==='pt-BR'?/\bquartos?\b/i:/\bhabitaci[oó]n(?:es)?\b/i,`${code}: ${key}`);
+  }
+  assert.equal(api.catalogs['pt-BR']['Room with {name}'],'Sala com {name}');
+  assert.equal(api.catalogs['pt-BR']['Room with {p0}'],'Sala com {p0}');
+  assert.equal(api.catalogs['pt-BR']['Getting your room ready…'],'Preparando sua sala…');
+  assert.equal(api.catalogs['pt-BR']['Reconnecting your room…'],'Reconectando sua sala…');
+  assert.equal(api.catalogs['pt-BR']['Reconnect to see your friends’ rooms.'],'Reconecte-se para ver as salas dos seus amigos.');
+  assert.equal(api.catalogs['pt-BR']['to your current room.'],'para a sua sala atual.');
+  for(const {code}of api.locales)assert.equal(api.catalogs[code]['room-toast {p0}'],'room-toast {p0}','CSS class templates remain literal');
+});
+test('ambiguous window, audio and room actions retain their application meaning',()=>{
+  const {api}=load();
+  const expected={
+    'es':['Cerrar y minimizar a la bandeja','Inicio de Vumiro','Has salido de la sala','Silenciar todo','Activar audio','Cerrar ajustes de calidad de transmisión','Cerrar ajustes de acceso a la sala'],
+    'pt-BR':['Fechar para a bandeja','Início do Vumiro','Saiu da sala','Silenciar tudo','Ativar áudio','Fechar configurações de qualidade da transmissão','Fechar configurações de acesso à sala'],
+    'ja':['閉じてトレイに格納','Vumiro ホーム','ルームから退出しました','すべてミュート','受信音声を再開','配信品質の設定を閉じる','ルームアクセス設定を閉じる'],
+    'zh-CN':['关闭到系统托盘','Vumiro 主页','已离开房间','全部静音','恢复接收音频','关闭直播画质设置','关闭房间访问设置'],
+    'ru':['Закрыть в трей','Главная Vumiro','Вы вышли из комнаты','Отключить весь звук','Включить входящий звук','Закрыть настройки качества трансляции','Закрыть настройки доступа к комнате']
+  };
+  const keys=['Close to tray','Vumiro home','Left room','Deafen','Undeafen','Close stream quality','Close room access'];
+  for(const [code,values]of Object.entries(expected))keys.forEach((key,index)=>assert.equal(api.catalogs[code][key],values[index],`${code}: ${key}`));
+  assert.equal(api.catalogs['pt-BR']['Block'],'Bloquear');
+  assert.equal(api.catalogs['zh-CN']['Block'],'屏蔽');
+  assert.equal(api.catalogs['zh-CN']['Call'],'呼叫');
+  assert.equal(api.catalogs['zh-CN']['Connection'],'连接');
+  assert.equal(api.catalogs['pt-BR']['Source size'],'Tamanho original');
+  assert.equal(api.catalogs.es['Source size'],'Tamaño original');
+  assert.equal(api.catalogs.ru['Stop share'],'Остановить демонстрацию экрана');
+  assert.equal(api.catalogs['pt-BR']['Your room is getting ready'],'Sua sala está sendo preparada');
+  assert.equal(api.catalogs['pt-BR']['Finish your current room or call invitation first.'],'Saia da sala atual ou resolva o convite de chamada primeiro.');
+  assert.equal(api.catalogs['zh-CN']['Join a room together. {seconds}s remaining'],'一起加入房间。还剩 {seconds} 秒');
+  assert.equal(api.catalogs.ru['Join a room together. {seconds}s remaining'],'Войдите в комнату вместе. Осталось {seconds} с');
+});
+test('People navigation has localized search, filters and conversation actions in every locale',()=>{
+  const {api}=load();
+  for(const {code}of api.locales)for(const key of ['People','Search people','People filters','All','Live now','Recent conversations','Offline','Choose someone to start a conversation.','View profile','Conversation actions','Back to people']){
+    assert.ok(Object.hasOwn(api.catalogs[code],key),`${code}: ${key}`);
+    if(code!=='en')assert.notEqual(api.catalogs[code][key],key,`${code}: ${key}`);
+  }
+});
+test('localized call and reply templates preserve opaque participant names',()=>{
+  const hostile='Rooms / Quartos / <img src=x> / {name}';
+  for(const {code}of load().api.locales){
+    const {api}=load(code);
+    for(const key of ['Room with {name}','Reply to {name}','Stream from {name}'])assert.ok(api.t(key,{name:hostile}).includes(hostile),`${code}: ${key}`);
+  }
+});
+test('room counts use complete localized singular and plural phrases',()=>{
+  const {api}=load('pt-BR');
+  assert.equal(api.t('{count} person',{count:1}),'1 pessoa');
+  assert.equal(api.t('{count} people',{count:2}),'2 pessoas');
+  assert.equal(api.t('In the room · {count} participant.',{count:1}),'Na sala · 1 participante.');
+  assert.equal(api.t('In the room · {count} participants.',{count:2}),'Na sala · 2 participantes.');
+  for(const {code}of api.locales)for(const key of ['{count} person','{count} people','In the room · {count} participant.','In the room · {count} participants.','A participant joined · {count} in the room.','A participant left · {count} in the room.'])assert.ok(Object.hasOwn(api.catalogs[code],key),`${code}: ${key}`);
 });
 test('language choice survives device preference changes and unavailable storage',()=>{
   const {api,values}=load();assert.ok(api);api.setLocale('ru');assert.equal(values.get('vumiro.locale'),'ru');

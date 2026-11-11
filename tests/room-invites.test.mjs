@@ -15,7 +15,7 @@ function harness(){
   const socket={readyState:1,close(){}};
   const context={URL,URLSearchParams,Map,Set,Error,Date,console,
     profile:{id:ownId,name:'Owner',key:'owner-key'},friends,blocked:[],online:new Set([friendId]),socket,generation:1,ready:true,stopped:false,retry:0,
-    pending:null,frame,currentRoom:room,currentAccess:{mode:'private'},joined:true,sharing:false,serviceUrl:'wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling',
+    pending:null,incomingCall:null,frame,currentRoom:room,currentAccess:{mode:'private'},joined:true,sharing:false,serviceUrl:'wss://vumiro-rooms.vumiro-signaling.workers.dev/call-signaling',
     location:{origin:'https://vumiro.local',href:'https://vumiro.local/friends.html'},query:new URLSearchParams(),WebSocket:{OPEN:1},ringTimer:0,migrateRoomHost:url=>url,
     $:element,friendById:id=>context.friends.find(friend=>friend.id===id),send:message=>sent.push(message),runtimeNow:()=>Date.now(),newRoom:()=>ownId+'_'+'c'.repeat(48),
     crypto:{randomUUID:()=>`room_invite_nonce_${++nonce}`},local:{sign:async()=> 'signed',verify:async()=>true,listFriends:async()=>context.friends},

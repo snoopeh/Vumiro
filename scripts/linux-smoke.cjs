@@ -70,6 +70,13 @@ function smokeAuthReloadUrl(value) {
   url.searchParams.set('platform','linux');return url.href;
 }
 
+function smokeFriendsOverviewReady() {
+  return document.querySelector('#friendsBody')?.hidden===false &&
+    document.querySelector('#directChatPane')?.hidden===true &&
+    !document.body.classList.contains('conversations-view') &&
+    !!document.querySelector('#friendsList .messageAction') &&
+    document.querySelector('#workspaceHeading')?.textContent==='Friends';
+}
 function smokeFriendCardReady(expectedName) {
   const card=document.querySelector('#userCardDialog'),editor=document.querySelector('#nicknameDialog'),pencil=document.querySelector('#userCardEditNickname');
   return card?.open===true&&editor?.open!==true&&document.querySelector('#userCardName')?.textContent===expectedName&&!!pencil&&!pencil.hidden&&!pencil.disabled;
@@ -314,8 +321,14 @@ function install({ app, session }) {
       }, code);
       await wait(() => !document.querySelector('#addDialog').open && document.querySelector('.friendNameButton')?.textContent === 'Smoke Friend', 'offline contact import');
       check('offline-contact');
-      await evaluate(() => document.querySelector('.friendNameButton').click());
-      await wait(smokeFriendCardReady,'nickname opens inspection without editing','Smoke Friend');
+      await wait(smokeFriendsOverviewReady,'dedicated Friends overview');
+      await evaluate(() => document.querySelector('#friendsList .messageAction').click());
+      await wait(() => !document.querySelector('#directChatConversation').hidden &&
+        document.querySelector('#directChatName').textContent === 'Smoke Friend' &&
+        !document.querySelector('#userCardDialog').open, 'person opens conversation');
+      check('people-conversation');
+      await evaluate(() => document.querySelector('#directChatProfile').click());
+      await wait(smokeFriendCardReady,'chat header opens inspection without editing','Smoke Friend');
       check('nickname-no-edit');
       window.setMinimumSize(480, 640); window.setContentSize(540, 760);
       await wait(() => innerWidth <= 570, 'narrow viewport');
@@ -333,7 +346,7 @@ function install({ app, session }) {
       // original card through its product control, then inspect saved data.
       await evaluate(() => document.querySelector('#userCardDialog [data-close="userCardDialog"]').click());
       await wait(()=>!document.querySelector('#userCardDialog').open,'inspection card closes after nickname save');
-      await evaluate(() => document.querySelector('#friendsList .friend').click());
+      await evaluate(() => document.querySelector('#directChatProfile').click());
       await wait(smokeFriendCardReady,'saved nickname appears in reopened profile','Renamed Smoke');
       // Send real pointer events through Chromium so the dialog backdrop is hit-tested.
       const point = await evaluate(() => { const rect = document.querySelector('#userCardDialog').getBoundingClientRect(); return { x: Math.max(1, rect.left / 2), y: Math.max(1, rect.top / 2) }; });
@@ -361,4 +374,4 @@ function install({ app, session }) {
   return { configure, observe, run, fail: finish, assetLoaded: value => assets.add(value) };
 }
 
-module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, smokeFriendCardReady, smokeRoomReady, smokeRoomCleanupReady, requiredSmokeResources, createSmokeResources, createSmokeProgress, withSmokeDeadline, install };
+module.exports = { allowSmokeRequest, createSmokeAccountFixture, smokeAuthReloadUrl, smokeFriendsOverviewReady, smokeFriendCardReady, smokeRoomReady, smokeRoomCleanupReady, requiredSmokeResources, createSmokeResources, createSmokeProgress, withSmokeDeadline, install };

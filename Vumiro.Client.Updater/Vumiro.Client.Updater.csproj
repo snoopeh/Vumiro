@@ -6,6 +6,11 @@
     <ApplicationIcon>../Vumiro.Client/Brand/vumiro.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Vumiro.Client/GamingPayloads.cs" Link="GamingPayloads.cs" />
+    <Compile Include="../Vumiro.Client/GamingLan.cs" Link="GamingLan.cs" />
+    <EmbeddedResource Include="../vendor/windows/wintun.dll" LogicalName="Vumiro.Gaming.Wintun" />
+    <EmbeddedResource Include="../vendor/windows/ViGEmBus_1.22.0.exe" LogicalName="Vumiro.Gaming.ControllerInstaller" />
+    <Reference Include="System.Web.Extensions" /><Reference Include="System.Security" />
     <Compile Include="../Vumiro.Client/ClientUpdateInstaller.cs" Link="ClientUpdateInstaller.cs" />
     <Reference Include="System.IO.Compression" /><Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>

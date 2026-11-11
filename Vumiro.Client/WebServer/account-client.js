@@ -398,7 +398,7 @@
   }
   async function restore(data) {
     validateSnapshot(data);
-    let restoredCover;
+    let restoredCover,recoveredIdentity=null;
     if(data.profile.cover){const blob=await coverRequest('GET',data.profile.cover);await window.VumiroCoverMedia.validateBlob(data.profile.cover,blob,data.profile.banner||'');restoredCover={manifest:data.profile.cover,blob,banner:data.profile.banner||'',source:null,crop:null};}
     if(data.identityRecovery){
       if(!window.VumiroIdentityRecovery)throw Error('This app version cannot restore the encrypted account identity. Update Vumiro and try again.');
@@ -415,7 +415,7 @@
         if(!recovered)throw Error('Enter your account password or saved identity recovery code to restore this contact identity on a new device.');
         if(usedRecoveryCode){identityRecoveryCode=identityUnlock.recoveryCode;identityRecoveryAccountId=accountId();await persistCredentials();}
         if(usedRecoveryCode&&identityUnlock?.password){identityRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityUnlock.recoveryCode,identityUnlock.password);identityRewrapPending=true;}
-        await window.VumiroLocalProfile.installRecoveredIdentity(recovered,data.profile,identityRecovery.transition||null);
+        recoveredIdentity={...recovered,transition:identityRecovery.transition||null};
       }else if(identityUnlock?.recoveryCode&&identityUnlock?.password){
         identityRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,identityUnlock.recoveryCode,identityUnlock.password);identityRecoveryCode=identityUnlock.recoveryCode;identityRecoveryAccountId=accountId();identityRewrapPending=true;await persistCredentials();
       }
@@ -425,7 +425,7 @@
     try {
       localStorage.setItem('vumiro-stream-settings',JSON.stringify(data.settings));
       if(typeof data.privacyNoticeAcceptedAt==='string'&&data.privacyNoticeAcceptedAt)writeNoticeAck(data.privacyNoticeAcceptedAt,data.privacyNoticeVersion);
-      await window.VumiroLocalProfile.applyAccountSnapshot(data,restoredCover);
+      await window.VumiroLocalProfile.applyAccountSnapshot(data,restoredCover,recoveredIdentity);
       dispatchEvent(new StorageEvent('storage',{key:'vumiro-stream-settings',newValue:JSON.stringify(data.settings)}));
       try { await saveAcknowledged(await snapshot()); } catch {}
     } catch(error) {
@@ -471,9 +471,17 @@
     if(!accountId()||version!==NOTICE_VERSION||version!==currentNoticeVersion()||!Number.isFinite(Date.parse(acceptedAt))||Date.parse(acceptedAt)>Date.now()+300000)return false;
     localStorage.setItem(privacyAckKey(),JSON.stringify({version,acceptedAt}));return true;
   }
-  async function fingerprint(value) { const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value)));return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join(''); }
+  function nonDefaultSettings(value={}) {
+    const defaults={fps:60,mbps:20,resolution:'native',contentHint:'detail',audio:window.vumiroDesktop?.platform!=='linux',excludeDiscord:true};
+    return Object.fromEntries(Object.entries(value).filter(([key,item])=>item!==defaults[key]));
+  }
+  async function fingerprint(value,legacy=false) {
+    const canonical=item=>Array.isArray(item)?item.map(canonical):item&&typeof item==='object'?Object.fromEntries(Object.keys(item).sort().map(key=>[key,canonical(item[key])])):item;
+    const normalized=legacy?value:canonical({...value,settings:nonDefaultSettings(value.settings)});
+    const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(normalized)));return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join('');
+  }
   async function saveAcknowledged(value) { if(accountId())localStorage.setItem(ackKey(),await fingerprint(value)); }
-  async function differsFromAcknowledged(value) { try{return await fingerprint(value)!==localStorage.getItem(ackKey());}catch{return true;} }
+  async function differsFromAcknowledged(value) { try{const acknowledged=localStorage.getItem(ackKey());return await fingerprint(value)!==acknowledged&&await fingerprint(value,true)!==acknowledged;}catch{return true;} }
   async function upload(replaceLatest=false) {
     await config(); requireBundledNotice();
     if(!readNoticeAck()) {
@@ -484,15 +492,15 @@
     const local=await snapshot(),wire=await coverSnapshotForUpload(local);const result=await accountRequest('PUT',{snapshot:wire,expectedRevision:accountRevision});
     accountRevision=result.revision;active=true;await saveAcknowledged(local);status(local.profile.cover&&authConfig?.profileMediaEnabled!==true?'Profile backed up. High-resolution covers still stay on this device and share directly with updated friends; private cover backup is not enabled on the service yet.':'This device is backed up. Only the finished cover is backed up; the editable original stays on this device. Changes will sync automatically while Vumiro is open.');
   }
-  async function enableIdentityRecovery(password) {
-    if(identityRecovery)return upload(true);
+  async function enableIdentityRecovery(password,replaceLatest=true) {
+    if(identityRecovery)return upload(replaceLatest);
     if(!window.VumiroIdentityRecovery||!window.VumiroLocalProfile?.prepareIdentityMigration)throw Error('Update Vumiro before enabling identity recovery.');
     const created=await window.VumiroIdentityRecovery.create(password);
     const prepared=await window.VumiroLocalProfile.prepareIdentityMigration(created);
     created.identityRecovery.transition=prepared.transition;
     const previous=identityRecovery;identityRecovery=created.identityRecovery;
     try {
-      await upload(true);
+      await upload(replaceLatest);
       restoring=true;
       try { await window.VumiroLocalProfile.commitIdentityMigration(prepared); }
       finally { restoring=false; }
@@ -508,6 +516,7 @@
     await window.VumiroLocalProfile.createProfile(name);
   }
   async function syncInitial() {
+    active=false;clearTimeout(syncTimer);
     const remote=await accountRequest('GET');
     // Reuse this account's recorded acknowledgement on a new device. Signing
     // in is not evidence that a new or changed notice was acknowledged.
@@ -520,18 +529,31 @@
     await renderDevices(remote.devices||[]);
     if(!remote.data) {
       await ensureInitialProfile();
-      active=false;
+      if(readNoticeAck()){
+        if(identityUnlock?.password&&window.VumiroIdentityRecovery&&window.VumiroLocalProfile?.prepareIdentityMigration)await enableIdentityRecovery(identityUnlock.password,false);
+        else {await upload(false);status('Your profile, friends and settings sync automatically. Enable encrypted identity recovery in account settings to bring your contact identity to another device.');}
+        return;
+      }
       if(authPage){status('Opening your lobby.');completeAuthentication();return;}
       status('This account has no saved profile. Choose “Back up this device” to copy this device’s profile and friends to this account.');return;
     }
     const localProfile=window.VumiroLocalProfile?.profile();
+    const local=localProfile?await snapshot():null;
+    const acknowledged=localStorage.getItem(ackKey());
+    const localChanged=local&&await differsFromAcknowledged(local);
+    // Only an empty, unlinked installation can be replaced automatically.
+    // A generated display name alone does not represent unsaved account data.
+    const populated=local&&(local.friends.length||local.blocked.length||Object.keys(nonDefaultSettings(local.settings)).length||['username','avatar','bio','banner','cover'].some(key=>!!local.profile[key])||local.profile.connections?.length);
+    if(localChanged&&populated&&(!acknowledged||remote.data.identityRecovery&&localProfile.id!==remote.data.identityRecovery.identityId)){status('This device has unbacked changes. Choose restore or back up in account settings to resolve them.',true);return;}
     if(remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&!identityUnlock){active=false;setAccountScreen('unlock');status('Google and Microsoft cannot unlock your encrypted contact identity. Enter your Vumiro password or recovery code below.');return;}
-    if(remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&identityUnlock){await restoreRemote();return;}
+    if(remote.data.identityRecovery&&localProfile?.id!==remote.data.identityRecovery.identityId&&identityUnlock){await restoreRemote(remote);return;}
     if(!localProfile){
-      await ensureInitialProfile(remote.data.profile?.name);await restoreRemote();return;
+      await ensureInitialProfile(remote.data.profile?.name);await restoreRemote(remote);return;
     }
-    const local=await snapshot();
-    if(!await differsFromAcknowledged(local)) { await restoreRemote();return; }
+    if(!localChanged||!acknowledged&&!populated) { await restoreRemote(remote);return; }
+    // Offline edits and a pending debounce survive logout/restart. Upload them
+    // only if the server still holds the last snapshot this device acknowledged.
+    if(acknowledged&&!await differsFromAcknowledged(remote.data)){await upload(false);return;}
     active=false; status(`Account data is available from ${remote.updatedAt||'another device'}. This device has unbacked changes. Choose restore or back up to resolve them.`);
   }
   async function renderDevices(devices) {
@@ -558,8 +580,8 @@
   function requestReauth(action) { reauthAction=action;$('accountConfirmPassword').value='';$('accountReauthForm').hidden=false;for(const provider of ['google','azure'])if($(`accountReauth${provider}`))$(`accountReauth${provider}`).hidden=!session?.user?.app_metadata?.providers?.includes(provider)||!authConfig?.oauthProviders?.includes(provider);$('accountConfirmPassword').focus(); }
   function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||''}); }
   function signOutLocally() {
-    active=false;clearTimeout(syncTimer);
-    return enqueue(()=>signOut(false));
+    const wasActive=active;active=false;clearTimeout(syncTimer);
+    return enqueue(async()=>{try{if(wasActive&&session&&await differsFromAcknowledged(await snapshot()))await upload(false);}catch(error){status('Your latest changes remain on this device and could not sync. '+(globalThis.VumiroI18n?.error(error)||error.message),true);}finally{await signOut(false);}});
   }
   async function signOut(everywhere=false, tokenOverride='') {
     active=false;clearTimeout(syncTimer);
@@ -583,9 +605,9 @@
     setAccountScreen(signed?(accountScreen==='unlock'?'unlock':'manage'):pendingSignup?'verify':['manage','unlock'].includes(accountScreen)?'signin':accountScreen);
     dispatchEvent(new Event('vumiro-account-state-changed'));
   }
-  async function restoreRemote() {
-    const remote=await accountRequest('GET'); if(!remote.data)throw Error('There is no saved account data yet.');
-    await restore(remote.data);identityUnlock=null;active=true;status('Account data restored to this device. Future changes will sync automatically.');
+  async function restoreRemote(remote=null) {
+    remote=remote||await accountRequest('GET'); if(!remote.data)throw Error('There is no saved account data yet.');
+    await restore(remote.data);identityUnlock=null;active=true;status(identityRecovery?'Account data restored to this device. Future changes will sync automatically.':'Your profile, friends and settings were restored. This older backup has no recoverable contact identity. Enable encrypted identity recovery in account settings to bring the same contact identity to another device.');
     accountRevision=remote.revision||0;
     if(identityRewrapPending){identityRewrapPending=false;await upload(false);}
     dispatchEvent(new Event('vumiro-account-restored'));

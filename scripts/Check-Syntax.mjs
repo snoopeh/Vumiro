@@ -19,6 +19,6 @@ async function check(folder){
   }
 }
 try{
-  for(const folder of ['Vumiro.Client/WebServer','Vumiro.Linux','cloudflare','scripts','tests'])await check(path.join(root,folder));
+  for(const folder of ['Vumiro.Client/WebServer','Vumiro.Linux','cloudflare','storage','scripts','tests'])await check(path.join(root,folder));
   console.log(`JavaScript syntax passed: ${count} files.`);
 }catch(error){console.error(error.message);process.exitCode=1;}

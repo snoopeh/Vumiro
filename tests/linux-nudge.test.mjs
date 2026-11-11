@@ -6,7 +6,10 @@ const win={isDestroyed:()=>false,isVisible:()=>true,isMinimized:()=>false,isMaxi
 const effect=create({...options,BrowserWindow:Overlay,screen:{getDisplayMatching:()=>({bounds:{x:0,y:0,width:1920,height:1080}})},now:()=>time,setInterval:fn=>{tick=fn;return 1;},clearInterval:()=>{tick=null;}});
 return {effect,win,overlays,get position(){return position;},step(ms){time=ms;tick?.();}};}
 test('Linux nudge changes actual bounds and restores exact start without focus',()=>{const f=fixture();assert.equal(f.effect.start(f.win,false),true);f.step(80);assert.notEqual(f.position.x,100);assert.equal(f.effect.start(f.win,false),false);f.step(901);assert.equal(f.position.x,100);assert.equal(f.position.y,100);});
-test('Linux screen glow covers monitor, passes clicks through and closes',()=>{const f=fixture();f.effect.start(f.win,true);assert.equal(f.overlays[0].options.width,1920);assert.equal(f.overlays[0].options.focusable,false);assert.equal(f.overlays[0].clickThrough,true);f.step(901);assert.equal(f.overlays[0].dead,true);});
+test('Linux requests native movement for its own maximized or fullscreen window and preserves the mode',()=>{
+ for(const state of ['isMaximized','isFullScreen']){const f=fixture();f.win[state]=()=>true;f.effect.start(f.win,false);f.step(80);assert.notEqual(f.position.x,100);assert.equal(f.overlays.length,0);f.step(901);assert.deepEqual(f.position,{x:100,y:100,width:800,height:600});assert.equal(f.win[state](),true);}
+});
+test('Linux silent frame covers its own window, passes clicks through and closes',()=>{const f=fixture();f.effect.start(f.win,true);assert.equal(f.overlays[0].options.width,800);assert.equal(f.overlays[0].options.focusable,false);assert.equal(f.overlays[0].clickThrough,true);f.step(901);assert.equal(f.overlays[0].dead,true);});
 
 test('user movement or resize cancels without overriding new geometry',()=>{
  for(const changed of [{x:420,y:220},{width:950,height:700}]){const f=fixture();f.effect.start(f.win,false);f.step(80);Object.assign(f.position,changed);const preserved={...f.position};f.step(120);f.step(950);assert.deepEqual(f.position,preserved);}

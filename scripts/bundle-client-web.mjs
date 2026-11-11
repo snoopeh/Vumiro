@@ -5,8 +5,9 @@ import { pathToFileURL } from 'node:url';
 // Installed v1/v2 updaters accept an exact file set. Keep small source modules
 // during development, but fold them into existing entries in release staging.
 export const bundles = {
-  'local-profile.js': ['profile-cover.js', 'profile-crop.js', 'cover-editor.js', 'cover-transfer.js', 'settings-drafts.js', 'motion.js', 'i18n.js', 'notification-center.js', 'nudge.js', 'friend-nudges.js', 'chat-pane.js', 'chat-scrollbar.js'],
-  'call-client.js': ['stream-mosaic.js']
+  'local-profile.js': ['controller-mapping.js', 'gaming-directory.js', 'gaming-session.js', 'gaming-client.js', 'profile-cover.js', 'profile-crop.js', 'cover-editor.js', 'cover-transfer.js', 'settings-drafts.js', 'motion.js', 'i18n.js', 'notification-center.js', 'nudge.js', 'friend-nudges.js', 'chat-pane.js', 'chat-scrollbar.js', 'chat-storage.js', 'incoming-call.js', 'direct-messages.js', 'direct-chat.js','server-workspace.js'],
+  'call-client.js': ['stream-mosaic.js'],
+  'friends-client.js': ['app-extras.js']
 };
 export async function bundleClientWeb(webRoot) {
   const pending = [];

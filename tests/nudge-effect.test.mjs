@@ -18,6 +18,9 @@ test('desktop silent and reduced motion request screen glow',()=>{
 test('browser fallback is decorative glow without fake content shaking',()=>{
  const f=fixture();f.api.effect({});assert.equal(f.root.children.length,1);assert.equal(f.root.classList.contains('vumiro-nudge-shake'),false);f.finish();assert.equal(f.root.children.length,0);
 });
+test('local no-motion fallback uses neutral colors instead of the external-fullscreen yellow cue',()=>{
+ const f=fixture();assert.doesNotMatch(f.head.children[0].textContent,/#ffd448|#ffdf57/);assert.match(f.head.children[0].textContent,/#f6f0eb/);
+});
 test('silent and reduced-motion nudges show a decorative frame without shaking',()=>{
   for(const options of [{silent:true},{reducedMotion:true}]){const f=fixture();f.api.effect(options);assert.equal(f.root.classList.contains('vumiro-nudge-shake'),false);assert.equal(f.root.children.length,1);assert.equal(f.root.children[0]['aria-hidden'],'true');f.finish();assert.equal(f.root.children.length,0);}
   const f=fixture(true);f.api.effect({reducedMotion:false});assert.equal(f.root.classList.contains('vumiro-nudge-shake'),false);assert.equal(f.root.children.length,1);

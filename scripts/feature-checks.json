@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceRoots": ["Vumiro.Client/WebServer/", "Vumiro.Client/", "Vumiro.Client.Updater/", "Vumiro.Linux/", "cloudflare/", "scripts/"],
+  "sourceRoots": ["Vumiro.Client/WebServer/", "Vumiro.Client/", "Vumiro.Client.Updater/", "Vumiro.Linux/", "cloudflare/", "scripts/", "storage/"],
   "sharedSources": ["Vumiro.Client/WebServer/call-client.js", "Vumiro.Client/WebServer/friends-client.js", "Vumiro.Client/WebServer/local-profile.js", "Vumiro.Client/WebServer/peer-profile.js", "Vumiro.Client/WebServer/call.html", "Vumiro.Client/WebServer/friends.html", "Vumiro.Client/WebServer/i18n.js", "Vumiro.Client/WebServer/motion.js", "Vumiro.Client/WebServer/settings-drafts.js"],
   "webConsumers": ["tests/package-web-bundle.test.mjs", "tests/windows-package-comparison.test.mjs", "tests/linux-smoke-assets.test.mjs", "tests/i18n.test.mjs"],
   "nativeChecks": [
@@ -10,24 +10,35 @@
     {"name": "local-service", "project": "tests/LocalQaServiceChecks/LocalQaServiceChecks.csproj"},
     {"name": "updater", "project": "tests/ClientUpdateChecks/ClientUpdateChecks.csproj"},
     {"name": "audio", "project": "tests/NativeAudioSmoke/NativeAudioSmoke.csproj", "args": ["--", "--self-test"]},
-    {"name": "diagnostics", "project": "tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj"}
+    {"name": "diagnostics", "project": "tests/ClientDiagnosticsChecks/ClientDiagnosticsChecks.csproj"},
+    {"name": "gaming-services", "project": "tests/GamingServiceChecks/GamingServiceChecks.csproj"},
+    {"name": "gaming-controller", "project": "tests/GamingControllerChecks/GamingControllerChecks.csproj"},
+    {"name": "gaming-dependencies", "project": "tests/GamingDependencyChecks/GamingDependencyChecks.csproj"},
+    {"name": "gaming-lan", "project": "tests/GamingLanChecks/GamingLanChecks.csproj"},
+    {"name": "gaming-host", "project": "tests/GamingHostChecks/GamingHostChecks.csproj"}
   ],
   "groups": {
+    "gaming": {
+      "sources": ["Vumiro.Client/WebServer/gaming-client.js", "Vumiro.Client/WebServer/controller-mapping.js", "Vumiro.Client/GamingBridge.cs", "Vumiro.Client/GamingServices.cs", "Vumiro.Client/GamingController.cs", "Vumiro.Client/VirtualGamepad.cs", "Vumiro.Client/GamingDependencies.cs", "Vumiro.Client/WebServer/gaming-session.js", "Vumiro.Client/WebServer/gaming-directory.js", "Vumiro.Client/GamingLan.cs", "Vumiro.Client/GamingLanBridge.cs", "Vumiro.Client/GamingHostClient.cs", "Vumiro.Client/GamingPayloads.cs", "Vumiro.Client.Updater/GamingHost.cs", "cloudflare/gaming-signals.js", "cloudflare/gaming-signals.test.js"],
+      "tests": ["tests/gaming-client.test.mjs", "tests/controller-mapping.test.mjs", "tests/gaming-lifecycle.test.mjs", "tests/gaming-session.test.mjs", "tests/gaming-directory.test.mjs"],
+      "backend": true,
+      "native": ["gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host"]
+    },
     "accounts": {
       "sources": ["Vumiro.Client/WebServer/account-client.js", "Vumiro.Client/WebServer/auth.html", "Vumiro.Client/WebServer/identity-recovery.js", "cloudflare/accounts.js", "cloudflare/accounts.test.js", "cloudflare/account-routes.test.js"],
-      "tests": ["tests/account-client.test.mjs", "tests/account-cover.test.mjs", "tests/account-entry.test.mjs", "tests/identity-recovery.test.mjs", "tests/oauth-desktop.test.mjs", "tests/profile-card-data.test.mjs"],
+      "tests": ["tests/account-client.test.mjs", "tests/account-sync.test.mjs", "tests/account-cover.test.mjs", "tests/account-entry.test.mjs", "tests/identity-recovery.test.mjs", "tests/oauth-desktop.test.mjs", "tests/profile-card-data.test.mjs"],
       "backend": true,
       "native": ["oauth", "local-service"]
     },
     "friends": {
-      "sources": ["Vumiro.Client/WebServer/friend-nudges.js", "Vumiro.Client/WebServer/notification-center.js", "Vumiro.Client/WebServer/nudge.js", "cloudflare/friend-directory.js", "cloudflare/friend-tags.test.js", "cloudflare/accounts.js"],
-      "tests": ["tests/friend-nudges.test.mjs", "tests/friend-tag-client.test.mjs", "tests/sidebar.test.mjs", "tests/social-notifications.test.mjs", "tests/notification-center.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/nudge.test.mjs", "tests/nudge-effect.test.mjs", "tests/linux-nudge.test.mjs", "tests/room-invites.test.mjs", "tests/room-invite-dialog.test.mjs", "tests/invite-volume.test.mjs", "tests/event-feedback.test.mjs", "tests/app-sound-settings.test.mjs"],
+      "sources": ["Vumiro.Client/WebServer/friend-nudges.js", "Vumiro.Client/WebServer/incoming-call.js", "Vumiro.Client/WebServer/notification-center.js", "Vumiro.Client/WebServer/nudge.js", "cloudflare/friend-directory.js", "cloudflare/friend-tags.test.js", "cloudflare/accounts.js"],
+      "tests": ["tests/friend-nudges.test.mjs", "tests/incoming-call.test.mjs", "tests/friend-tag-client.test.mjs", "tests/sidebar.test.mjs", "tests/social-notifications.test.mjs", "tests/notification-center.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/nudge.test.mjs", "tests/nudge-effect.test.mjs", "tests/linux-nudge.test.mjs", "tests/room-invites.test.mjs", "tests/room-invite-dialog.test.mjs", "tests/invite-volume.test.mjs", "tests/event-feedback.test.mjs", "tests/app-sound-settings.test.mjs"],
       "backend": true,
       "native": ["notifications", "window"]
     },
     "chat": {
-      "sources": ["Vumiro.Client/WebServer/chat-pane.js", "Vumiro.Client/WebServer/chat-scrollbar.js"],
-      "tests": ["tests/chat-pane.test.mjs", "tests/chat-scrollbar.test.mjs", "tests/room-chat.test.mjs", "tests/room-chat-media.test.mjs", "tests/emoji-picker.test.mjs"],
+      "sources": ["Vumiro.Client/WebServer/server-workspace.js", "Vumiro.Client/WebServer/direct-chat.js", "Vumiro.Client/WebServer/direct-messages.js", "cloudflare/direct-messages.js", "Vumiro.Client/WebServer/chat-storage.js", "cloudflare/link-preview.js", "storage/server.mjs", "Vumiro.Client/WebServer/chat-pane.js", "Vumiro.Client/WebServer/chat-scrollbar.js"],
+      "tests": ["tests/server-workspace.test.mjs", "tests/direct-chat.test.mjs", "tests/direct-chat-wiring.test.mjs", "tests/direct-messages.test.mjs", "tests/chat-storage.test.mjs", "tests/chat-storage-service.test.mjs", "tests/link-preview.test.mjs", "tests/chat-pane.test.mjs", "tests/chat-scrollbar.test.mjs", "tests/room-chat.test.mjs", "tests/room-chat-media.test.mjs", "tests/emoji-picker.test.mjs"],
       "backend": false,
       "native": []
     },
@@ -38,8 +49,8 @@
       "native": ["audio", "window"]
     },
     "profile": {
-      "sources": ["Vumiro.Client/WebServer/profile-cover.js", "Vumiro.Client/WebServer/profile-crop.js", "Vumiro.Client/WebServer/cover-editor.js", "Vumiro.Client/WebServer/cover-transfer.js", "cloudflare/profile-media.js", "cloudflare/profile-media-raster.js", "cloudflare/profile-media-raster.test.js", "cloudflare/accounts.js"],
-      "tests": ["tests/profile-card-data.test.mjs", "tests/profile-cover.test.mjs", "tests/profile-crop.test.mjs", "tests/profile-draft.test.mjs", "tests/cover-encoding.test.mjs", "tests/cover-transfer.test.mjs", "tests/account-cover.test.mjs"],
+      "sources": ["Vumiro.Client/WebServer/app-extras.js", "Vumiro.Client/WebServer/profile-cover.js", "Vumiro.Client/WebServer/profile-crop.js", "Vumiro.Client/WebServer/cover-editor.js", "Vumiro.Client/WebServer/cover-transfer.js", "cloudflare/profile-media.js", "cloudflare/profile-media-raster.js", "cloudflare/profile-media-raster.test.js", "cloudflare/accounts.js"],
+      "tests": ["tests/app-extras.test.mjs", "tests/profile-card-data.test.mjs", "tests/profile-cover.test.mjs", "tests/profile-crop.test.mjs", "tests/profile-draft.test.mjs", "tests/cover-encoding.test.mjs", "tests/cover-transfer.test.mjs", "tests/account-cover.test.mjs"],
       "backend": true,
       "native": []
     },
@@ -47,7 +58,7 @@
       "sources": [],
       "tests": ["tests/native-notification-bridge.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/startup-updates.test.mjs", "tests/diagnostics.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/nudge-effect.test.mjs"],
       "backend": false,
-      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics"]
+      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host"]
     },
     "linux": {
       "sources": [],

@@ -3,6 +3,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';
 import { handleAccountRequest, runAccountMaintenance } from './accounts.js';
 export { FriendDirectory };
+export { DirectConversation } from './direct-messages.js';
 
 export const ROOM_PATTERN = /^[A-Za-z0-9_-]{43}_[a-f0-9]{48}$/;
 const LIMIT = 65536;
@@ -254,6 +255,7 @@ export default {
   },
   async fetch(request,env) {
     const url=new URL(request.url);
+    if(url.pathname==='/api/link-preview')return (await import('./link-preview.js')).handleLinkPreview(request,env);
     if(url.pathname.startsWith('/api/v1/account/')) return handleAccountRequest(request,env);
     const shortInvite=/^\/r\/([A-Za-z0-9_-]{12})$/.exec(url.pathname);
     if(shortInvite) {
@@ -278,7 +280,7 @@ export default {
     }
     if(url.pathname==='/' || url.pathname==='/friends' || url.pathname==='/friends/') url.pathname='/friends.html';
     if(url.pathname==='/call' || url.pathname==='/call/') url.pathname='/call.html';
-    if(!['/call.html','/call-client.js','/stream-mosaic.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
+    if(!['/call.html','/call-client.js','/stream-mosaic.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/controller-mapping.js','/gaming-directory.js','/gaming-session.js','/gaming-client.js','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/chat-storage.js','/direct-messages.js','/direct-chat.js','/server-workspace.js','/incoming-call.js','/app-extras.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
     const response=await env.ASSETS.fetch(new Request(url,request));
     const headers=new Headers(response.headers);headers.set('Cache-Control','no-cache');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');
     // Embedded hosts use the same source files through a trusted WebView2 virtual host.

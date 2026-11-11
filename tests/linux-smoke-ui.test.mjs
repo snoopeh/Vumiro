@@ -46,3 +46,11 @@ test('room cleanup requires iframe removal and restored authenticated lobby with
   assert.equal(ready('Renamed Smoke'),true);
   f.elements['#friendsList .friendNameButton'].textContent='Smoke Friend';assert.equal(ready('Renamed Smoke'),false);
 });
+
+
+test('friends overview smoke readiness excludes a conversation-only welcome view',()=>{
+  const api=require('../scripts/linux-smoke.cjs'),nodes={'#friendsBody':{hidden:false},'#directChatPane':{hidden:true},'#friendsList .messageAction':{},'#workspaceHeading':{textContent:'Friends'}};
+  const document={body:{classList:{contains:()=>false}},querySelector:selector=>nodes[selector]||null};
+  assert.equal(typeof api.smokeFriendsOverviewReady,'function');const ready=vm.runInNewContext('('+api.smokeFriendsOverviewReady.toString()+')',{document});
+  assert.equal(ready(),true);nodes['#directChatPane'].hidden=false;assert.equal(ready(),false);nodes['#directChatPane'].hidden=true;delete nodes['#friendsList .messageAction'];assert.equal(ready(),false);
+});

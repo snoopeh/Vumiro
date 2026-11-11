@@ -11,6 +11,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--gaming-host") return GamingHost.Run(args);
         string install = null; bool stopped = false; StreamWriter log = null; string logPath = null;
         try
         {

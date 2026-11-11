@@ -3,26 +3,41 @@
   'use strict';
   const preference=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)');
   const launchKey='vumiro-launch-reveal-seen';
-  function markLaunchSeen(){try{window.sessionStorage.setItem(launchKey,'1');}catch{ /* Optional session storage. */ }}
+  const launchId=window.__VUMIRO_LAUNCH_ID__||window.vumiroDesktop?.launchId||'browser-session';
+  let bootPending=false;
+  function recordLaunchSeen(){try{window.sessionStorage.setItem(launchKey,launchId);}catch{ /* Optional session storage. */ }}
+  function markLaunchSeen(){if(!bootPending)recordLaunchSeen();}
   function boot({overlay,content,skip,art}) {
     if(!overlay)return;
     const media=preference();
-    let seen=false,finished=false,fade=0,end=0;
-    try { seen=window.sessionStorage.getItem(launchKey)==='1'; } catch { /* Storage is optional; sign in must remain available. */ }
-    markLaunchSeen();
+    let seen=false,disabled=false,finished=false,fade=0,end=0,elapsed=0;
+    try {
+      seen=window.sessionStorage.getItem(launchKey)===launchId;
+      const progress=JSON.parse(window.sessionStorage.getItem(launchKey+'-started')||'null');
+      const now=Date.now();
+      if(progress?.id===launchId&&Number.isFinite(progress.at)&&progress.at<=now)elapsed=Math.min(4800,now-progress.at);
+      else window.sessionStorage.setItem(launchKey+'-started',JSON.stringify({id:launchId,at:now}));
+    } catch { /* Storage is optional; sign in must remain available. */ }
+    try { disabled=window.localStorage.getItem('vumiro-disable-launch-animation')==='true'; } catch { /* Preferences are optional. */ }
+    overlay.classList.remove('boot-exiting');
     function finish() {
       if(finished)return;finished=true;clearTimeout(fade);clearTimeout(end);
-      overlay.hidden=true;if(content)content.inert=false;art?.pauseAnimations?.();
+      recordLaunchSeen();overlay.hidden=true;overlay.classList.remove('boot-exiting');if(content)content.inert=false;art?.pauseAnimations?.();
       media?.removeEventListener?.('change',changed);skip?.removeEventListener('click',finish);
       if(document.activeElement===skip)content?.querySelector?.('input,button')?.focus();
     }
     function changed(){if(media.matches)finish();}
-    if(seen||media?.matches){finish();return;}
-    overlay.hidden=false;if(content)content.inert=true;
-    art?.setCurrentTime?.(0);art?.unpauseAnimations?.();
+    if(seen||disabled||media?.matches||elapsed>=4800){finish();return;}
+    if(overlay.style)overlay.style.animation='none';
+    overlay.hidden=false;
+    // Account startup may take longer than the stylesheet's safety timeout.
+    // Restart it when artwork actually becomes visible, including redirects.
+    if(overlay.style){void overlay.offsetWidth;overlay.style.animation='';}
+    if(content)content.inert=true;
+    art?.setCurrentTime?.(elapsed/1000);art?.unpauseAnimations?.();
     skip?.addEventListener('click',finish);media?.addEventListener?.('change',changed);
-    fade=setTimeout(()=>overlay.classList.add('boot-exiting'),3850);
-    end=setTimeout(finish,4800);
+    fade=setTimeout(()=>overlay.classList.add('boot-exiting'),Math.max(0,3850-elapsed));
+    end=setTimeout(finish,4800-elapsed);
     return {finish};
   }
   function petals({art,layer,toggle}) {
@@ -89,7 +104,15 @@
   }
   window.VumiroMotion={boot,petals,connection,scrollbar,markLaunchSeen,roomLaunch};
   const $=id=>document.getElementById(id);
-  boot({overlay:$('bootReveal'),content:$('authContent'),skip:$('bootSkip'),art:$('bootArt')});
+  const bootNodes={overlay:$('bootReveal'),content:$('authContent')||$('friendsContent')||$('app'),skip:$('bootSkip'),art:$('bootArt')};
+  bootPending=!!bootNodes.overlay&&!$('authContent');
+  if(bootPending||bootNodes.overlay&&window.__VUMIRO_WAIT_FOR_HOST__&&!window.__VUMIRO_HOST_READY__){bootNodes.overlay.hidden=true;bootNodes.art?.pauseAnimations?.();}
+  function autoBoot(){
+    if(bootNodes.overlay&&window.__VUMIRO_WAIT_FOR_HOST__&&!window.__VUMIRO_HOST_READY__){window.addEventListener('vumiro-host-ready',autoBoot,{once:true});return;}
+    if(bootPending&&window.VumiroAccount?.ready){window.VumiroAccount.ready().then(ready=>{if(ready)boot(bootNodes);bootPending=false;}).catch(()=>{bootPending=false;});}
+    else {boot(bootNodes);bootPending=false;}
+  }
+  if(bootPending&&document.readyState==='loading')document.addEventListener('DOMContentLoaded',autoBoot,{once:true});else autoBoot();
   petals({art:$('petalArt'),layer:$('loginPetals'),toggle:$('petalPause')});
   scrollbar($('chatLog'));
 })();

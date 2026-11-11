@@ -10,5 +10,5 @@
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none" },
   "d1_databases": [{ "binding": "ACCOUNT_DB", "database_name": "vumiro-account-data", "database_id": "eac4972c-d270-4931-8308-59fc851337f8", "migrations_dir": "migrations" }],
   // Reuse the existing namespaces directly, without a proxy request or data migration.
-  "durable_objects": { "bindings": [{ "name": "CALL_ROOMS", "class_name": "CallRoom", "script_name": "screentask-rooms" }, { "name": "FRIEND_DIRECTORY", "class_name": "FriendDirectory", "script_name": "screentask-rooms" }] }
+  "durable_objects": { "bindings": [{ "name": "CALL_ROOMS", "class_name": "CallRoom", "script_name": "screentask-rooms" }, { "name": "FRIEND_DIRECTORY", "class_name": "FriendDirectory", "script_name": "screentask-rooms" }, { "name": "DIRECT_CONVERSATIONS", "class_name": "DirectConversation", "script_name": "screentask-rooms" }] }
 }

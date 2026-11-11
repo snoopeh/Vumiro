@@ -568,10 +568,10 @@ test('successful identity unlock installs the recovered key before entering the 
     return commonRoute(url,options);
   }});await app.start();const recovered={identityId:'saved-identity',privateKey:'opaque-key'},installed=[];
   app.sandbox.window.VumiroIdentityRecovery={validateEnvelope:async()=>{},recoverWithPassword:async()=>recovered};
-  app.sandbox.window.VumiroLocalProfile.installRecoveredIdentity=async(value,profile)=>{installed.push({value,profile});};
+  app.sandbox.window.VumiroLocalProfile.applyAccountSnapshot=async(data,_cover,value)=>{installed.push({value,profile:data.profile});};
   app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='valid password';
   await app.element('accountForm').onsubmit({preventDefault(){}});
-  assert.equal(installed.length,1);assert.equal(installed[0].value,recovered);
+  assert.equal(installed.length,1);assert.equal(installed[0].value.identityId,recovered.identityId);assert.equal(installed[0].value.privateKey,recovered.privateKey);
   assert.match(app.navigations.at(-1),/friends\.html/);
 });
 

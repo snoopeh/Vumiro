@@ -7,6 +7,54 @@ const source=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js'
 const localSource=fs.readFileSync(new URL('../Vumiro.Client/WebServer/local-profile.js',import.meta.url),'utf8');
 const functionAt=(name,end)=>source.slice(source.indexOf('  function '+name+'('),source.indexOf(end,source.indexOf('  function '+name+'(')));
 
+test('room layout explicitly localizes counts and the self suffix while preserving names',()=>{
+  class Element {
+    constructor(tag){this.tagName=tag;this.children=[];this.attributes={};this.classList={toggle(){}};this.style={};}
+    append(...children){this.children.push(...children);}
+    replaceChildren(...children){this.children=[...children];}
+    setAttribute(name,value){this.attributes[name]=value;}
+  }
+  const elements=new Map(),name='Rooms <img src=x> (you)',localTile={sharing:false},peers=new Map();
+  const sandbox={Intl,console,setTimeout,clearTimeout,navigator:{languages:['pt-BR']},localStorage:{getItem:()=>null},document:{createElement:tag=>new Element(tag)},$:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);},profileCache:new Map([['self',{name,avatar:''}]]),peers,localTile,selfId:'self',identity:{id:'self'},manualFocus:false,focusedId:'',joined:true,joining:false,disconnected:false,mosaic:{update(){}},avatarElement:()=>new Element('img'),fallbackAvatar:()=>'',refreshLayout(){}};
+  sandbox.window=sandbox;vm.createContext(sandbox);
+  const i18n=fs.readFileSync(new URL('../Vumiro.Client/WebServer/i18n.js',import.meta.url),'utf8');
+  // Load localization before adding a DOM; the renderer under test owns these nodes.
+  const document=sandbox.document;delete sandbox.document;vm.runInContext(i18n,sandbox);sandbox.document=document;
+  vm.runInContext(functionAt('refreshLayout','  function openParticipantProfile('),sandbox);
+  sandbox.refreshLayout();
+  assert.equal(elements.get('participantCount').textContent,'1 pessoa');
+  assert.equal(elements.get('peopleList').children[0].children[1].children[0].textContent,name+' (você)');
+  peers.set('friend',{id:'friend',name:'Friends',tile:{sharing:false},pc:{connectionState:'connected'}});
+  sandbox.refreshLayout();assert.equal(elements.get('participantCount').textContent,'2 pessoas');
+  assert.equal(elements.get('peopleList').children[1].children[1].children[0].textContent,'Friends');
+  vm.runInContext(functionAt('showProfile','  function ownProfile(')+functionAt('tile','  function play('),sandbox);
+  const tile=sandbox.tile(name,true);assert.equal(tile.heading.textContent,name+' (você)');
+  sandbox.showProfile(tile,{name,avatar:''},true);assert.equal(tile.heading.textContent,name+' (você)');
+});
+
+test('late locale synchronization updates a protected self heading before the local profile card is available',()=>{
+  class Element {
+    constructor(tag){this.tagName=tag;this.children=[];this.attributes={};this.style={};this.hidden=false;}
+    append(...children){this.children.push(...children);}
+    setAttribute(name,value){this.attributes[name]=value;}
+  }
+  const name='Rooms <img src=x> (you)',elements=new Map(),listeners=new Map();
+  const app={Intl,console,setTimeout,clearTimeout,navigator:{languages:['en']},localStorage:{getItem:()=>null},location:{origin:'https://vumiro.test'},addEventListener(type,callback){listeners.set(type,callback);},dispatchEvent(event){listeners.get(event.type)?.(event);},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options.detail;}},renderRoom(){},refreshLayout(){},ownProfile:()=>null,profileCache:new Map(),profileViewingId:'',peers:new Map(),fallbackAvatar:()=>'',selfId:'self',identity:{id:'self'},focusedId:'',manualFocus:false,$:id=>{if(!elements.has(id))elements.set(id,new Element('div'));return elements.get(id);}};
+  app.window=app;app.parent=app;vm.createContext(app);
+  vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/i18n.js',import.meta.url),'utf8'),app);
+  app.document={createElement:tag=>new Element(tag)};
+  vm.runInContext(functionAt('tile','  function play(')+functionAt('showProfile','  function ownProfile('),app);
+  app.localTile=app.tile(name,true);elements.set('name',{value:'An unrelated draft'});
+  assert.equal(app.localTile.heading.textContent,name+' (you)');
+  const listenerStart=source.indexOf("  addEventListener('vumiro:localechange'");
+  vm.runInContext(source.slice(listenerStart,source.indexOf('  function renderRoom(',listenerStart)),app);
+  app.VumiroI18n.setLocale('pt-BR',{broadcast:false});
+  assert.equal(app.localTile.heading.textContent,name+' (você)','locale listener renders app suffix despite unavailable profile; name is never parsed');
+  app.showProfile(app.localTile,{name:'Updated Rooms',avatar:''},true);
+  app.VumiroI18n.setLocale('es',{broadcast:false});
+  assert.equal(app.localTile.heading.textContent,'Updated Rooms (tú)','latest validated name remains stable when the profile getter is temporarily unavailable');
+});
+
 test('idle stage and participant header use the same centered avatar image after profile updates',()=>{
   class Element {
     constructor(tag){this.tagName=tag;this.children=[];this.style={};this.hidden=false;this.classList={toggle(){}};}
@@ -32,7 +80,7 @@ test('idle stage and participant header use the same centered avatar image after
 
 test('room chat formats a small safe Markdown subset using text nodes and HTTPS links',()=>{
   class Element { constructor(tag,text=''){this.tagName=tag;this.textContent=text;this.children=[];this.attributes={};} append(...children){this.children.push(...children);} }
-  const target=new Element('div'),sandbox={URL,localStorage:{getItem:()=>null},addEventListener(){},document:{createElement:tag=>new Element(tag),createTextNode:text=>new Element('#text',text)}};vm.createContext(sandbox);
+  const target=new Element('div'),sandbox={URL,chatEpoch:0,signalUrl:()=>new URL('wss://signal.example.com/call-signaling'),fetch:async()=>({ok:true,json:async()=>({title:'Example domain'})}),localStorage:{getItem:()=>null},addEventListener(){},document:{createElement:tag=>new Element(tag),createTextNode:text=>new Element('#text',text)}};vm.createContext(sandbox);
   vm.runInContext(functionAt('renderChatText','  let callSoundsEnabled=')+functionAt('publicChatUrl','  function chatRasterType('),sandbox);
   sandbox.renderChatText(target,'**bold** *italic* `code`\nhttps://example.com <img src=x>');
   assert.deepEqual(target.children.map(node=>node.tagName),['strong','#text','em','#text','code','br','a','#text','div']);

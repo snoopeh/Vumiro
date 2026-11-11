@@ -13,7 +13,7 @@ const expectedAssets = [
   'chat-pane.js',
   'chat-scrollbar.js',
   'call.html',
-  'friends-client.js',
+  'controller-mapping.js', 'gaming-directory.js', 'gaming-session.js', 'gaming-client.js', 'friends-client.js',
   'friends.html',
   'auth.html',
   'local-profile.js',
@@ -23,7 +23,7 @@ const expectedAssets = [
   'cover-transfer.js',
   'settings-drafts.js',
   'motion.js',
-  'i18n.js', 'notification-center.js', 'nudge.js', 'friend-nudges.js',
+  'i18n.js', 'chat-storage.js','direct-messages.js','direct-chat.js','server-workspace.js','incoming-call.js','app-extras.js','notification-center.js', 'nudge.js', 'friend-nudges.js',
   'peer-profile.js',
   'account-client.js',
   'identity-recovery.js'

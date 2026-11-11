@@ -1,0 +1,9 @@
+# Built-in remote controller
+
+The guest samples either its standard physical gamepad or Vumiro's keyboard mapping while the game view has focus. A WebRTC data channel sends bounded sequenced XUSB frames to the host. The host owns one `GamingRemoteInput` for the accepted session and exposes a virtual Xbox controller through the bundled driver client. No global keyboard hook or external streaming application participates.
+
+Native actions: `remote-controller-start {sessionId}`, `remote-controller-frame {sessionId,sequence,frame}`, `remote-controller-stop {sessionId}`, `remote-controller-status`. Legacy `mapper-status` is a read-only compatibility alias. No action launches another application. Missing drivers use Vumiro's embedded setup through the verified elevated helper. Windows may require authorization or a restart; failures remain visible.
+
+Each frame has exactly buttons,leftX,leftY,rightX,rightY,leftTrigger,rightTrigger. Integers are bounded to XUSB ranges; reserved button bits, stale sequence numbers and wrong sessions fail closed. After 300ms without a valid frame, controls return to neutral. The virtual device remains attached across idle/focus changes so a game does not lose the player's slot. Explicit session stop and native lifecycle disposal detach it. The peer engine revokes access after friendship removal/key change and on stream/session stop.
+
+The pure mapping engines remain in controller-mapping.js and VirtualGamepad.cs. Node regressions cover stick normalization, opposite directions, unique key validation and unbound controls. Native checks cover strict frame validation, session isolation, ordered input, idle/refocus, disposal and an opt-in real XInput device test. Licensing and payload pins are documented in THIRD-PARTY.md and vendor/windows/payloads.json.

@@ -19,7 +19,7 @@
     if(panel){const section=document.createElement('section');section.className='nudgeSettings';const heading=document.createElement('h3');heading.textContent='Nudge a friend';section.append(heading);
       const field=(text,value)=>{const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=value;label.append(input,document.createTextNode(' '+text));section.append(label);return input;};
       allow=field('Allow nudges from friends',preferences.value.allow);silent=field('Silent mode',preferences.value.silent);
-      const help=document.createElement('p');help.className='help';help.textContent='Show a soft yellow glow instead of shaking. Reduced motion always uses the glow.';section.append(help);
+      const help=document.createElement('p');help.className='help';help.textContent='Use a neutral highlight instead of shaking. Yellow is reserved for another fullscreen app.';section.append(help);
       const button=document.createElement('button');button.type='button';button.textContent='Save nudge settings';button.onclick=()=>adapter.save();section.append(button);panel.append(section);
       const style=document.createElement('style');style.textContent='.nudgeSettings{margin-top:24px;padding-top:16px;border-top:1px solid #ffffff14}.nudgeSettings>label{display:flex;gap:10px;align-items:center;margin:12px 0}.nudgeSettings input{width:auto}';document.head.append(style);
     }

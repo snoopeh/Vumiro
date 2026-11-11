@@ -384,12 +384,14 @@ appSoundsDraft=appSounds;appSoundVolumeDraft=appSoundVolume;
 function soundVolume(value){return (typeof value==='number'||typeof value==='string'&&value.trim()!=='')&&Number.isFinite(Number(value))?Math.round(Math.min(300,Math.max(0,Number(value)))):100;}
 function playUiCue(kind,force=false,volume=appSoundVolume){
   volume=soundVolume(volume);if((!appSounds&&!force)||volume===0)return;let ctx;
+  const close=()=>{try{Promise.resolve(ctx?.close()).catch(()=>{});}catch{}};
   try{
     const C=window.AudioContext||window.webkitAudioContext;if(!C)return;ctx=new C();
     const osc=ctx.createOscillator(),gain=ctx.createGain(),tones=kind==='ring'?[523,659,784]:kind==='request'?[700,880]:kind==='room'?[620,784]:kind==='chat'?[784]:[440,330],duration=kind==='ring'?.42:.2;
-    osc.type='sine';tones.forEach((tone,index)=>osc.frequency.setValueAtTime(tone,ctx.currentTime+(kind==='ring'?index*.12:index*.07)));gain.gain.setValueAtTime(.0001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.12*volume/100,ctx.currentTime+.02);gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);osc.connect(gain);gain.connect(ctx.destination);osc.onended=()=>ctx.close().catch(()=>{});osc.start();osc.stop(ctx.currentTime+duration+.01);
-    if(ctx.state==='suspended')ctx.resume().catch(()=>ctx.close().catch(()=>{}));
-  }catch{ctx?.close().catch(()=>{});}
+    osc.type='sine';tones.forEach((tone,index)=>osc.frequency.setValueAtTime(tone,ctx.currentTime+(kind==='ring'?index*.12:index*.07)));gain.gain.setValueAtTime(.0001,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(.12*volume/100,ctx.currentTime+.02);gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);osc.connect(gain);gain.connect(ctx.destination);osc.onended=close;osc.start();osc.stop(ctx.currentTime+duration+.01);
+    if(ctx.state==='suspended')ctx.resume().catch(close);
+    return ()=>{osc.onended=null;try{osc.stop();}catch{}close();};
+  }catch{close();}
 }
 const notificationCategories={friend:{label:'Friend requests',cue:'request',visual:true,sound:true},roomInvite:{label:'Room invites and requests',cue:'room',visual:true,sound:true},call:{label:'Incoming calls',cue:'ring',visual:true,sound:true},roomActivity:{label:'Room activity',cue:'room',visual:true,sound:true},message:{label:'Chat messages',cue:'chat',visual:true,sound:true}};
 const notificationSettings={};
@@ -400,7 +402,7 @@ for(const [kind,defaults] of Object.entries(notificationCategories)){
   notificationSettings[kind]={visual:typeof saved?.visual==='boolean'?saved.visual:defaults.visual,sound:typeof saved?.sound==='boolean'?saved.sound:defaults.sound};
 }
 const notificationItems=[],notificationSeen=new Map();
-let notificationCenter=null,notificationSequence=0,notificationRouting=false;
+let notificationCenter=null,incomingCall=null,incomingCallWindowState=null,notificationSequence=0,notificationRouting=false;
 function clearNotificationSession(){notificationItems.length=0;notificationSeen.clear();notificationCenter?.clear();host?.postMessage({type:'window',action:'notify-clear'});renderNotifications();}
 const notificationSettingIds={friend:'Friend',roomInvite:'RoomInvite',call:'Call',roomActivity:'RoomActivity',message:'Message'};
 function resetNotificationDraft(){
@@ -421,6 +423,7 @@ function notificationAvailable(item){
   if(!item.action||item.expires<=runtimeNow())return false;
   const action=item.action;
   if(action.type==='qa-preview')return window.__VUMIRO_LOCAL_QA__===true&&Object.keys(action).sort().join(',')==='target,type'&&['friends','rooms','inbox'].includes(action.target);
+  if(action.type==='directMessage')return !!friendById(action.friend)&&!blocked.includes(action.friend)&&!blocking.has(action.friend);
   if(action.type==='chat')return !!frame&&currentRoom===action.room;
   if(action.type==='call')return !!pending&&pending.direction==='incoming'&&pending.nonce===action.id&&pending.expires>runtimeNow()&&!blocked.includes(pending.friend)&&!blocking.has(pending.friend);
   if(action.type==='request')return requests.some(request=>request.id===action.id&&request.direction==='incoming'&&request.expires>(requestNow(request)??Infinity)&&!blocked.includes(request.contact.id)&&!blocking.has(request.contact.id));
@@ -450,11 +453,12 @@ async function notificationAction(item){
       else openNotifications();
       return true;
     }
+    if(item.action.type==='directMessage'){await openDirectConversation(item.action.friend);return true;}
     if(item.action.type==='chat'){
       returnToRoom();frame.contentWindow.postMessage({type:'vumiro-open-chat'},location.origin);return true;
     }
     if(item.action.type==='call'){
-      $('friendsNav').click();$('acceptInvite').focus();return true;
+      $('friendsNav').click();if(incomingCall&&pending?.notificationCategory!=='roomInvite')incomingCall.focus();else $('acceptInvite').focus();return true;
     }
     if(item.action.type==='request'){
       $('friendsNav').click();
@@ -497,7 +501,7 @@ function openNotifications(){
 function notificationText(item){return item.category==='message'?item.body:(typeof window!=='undefined'?globalThis.VumiroI18n?.translateLiteral(item.body):null)||item.body;}
 function notificationView(item){return {id:item.id,category:item.category,senderName:item.senderName,avatar:item.avatar,text:notificationText(item),available:notificationAvailable(item)};}
 function desktopNotification(item){
-  const send=avatar=>{if(!notificationItems.includes(item)||item.expires<=runtimeNow()||!notificationSettings[item.category].visual||document.hasFocus())return;host?.postMessage({type:'window',action:'notify',notification:{id:item.id,category:item.category,senderName:item.senderName,body:notificationText(item),avatar}});};
+  const send=avatar=>{if(!notificationItems.includes(item)||item.expires<=runtimeNow()||!notificationSettings[item.category].visual)return;host?.postMessage({type:'window',action:'notify',notification:{id:item.id,category:item.category,senderName:item.senderName,body:notificationText(item),avatar}});};
   if(!item.avatar||item.avatar.startsWith('data:image/png;base64,')&&item.avatar.length<=32768){send(item.avatar);return;}
   if(typeof Image==='undefined'){send('');return;}
   const image=new Image();let finished=false;
@@ -516,8 +520,9 @@ function notifySocial(category,key,text,action=null,expires=runtimeNow()+8640000
   const item={id:'notification-'+(++notificationSequence),category,text:text.slice(0,180),senderName,avatar,body,action,expires,time:Date.now(),read:false};notificationItems.unshift(item);
   if(notificationItems.length>64)notificationItems.length=64;
   renderNotifications();
-  if(notificationSettings[category].sound)playUiCue(notificationCategories[category].cue);
-  if(notificationSettings[category].visual){notificationCenter?.popup(notificationView(item));if(!document.hasFocus())desktopNotification(item);}
+  const callCard=category==='call'&&incomingCall&&pending?.direction==='incoming'&&pending.nonce===action?.id;
+  if(notificationSettings[category].sound&&!callCard)playUiCue(notificationCategories[category].cue);
+  if(notificationSettings[category].visual){if(host){if(!callCard||!document.hasFocus())desktopNotification(item);}else if(!callCard)notificationCenter?.popup(notificationView(item));}
   return true;
 }
 let generation=0,messages=Promise.resolve(),serviceUrl='',requests=[],requestTimer=0,rooms=[],currentRoom='',joined=false,sharing=false,lookupTimer=0,lookupGeneration=0,selectedLookup=null,avatarDraft='',avatarSelection=0,avatarWork=Promise.resolve(),currentAccess=null,confirmation=null;
@@ -532,6 +537,64 @@ let saved; try{saved=JSON.parse(read('vumiro-stream-settings'));}catch{}
 let settings=normalizeSettings(saved||{fps:read('st-friends-fps')||query.get('fps'),mbps:read('st-friends-mbps')||query.get('mbps')});
 save('vumiro-stream-settings',JSON.stringify(settings));
 const friendById=id=>friends.find(friend=>friend.id===id);
+function startDirectMessages(){
+  if(!profile?.id||!window.VumiroDirectMessages||!window.VumiroDirectChat)return;
+  if(window.__VumiroDMOwner===profile.id&&window.VumiroDirectChatController)return;
+  window.VumiroDirectTransport?.disconnected();window.VumiroDirectChatController?.destroy();
+  let ui;const transport=window.VumiroDirectMessages.create({local,send,getProfile:()=>profile,getFriend:friendById,isBlocked:id=>blocked.includes(id)||blocking.has(id),onMessage:(message,context)=>ui?.receive(message,context),onState:state=>ui?.state(state),onError:error=>status(globalThis.VumiroI18n?.error(error)||error.message)});
+  ui=window.VumiroDirectChat.create({transport,getProfile:()=>profile,getFriends:()=>friends.filter(friend=>!blocked.includes(friend.id)&&!blocking.has(friend.id)),validate:message=>transport.verifyMessage(message),onThreadsChange:()=>renderFriends(false),onEnter:()=>{selected=ui?.active||'';activateWorkspace('conversations');},onExit:()=>{$('search').focus();},onNotify:(friend,message)=>notifySocial('message','dm:'+message.from+':'+message.id,message.text,{type:'directMessage',friend:friend.id},runtimeNow()+86400000,friend)});
+  window.__VumiroDMOwner=profile.id;window.VumiroDirectTransport=transport;window.VumiroDirectChatController=ui;
+}
+/* Workspace destinations. */
+var workspaceView='friends';
+let workspaceNavigation=0,serverWorkspaceController=null;
+function activateWorkspace(view){
+  workspaceView=view;
+  if(view!=='servers'){serverWorkspaceController?.hide();if($('serverWorkspace'))$('serverWorkspace').hidden=true;}
+  if(view!=='gaming')window.VumiroGaming?.close();
+  browseRoom();setRoomView(false);
+  $('friendsBody').hidden=!['friends','conversations'].includes(view);
+  document.body.classList.toggle('conversations-view',view==='conversations');
+  if(view!=='conversations')document.body.classList.remove('people-conversation');
+  for(const [id,key]of [['friendsNav','friends'],['messagesNav','conversations'],['serversNav','servers'],['gamingNav','gaming']]){
+    const node=$(id);if(node){node.classList.toggle('active',view===key);node.setAttribute('aria-current',view===key?'page':'false');}
+  }
+  $('workspaceHeading').textContent=view==='conversations'?'Conversations':view==='servers'?'Servers':view==='gaming'?'Gaming':'Friends';
+  $('workspaceSubtitle').textContent=view==='conversations'?'A familiar face. One click away.':view==='servers'?'A place for your community.':view==='gaming'?'Play together.':'Your friends. All in one place.';
+  dispatchEvent(new CustomEvent('vumiro-workspace-change',{detail:{view}}));
+}
+async function allowWorkspaceNavigation(){
+  const serial=++workspaceNavigation,owner=profile?.id;
+  if([...document.querySelectorAll('dialog[open]')].some(node=>node.classList.contains('settingsScreen'))){
+    if(!window.VumiroSettingsExit||!await window.VumiroSettingsExit.requestClose())return false;
+  }
+  return serial===workspaceNavigation&&owner===profile?.id;
+}
+function hideDirectMessages(){window.VumiroDirectChatController?.hide();if($('directChatPane'))$('directChatPane').hidden=true;document.body.classList.remove('people-conversation');}
+async function showFriendsOverview(){
+  if(!await allowWorkspaceNavigation())return false;
+  hideDirectMessages();activateWorkspace('friends');renderFriends();if(!frame)$('search').focus();return true;
+}
+async function openDirectConversation(id){
+  if(!await allowWorkspaceNavigation())return false;
+  startDirectMessages();if(!window.VumiroDirectChatController){status('Direct messages are unavailable. Restart Vumiro and try again.');return false;}
+  if(friendById(id))selected=id;
+  activateWorkspace('conversations');await window.VumiroDirectChatController.open(id);return true;
+}
+async function showServerWorkspace(){
+  if(!await allowWorkspaceNavigation())return false;
+  if(!profile?.id)return false;
+  if(!window.VumiroServers){status('Servers are unavailable. Restart Vumiro and try again.');return false;}
+  serverWorkspaceController??=window.VumiroServers.create({mount:$('serverWorkspace'),getProfile:()=>profile,t:key=>globalThis.VumiroI18n?.t(key)||key,onExit:()=>{void showFriendsOverview();}});
+  hideDirectMessages();activateWorkspace('servers');await serverWorkspaceController.open();return true;
+}
+async function prepareExternalWorkspace(view='gaming'){
+  if(!await allowWorkspaceNavigation())return false;
+  hideDirectMessages();activateWorkspace(view);return true;
+}
+window.VumiroWorkspace={showFriends:showFriendsOverview,showConversations:openDirectConversation,showServers:showServerWorkspace,prepareExternal:prepareExternalWorkspace,isCurrent:view=>workspaceView===view,resetIdentity(){++workspaceNavigation;serverWorkspaceController?.destroy();serverWorkspaceController=null;hideDirectMessages();activateWorkspace('friends');},suspendForRoom(){workspaceView='friends';document.body.classList.remove('conversations-view');serverWorkspaceController?.hide();if($('serverWorkspace'))$('serverWorkspace').hidden=true;hideDirectMessages();window.VumiroGaming?.close();}};
+/* End workspace destinations. */
+addEventListener('vumiro:localechange',()=>serverWorkspaceController?.refreshLabels());
 const newRoom=()=>profile.id+'_'+Array.from(crypto.getRandomValues(new Uint8Array(24)),byte=>byte.toString(16).padStart(2,'0')).join('');
 const initials=name=>String(name||'?').trim().split(/\s+/).slice(0,2).map(part=>Array.from(part)[0]||'').join('').toUpperCase();
 const status=text=>{const node=$('status');node.textContent=text;node.setAttribute?.('aria-busy',String(/^(?:Preparing|Saving|Searching|Starting|Stopping|Connecting|Reconnecting)\b/.test(text)));};
@@ -543,7 +606,7 @@ const legacyRoomHosts=new Set(['screentask-rooms.screentask-room-signaling.worke
 function migrateRoomHost(url) { if(legacyRoomHosts.has(url.hostname.toLowerCase()))url.hostname=canonicalRoomHost;return url; }
 function normalizeService(raw) { const url=migrateRoomHost(new URL(raw));if(url.protocol==='https:')url.protocol='wss:';if(url.protocol==='http:')url.protocol='ws:';if(!['ws:','wss:'].includes(url.protocol)||url.username||url.password)throw Error('Use a valid wss:// service URL.');if(url.protocol==='ws:'&&!['localhost','127.0.0.1','[::1]'].includes(url.hostname))throw Error('Use wss:// for a service outside this device.');url.pathname='/call-signaling';url.search='';url.hash='';return url.href; }
 function serviceState(text,connected=false) { $('serviceStatus').textContent=text;$('serviceDot').classList.toggle('online',connected);$('reconnectService').hidden=connected; }
-function send(message) { if(!socket||socket.readyState!==WebSocket.OPEN||!ready)throw Error('The service is offline. Reconnect to send this request.');const {from,...wire}=message;socket.send(JSON.stringify(wire)); }
+function send(message) { if(!socket||socket.readyState!==WebSocket.OPEN||!ready)throw Error('The service is offline. Reconnect to send this request.');const {from,...wire}=message;socket.send(JSON.stringify(message.type==='gaming-signal'?message:wire)); }
 function watch(){if(ready)send({type:'watch',ids:friends.map(friend=>friend.id)});}
 function announce(){if(ready){const transition=local.identityTransition?.();send({type:'profile-announce',name:profile.name,username:profile.username||'',blockedIds:blocked,socialVersion:2,...(transition?{transition}:{})});}}
 function serverNow(){const clock=window.VumiroServerClock;if(!clock?.isSynced())throw Error('The service clock is not synchronized. Reconnect before sending a friend request.');return clock.now();}
@@ -653,6 +716,7 @@ async function shareOwnProfile() {
   }
   if(previous&&previous.id!==profile.id){
     clearNotificationSession();
+    window.VumiroWorkspace?.resetIdentity();
     clearPending('Your verified contact identity changed.');if(frame)finishRoom();connect();
     status('Identity recovery is enabled. Reconnecting with your new verified contact identity.');return;
   }
@@ -660,7 +724,7 @@ async function shareOwnProfile() {
   frame?.contentWindow.postMessage({type:'vumiro-profile',profile},location.origin); peerProfiles?.ownChanged();
 }
 addEventListener('vumiro-profile-changed',()=>shareOwnProfile().catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message))));
-addEventListener('vumiro-account-restored',()=>{if(!lobbyInitialized)return;(async()=>{blocked=await local.listBlocked();await reloadFriends();renderProfile();announce();watch();})().catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));});
+addEventListener('vumiro-account-restored',()=>{if(!lobbyInitialized)return;(async()=>{blocked=await local.listBlocked();await reloadFriends();renderProfile();startDirectMessages();announce();watch();})().catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));});
 function confirmAction(title,description,label) {
   if (confirmation) return Promise.resolve(false);
   $('confirmHeading').textContent=title; $('confirmDescription').textContent=description; $('confirmProceed').textContent=label;
@@ -700,10 +764,17 @@ function renderLinks(target,values){target.replaceChildren();let safe=[];try{saf
 function setBanner(target,value,id,record=null){if(window.VumiroCoverMedia&&id){window.VumiroCoverMedia.display(target,id,value||'',local,record);return;}window.VumiroCoverMedia?.release(target);if(value){try{target.src=local.validateBanner(value);target.hidden=false;return;}catch{}}target.removeAttribute('src');target.hidden=true;}
 function renderProfileDetails(friend){setBanner($('contactBannerImage'),friend.banner,friend.id);$('contactTag').textContent=directoryFriendTag(friend.id);$('contactBio').textContent=friend.bio||'';$('contactBio').hidden=!friend.bio;renderLinks($('contactLinks'),friend.connections);}
 function renderProfileEditor(){if(!$('profileBio'))return;$('profileBio').value=profile.bio||'';bannerDraft=profile.banner||'';coverDraft=undefined;setBanner($('profileBannerPreview'),bannerDraft,profile.id);$('editBanner').disabled=!bannerDraft;for(const key of Object.keys(profileProviders))$('profileLink-'+key).value=profile.connections?.find(item=>item.provider===key)?.url||'';renderOwnTag();}
-function renderUserCard(){if(typeof friendNudges!=='undefined')friendNudges?.render();const own=userCardId===profile?.id,value=own?profile:friendById(userCardId);if(!value){$('userCardDialog').close();return;}avatar($('userCardAvatar'),value);setBanner($('userCardBanner'),value.banner,value.id);$('userCardName').textContent=value.nickname||value.name;$('userCardUsername').textContent=directoryHandles[value.id]?'':value.username?'@'+value.username:'';$('userCardUsername').hidden=!$('userCardUsername').textContent;const tag=directoryFriendTag(value.id);$('userCardTag').textContent=tag||(globalThis.VumiroI18n?.t('Friend tag unavailable')||'Friend tag unavailable');$('userCardTag').disabled=!tag;$('userCardTag').title=globalThis.VumiroI18n?.t(tag?'Click to copy friend tag':'Friend tag unavailable')||(tag?'Click to copy friend tag':'Friend tag unavailable');$('userCardTag').setAttribute('aria-label',globalThis.VumiroI18n?.translateLiteral(tag?'Copy friend tag '+tag:'Friend tag unavailable')||(tag?'Copy friend tag '+tag:'Friend tag unavailable'));$('userCardBio').textContent=value.bio||(globalThis.VumiroI18n?.t('No bio yet.')||'No bio yet.');renderLinks($('userCardLinks'),value.connections);$('userCardLinksHeading').hidden=!value.connections?.length;$('userCardCall').hidden=own;$('userCardCall').disabled=own||!canCall(value);$('userCardEdit').hidden=!own;$('userCardEditNickname').hidden=own;$('userCardBlock').hidden=own;}
+function renderUserCard(){if(typeof friendNudges!=='undefined')friendNudges?.render();const own=userCardId===profile?.id,value=own?profile:friendById(userCardId);if(!value){$('userCardDialog').close();return;}avatar($('userCardAvatar'),value);setBanner($('userCardBanner'),value.banner,value.id);$('userCardName').textContent=value.nickname||value.name;$('userCardUsername').textContent=directoryHandles[value.id]?'':value.username?'@'+value.username:'';$('userCardUsername').hidden=!$('userCardUsername').textContent;const tag=directoryFriendTag(value.id);$('userCardTag').textContent=tag||(globalThis.VumiroI18n?.t('Friend tag unavailable')||'Friend tag unavailable');$('userCardTag').disabled=!tag;$('userCardTag').title=globalThis.VumiroI18n?.t(tag?'Click to copy friend tag':'Friend tag unavailable')||(tag?'Click to copy friend tag':'Friend tag unavailable');$('userCardTag').setAttribute('aria-label',globalThis.VumiroI18n?.translateLiteral(tag?'Copy friend tag '+tag:'Friend tag unavailable')||(tag?'Copy friend tag '+tag:'Friend tag unavailable'));$('userCardBio').textContent=value.bio||(globalThis.VumiroI18n?.t('No bio yet.')||'No bio yet.');renderLinks($('userCardLinks'),value.connections);$('userCardLinksHeading').hidden=!value.connections?.length;$('userCardMessage').hidden=own;$('userCardCall').hidden=own;$('userCardCall').disabled=own||!canCall(value);$('userCardEdit').hidden=!own;$('userCardEditNickname').hidden=own;$('userCardBlock').hidden=own;$('userCardRemove').hidden=own;}
 function openUserCard(id){userCardId=id;renderUserCard();if(!$('userCardDialog').open)$('userCardDialog').showModal();}
 $('previewProfile').onclick=()=>openUserCard(profile.id);$('viewUserCard').onclick=()=>{if(selected)openUserCard(selected);};
 $('userCardCall').onclick=()=>{const friend=friendById(userCardId);if(friend){$('userCardDialog').close();invite(friend).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));}};
+$('userCardMessage').onclick=()=>{const friend=friendById(userCardId);if(friend){$('userCardDialog').close();void openDirectConversation(friend.id);}};
+$('contactMessage').onclick=()=>{if(selected)void openDirectConversation(selected);};
+$('directChatCall').onclick=()=>{const friend=friendById(window.VumiroDirectChatController?.active);if(friend)invite(friend).catch(error=>status(error.message));};
+$('directChatMore').onclick=$('directChatProfile').onclick=()=>{const id=window.VumiroDirectChatController?.active||selected;if(friendById(id))openUserCard(id);};
+$('userCardRemove').onclick=()=>{selected=userCardId;$('userCardDialog').close();$('removeFriend').click();};
+$('messagesNav').onclick=()=>{void openDirectConversation(window.VumiroDirectChatController?.active||selected||undefined);};
+$('serversNav').onclick=()=>{void showServerWorkspace();};
 $('userCardEdit').onclick=()=>{$('userCardDialog').close();showProfile();};
 $('userCardEditNickname').onclick=()=>editFriendNickname(userCardId);
 $('userCardBlock').onclick=()=>{selected=userCardId;$('userCardDialog').close();$('blockFriend').click();};
@@ -785,11 +856,14 @@ $('userCardDialog').addEventListener('close',()=>window.VumiroCoverMedia?.releas
 
 
 function renderDetails(){if(typeof friendNudges!=='undefined')friendNudges?.render();const friend=friendById(selected);$('contactEmpty').hidden=!!friend;$('contactDetails').hidden=!friend;if(!friend)return;avatar($('contactAvatar'),friend);$('contactName').textContent=friend.nickname;$('contactName').title=globalThis.VumiroI18n?.translateLiteral(directoryFriendTag(friend.id)?'Copy friend tag '+directoryFriendTag(friend.id):'Friend tag unavailable')||(directoryFriendTag(friend.id)?'Copy friend tag '+directoryFriendTag(friend.id):'Friend tag unavailable');$('editNickname').setAttribute('aria-label','Edit nickname for '+friend.nickname);$('contactStatus').textContent=(!directoryHandles[friend.id]&&friend.username?'@'+friend.username+'\n':'')+(globalThis.VumiroI18n?.t(online.has(friend.id)?'Online · ready to connect':'Offline')||(online.has(friend.id)?'Online · ready to connect':'Offline'))+(friend.nicknameOverride?'\n'+friend.name:'');if(document.activeElement!==$('nickname'))$('nickname').value=friend.nicknameOverride?friend.nickname:'';$('contactCall').disabled=!canCall(friend);renderProfileDetails(friend);if($('userCardDialog').open)renderUserCard();}
-function renderFriends(){
+function renderFriends(refreshChat=true){
 $('createRoom').disabled=$('createRoomFromDialog').disabled=$('roomCreateNav').disabled=!profile||!!pending||!!frame;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('sidebarCount').textContent=friends.length;$('onlineCount').textContent=online.size;
-const search=$('search').value.trim().toLocaleLowerCase();const visible=friends.filter(friend=>(filter!=='online'||online.has(friend.id))&&(friend.nickname+' '+friend.name+' '+(friend.username||'')+' '+directoryFriendTag(friend.id)).toLocaleLowerCase().includes(search));visible.sort((a,b)=>Number(online.has(b.id))-Number(online.has(a.id))||a.nickname.localeCompare(b.nickname));const list=$('friendsList');list.replaceChildren();
- for(const friend of visible){const row=document.createElement('div');row.className='friend'+(friend.id===selected?' selected':'');row.tabIndex=0;row.setAttribute('role','button');row.setAttribute('aria-label','View '+friend.nickname);const photo=document.createElement('span');photo.className='avatar';avatar(photo,friend);const info=document.createElement('span');info.className='friendInfo truncate';const name=document.createElement('span');name.className='friendName';const nickname=document.createElement('span');nickname.className='friendNameButton';nickname.textContent=friend.nickname;name.append(nickname);const state=document.createElement('span');state.className='friendState';const dot=document.createElement('i');dot.className='dot'+(online.has(friend.id)?' online':'');state.append(dot,document.createTextNode(online.has(friend.id)?'Online':'Offline'));info.append(name,state);const call=document.createElement('button');call.className='callAction';call.textContent='Call';call.disabled=!canCall(friend);call.setAttribute('aria-label','Call '+friend.nickname);call.onclick=event=>{event.stopPropagation();invite(friend).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));};const select=()=>{selected=friend.id;renderFriends();openUserCard(friend.id);};row.onclick=select;row.onkeydown=event=>{if(event.target===row&&['Enter',' '].includes(event.key)){event.preventDefault();select();}};row.append(photo,info,call);list.append(row);}
-$('listHeading').textContent=(filter==='online'?'Online':'Your people')+' · '+visible.length;$('emptyState').hidden=friends.length>0;$('noResults').hidden=!friends.length||visible.length>0;$('filterAll').setAttribute('aria-pressed',String(filter==='all'));$('filterOnline').setAttribute('aria-pressed',String(filter==='online'));renderDetails();renderRooms();}
+const chat=window.VumiroDirectChatController,summary=id=>chat?.conversation?.(id)||{storedAt:0,unread:false},live=id=>online.has(id)&&rooms.some(room=>room.owner===id&&room.live),group=friend=>live(friend.id)?'Live now':online.has(friend.id)?'Online':summary(friend.id).storedAt?'Recent conversations':'Offline',groups=['Live now','Online','Recent conversations','Offline'];
+const search=$('search').value.trim().toLocaleLowerCase();const visible=friends.filter(friend=>(filter!=='online'||online.has(friend.id))&&(friend.nickname+' '+friend.name+' '+(friend.username||'')+' '+directoryFriendTag(friend.id)).toLocaleLowerCase().includes(search));visible.sort((a,b)=>groups.indexOf(group(a))-groups.indexOf(group(b))||summary(b.id).storedAt-summary(a.id).storedAt||a.nickname.localeCompare(b.nickname));const list=$('friendsList');list.replaceChildren();let lastGroup='';
+for(const friend of visible){const category=group(friend);if(category!==lastGroup){const heading=document.createElement('h3');heading.className='peopleGroup';heading.textContent=category;list.append(heading);lastGroup=category;}
+const row=document.createElement('div');row.className='friend'+(friend.id===selected?' selected':'');row.tabIndex=0;row.setAttribute('role','button');row.setAttribute('aria-label',typeof workspaceView!=='undefined'&&workspaceView==='conversations'?(globalThis.VumiroI18n?.t('Message {name}',{name:friend.nickname})||'Message '+friend.nickname):friend.nickname);row.setAttribute('aria-current',friend.id===selected?'true':'false');const photo=document.createElement('span');photo.className='avatar';avatar(photo,friend);const info=document.createElement('span');info.className='friendInfo truncate';const name=document.createElement('span');name.className='friendName';const nickname=document.createElement('span');nickname.className='friendNameButton';nickname.textContent=friend.nickname;name.append(nickname);const state=document.createElement('span');state.className='friendState';const dot=document.createElement('i');dot.className='dot'+(online.has(friend.id)?' online':'');state.append(dot,document.createTextNode(live(friend.id)?'Live now':online.has(friend.id)?'Online':'Offline'));info.append(name,state);const select=()=>{selected=friend.id;if(typeof workspaceView!=='undefined'&&workspaceView==='conversations')void openDirectConversation(friend.id);else{renderFriends();openUserCard(friend.id);}};row.onclick=select;row.onkeydown=event=>{if(event.target===row&&['Enter',' '].includes(event.key)){event.preventDefault();select();}};row.append(photo,info);if(typeof workspaceView==='undefined'||workspaceView!=='conversations'){const message=document.createElement('button');message.type='button';message.className='messageAction';message.textContent='✉';message.title='Message';message.setAttribute('aria-label',globalThis.VumiroI18n?.t('Message {name}',{name:friend.nickname})||'Message '+friend.nickname);message.onclick=event=>{event.stopPropagation();void openDirectConversation(friend.id);};row.append(message);}if(summary(friend.id).unread){const unread=document.createElement('span');unread.className='directUnread';unread.textContent='•';unread.setAttribute('aria-label','Unread messages');row.append(unread);}list.append(row);}
+const heading=filter==='online'?'Online':typeof workspaceView!=='undefined'&&workspaceView==='conversations'?'People':'Friends';$('listHeading').textContent=globalThis.VumiroI18n?.t(heading+' · {count}',{count:visible.length})||heading+' · '+visible.length;$('emptyState').hidden=friends.length>0;$('noResults').hidden=!friends.length||visible.length>0;$('filterAll').setAttribute('aria-pressed',String(filter==='all'));$('filterOnline').setAttribute('aria-pressed',String(filter==='online'));renderDetails();renderRooms();if(refreshChat!==false)chat?.refresh();const directFriend=friendById(chat?.active);document.body?.classList.toggle('people-conversation',!!directFriend);if($('directChatCall'))$('directChatCall').disabled=!directFriend||!canCall(directFriend);if(directFriend){avatar($('directChatAvatar'),directFriend);$('directChatPresence').textContent=live(directFriend.id)?'Live now':online.has(directFriend.id)?'Online':'Offline';}}
+
 async function seedLocalQaFriends(){
   if(window.__VUMIRO_LOCAL_QA__!==true||!profile)return;
   const marker='vumiro-local-qa-friends-seeded:'+profile.id,fixtureKey='vumiro-local-qa-friends-fixtures:'+profile.id;
@@ -816,12 +890,21 @@ async function seedLocalQaFriends(){
   for(const item of contacts)await local.addContact(item.contact,item.nickname);
   localStorage.setItem(marker,'yes');
 }
-async function reloadFriends(){const old=friends.map(friend=>friend.id).join(',');friends=await local.listFriends();for(const id of online)if(!friendById(id))online.delete(id);if(!friendById(selected))selected=friends[0]?.id||'';if(pending&&!friendById(pending.friend))clearPending('The contact was removed.');peerProfiles?.syncContacts();if(old!==friends.map(friend=>friend.id).join(','))watch();renderFriends();renderNotifications();}
+async function reloadFriends(){const old=friends.map(friend=>friend.id).join(',');friends=await local.listFriends();for(const id of online)if(!friendById(id))online.delete(id);if(!friendById(selected))selected='';if(pending&&!friendById(pending.friend))clearPending('The contact was removed.');peerProfiles?.syncContacts();const chat=window.VumiroDirectChatController;if(chat?.visible&&chat.active!==selected)void chat.open(selected);if(old!==friends.map(friend=>friend.id).join(','))watch();renderFriends();renderNotifications();}
 addEventListener('vumiro-friends-changed',()=>{if(profile)reloadFriends().catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));});
 function showInvitation(){if(!query.get('room')&&!query.get('roomInvite'))return;const url=new URL(location.href);if(query.get('roomInvite'))url.searchParams.set('roomInvite',query.get('roomInvite'));$('roomInvitation').value=url.href;$('roomError').textContent='Join with the room’s current privacy settings. Private rooms ask for a password.';showRooms();query.delete('room');query.delete('roomInvite');}
-function clearPending(text){if(pending){clearTimeout(pending.timer);if(text)roomInviteResult(pending,false,text);}clearInterval(ringTimer);ringTimer=0;pending=null;$('invitation').hidden=true;if(text)status(text);renderFriends();renderNotifications();}
-function renderPending(){if(!pending)return;const name=friendById(pending.friend)?.nickname||'Your friend',incoming=pending.direction==='incoming';$('invitation').hidden=false;$('invitationTitle').textContent=incoming?name+(pending.legacyInvite?' sent a room invitation':pending.notificationCategory==='roomInvite'?' invited you':' is calling'):'Calling '+name+'…';$('invitationText').textContent=(incoming?'Join a room together. ':'Waiting for them to accept. ')+Math.max(0,Math.ceil((pending.expires-runtimeNow())/1000))+'s remaining';$('acceptInvite').hidden=!incoming;$('declineInvite').hidden=!incoming;$('cancelInvite').hidden=incoming;}
-function setPending(value){pending=value;clearInterval(ringTimer);if(value.direction==='incoming'&&notificationSettings[value.notificationCategory||'call'].sound){ringTimer=setInterval(()=>{if(pending===value&&notificationSettings[value.notificationCategory||'call'].sound)playUiCue('ring');else clearInterval(ringTimer);},2600);}renderPending();renderFriends();const tick=()=>{if(pending!==value)return;if(runtimeNow()>=value.expires){clearPending('The call invitation expired.');return;}renderPending();value.timer=setTimeout(tick,1000);};value.timer=setTimeout(tick,1000);}
+function clearPending(text){if(pending){clearTimeout(pending.timer);if(text)roomInviteResult(pending,false,text);}clearInterval(ringTimer);ringTimer=0;incomingCall?.clear();pending=null;$('invitation').hidden=true;if(text)status(text);renderFriends();renderNotifications();}
+function renderPending(){
+  if(!pending)return;
+  const friend=friendById(pending.friend),name=friend?.nickname||friend?.name||(pending.qa?'Sample friend':'Your friend'),incoming=pending.direction==='incoming';
+  const callCard=incoming&&pending.notificationCategory!=='roomInvite'&&incomingCall;
+  $('invitation').hidden=!!callCard;
+  if(callCard)incomingCall?.show({id:pending.nonce,senderName:name,avatar:friend?.avatar,expires:pending.expires,busy:pending.responding});else incomingCall?.clear();
+  $('invitationTitle').textContent=incoming?name+(pending.legacyInvite?' sent a room invitation':pending.notificationCategory==='roomInvite'?' invited you':' is calling'):'Calling '+name+'…';
+  $('invitationText').textContent=(incoming?'Join a room together. ':'Waiting for them to accept. ')+Math.max(0,Math.ceil((pending.expires-runtimeNow())/1000))+'s remaining';$('acceptInvite').hidden=!incoming;$('declineInvite').hidden=!incoming;$('cancelInvite').hidden=incoming;
+  $('acceptInvite').disabled=$('declineInvite').disabled=$('cancelInvite').disabled=!!pending.responding;
+}
+function setPending(value){if(pending&&pending!==value)clearTimeout(pending.timer);pending=value;clearInterval(ringTimer);ringTimer=0;incomingCall?.clear();if(value.direction==='incoming'&&(value.notificationCategory==='roomInvite'||!incomingCall)&&notificationSettings[value.notificationCategory||'call'].sound){ringTimer=setInterval(()=>{if(pending===value&&!value.responding&&notificationSettings[value.notificationCategory||'call'].sound)playUiCue('ring');else if(pending!==value)clearInterval(ringTimer);},2600);}renderPending();renderFriends();const tick=()=>{if(pending!==value)return;if(runtimeNow()>=value.expires){clearPending('The call invitation expired.');return;}renderPending();value.timer=setTimeout(tick,1000);};value.timer=setTimeout(tick,1000);}
 const inviteText=m=>`screentask-invite-v1\n${m.from}\n${m.to}\n${m.room}\n${m.nonce}\n${m.expires}`;
 const answerText=m=>`screentask-answer-v1\n${m.from}\n${m.to}\n${m.room}\n${m.nonce}\n${m.accepted}\n${m.expires}`;
 const socialText=m=>`vumiro-social-v1\n${m.from}\n${m.to}\n${m.kind}\n${m.nonce}\n${m.expires}\n${JSON.stringify(m.payload)}`;
@@ -977,11 +1060,13 @@ async function lookup(value,mode='single'){if(validFriendHandle(value.trim().rep
 async function refreshContact(value){try{const contact=await local.validateContact(value);rememberDirectoryProfile(value);if(friendById(contact.id))await local.updateContactProfile(contact.id,{name:contact.name,username:contact.username});}catch{}}
 async function receive(m,current,version){const active=()=>socket===current&&generation===version&&!stopped;if(!active())return;
 if(m.type==='challenge'){if(typeof m.nonce!=='string'||!/^[A-Za-z0-9_-]{16,160}$/.test(m.nonce))throw Error('The service sent an invalid challenge.');const signature=await local.sign(`screentask-directory-v1\n${profile.id}\n${m.nonce}`);if(active()&&current.readyState===WebSocket.OPEN)current.send(JSON.stringify({type:'authenticate',key:profile.key,signature}));return;}
-if(m.type==='ready'){if(m.id!==profile.id){current.close(1008,'Identity mismatch');return;}namedFriendTagsAvailable=m.namedFriendTagsVersion===1;roomAliasesAvailable=m.capabilities?.roomAliases===1;rememberDirectoryProfile(m);try{window.VumiroServerClock?.sync(m.serverTime);}catch{}socialV2Available=m.socialVersion===2&&!!window.VumiroServerClock?.isSynced();ready=true;retry=0;serviceState('Online',true);announce();watch();publishRoom();renderRequests();renderFriends();status(frame?'Service reconnected. Your room is open.':socialV2Available?namedFriendTagsAvailable?'Online. Find a friend by name#code, username or contact code.':'Online. Named tags need the updated Vumiro service; your existing tag and contact code still work.':'Online. Friend requests need the updated Vumiro service.');return;}
+if(typeof m.type==='string'&&m.type.startsWith('dm-')){await window.VumiroDirectTransport?.receive(m);return;}
+if(m.type==='ready'){if(m.id!==profile.id){current.close(1008,'Identity mismatch');return;}namedFriendTagsAvailable=m.namedFriendTagsVersion===1;roomAliasesAvailable=m.capabilities?.roomAliases===1;rememberDirectoryProfile(m);try{window.VumiroServerClock?.sync(m.serverTime);}catch{}socialV2Available=m.socialVersion===2&&!!window.VumiroServerClock?.isSynced();ready=true;window.VumiroGamingDirectory?.register({local,send,getFriend:id=>blocked.includes(id)||blocking.has(id)?null:friendById(id),listFriends:()=>friends,isOnline:id=>ready&&(!id||online.has(id))});retry=0;serviceState('Online',true);announce();watch();window.VumiroDirectTransport?.connected(m.capabilities||{},m.serverTime);publishRoom();renderRequests();renderFriends();status(frame?'Service reconnected. Your room is open.':socialV2Available?namedFriendTagsAvailable?'Online. Find a friend by name#code, username or contact code.':'Online. Named tags need the updated Vumiro service; your existing tag and contact code still work.':'Online. Friend requests need the updated Vumiro service.');return;}
 if(!ready)return;
 if(m.type==='profile-ready'){if(m.capabilities)roomAliasesAvailable=m.capabilities.roomAliases===1;rememberDirectoryProfile(m.profile);if(m.namedFriendTagsVersion===1)namedFriendTagsAvailable=true;status(usernameCollision?'Your username is saved. Shared usernames need the updated Vumiro service; use your existing tag or contact code for now.':directoryFriendTag(profile.id)?'Online as '+directoryFriendTag(profile.id)+'.':'Online. Friends can find you with your contact code.');usernameCollision=false;return;}
 if(m.type==='room-alias-result'||m.type==='room-resolve-result'){settleRoomAlias(m);return;}
 if(m.type==='lookup-result'){const task=lookups.get(m.nonce);if(task){clearTimeout(task.timer);lookups.delete(m.nonce);rememberDirectoryProfile(m.profile);for(const value of m.profiles||[])rememberDirectoryProfile(value);task.resolve(task.mode==='search'?{profiles:Array.isArray(m.profiles)?m.profiles:(m.profile?[m.profile]:[]),truncated:m.truncated===true}:m.profile||null);}return;}
+if(m.type==='gaming-signal'){await window.VumiroGamingDirectory?.receive(m);return;}
 if(m.type==='profile-signal'){await peerProfiles?.receive(m).catch(()=>{});return;}
 if(m.type==='friend-state'){await receiveFriendState(m,active);return;}
 if(m.type==='social'){await receiveSocial(m,active);return;}
@@ -1003,8 +1088,8 @@ if(m.type==='invite'){if(replayed(m))return;const notificationCategory=m.nonce.s
 async function hydrateRequests(){const values=await local.listRequests();requests=values.filter(item=>{const now=requestNow(item);return now===null||item.expires>now;});for(const item of values)if(!requests.includes(item))await local.removeRequest(item.id);renderRequests();}
 function clearLegacyRequests(){const old=requests.filter(item=>item.version!==2);requests=requests.filter(item=>item.version===2);for(const item of old)local.removeRequest(item.id).catch(()=>{});renderRequests();}
 function rejectLookups(){for(const task of lookups.values()){clearTimeout(task.timer);task.reject(Error('The service disconnected. Reconnect and try again.'));}lookups.clear();}
-function connect(){if(!lobbyInitialized)return;lookupGeneration++;selectedLookup=null;$('lookupPreview').replaceChildren();clearTimeout(reconnectTimer);if(stopped||!profile)return;const version=++generation;ready=false;socialV2Available=false;namedFriendTagsAvailable=false;roomAliasesAvailable=false;online.clear();rooms=[];peerProfiles?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();serviceState('Connecting…');rejectLookups();rejectRoomAliases();rejectSocialAcks();clearLegacyRequests();const previous=socket;socket=null;previous?.close();renderFriends();try{const url=new URL(serviceUrl);url.pathname='/friends-signaling';url.searchParams.set('id',profile.id);const current=socket=new WebSocket(url);messages=Promise.resolve();let timeout=setTimeout(()=>{if(socket===current&&!ready)current.close(4000,'Authentication timed out');},12000);current.onmessage=event=>{if(socket!==current||generation!==version||typeof event.data!=='string'||event.data.length>65536)return;messages=messages.then(async()=>{await receive(JSON.parse(event.data),current,version);if(ready){clearTimeout(timeout);timeout=0;}}).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));};current.onerror=()=>{if(socket===current)serviceState('Offline');};current.onclose=event=>{clearTimeout(timeout);if(socket!==current||generation!==version||stopped)return;socket=null;ready=false;socialV2Available=false;namedFriendTagsAvailable=false;roomAliasesAvailable=false;online.clear();rooms=[];peerProfiles?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();clearPending();rejectLookups();rejectRoomAliases();rejectSocialAcks();clearLegacyRequests();serviceState('Offline');renderFriends();if(event.code===4001){serviceState('Open in another window');status('This identity connected from another Vumiro window. Use that window for requests and calls.');return;}status(frame?'Service disconnected. Your direct room can keep running. Use Reconnect if needed.':'Service offline. Reconnecting automatically; you can also use Reconnect.');reconnectTimer=setTimeout(connect,Math.min(30000,1000*2**Math.min(retry++,5))+Math.random()*350);};}catch(error){serviceState('Offline');status((globalThis.VumiroI18n?.error(error)||error.message));}}
-function openRoom(room,signaling,name='Your room',grant,access) {
+function connect(){if(!lobbyInitialized)return;window.VumiroDirectTransport?.disconnected();lookupGeneration++;selectedLookup=null;$('lookupPreview').replaceChildren();clearTimeout(reconnectTimer);if(stopped||!profile)return;const version=++generation;ready=false;socialV2Available=false;namedFriendTagsAvailable=false;roomAliasesAvailable=false;online.clear();rooms=[];peerProfiles?.reset();window.VumiroGamingDirectory?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();serviceState('Connecting…');rejectLookups();rejectRoomAliases();rejectSocialAcks();clearLegacyRequests();const previous=socket;socket=null;previous?.close();renderFriends();try{const url=new URL(serviceUrl);url.pathname='/friends-signaling';url.searchParams.set('id',profile.id);const current=socket=new WebSocket(url);messages=Promise.resolve();let timeout=setTimeout(()=>{if(socket===current&&!ready)current.close(4000,'Authentication timed out');},12000);current.onmessage=event=>{if(socket!==current||generation!==version||typeof event.data!=='string'||event.data.length>1048576)return;messages=messages.then(async()=>{await receive(JSON.parse(event.data),current,version);if(ready){clearTimeout(timeout);timeout=0;}}).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message)));};current.onerror=()=>{if(socket===current)serviceState('Offline');};current.onclose=event=>{clearTimeout(timeout);if(socket!==current||generation!==version||stopped)return;socket=null;ready=false;window.VumiroDirectTransport?.disconnected();socialV2Available=false;namedFriendTagsAvailable=false;roomAliasesAvailable=false;online.clear();rooms=[];peerProfiles?.reset();window.VumiroGamingDirectory?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();clearPending();rejectLookups();rejectRoomAliases();rejectSocialAcks();clearLegacyRequests();serviceState('Offline');renderFriends();if(event.code===4001){serviceState('Open in another window');status('This identity connected from another Vumiro window. Use that window for requests and calls.');return;}status(frame?'Service disconnected. Your direct room can keep running. Use Reconnect if needed.':'Service offline. Reconnecting automatically; you can also use Reconnect.');reconnectTimer=setTimeout(connect,Math.min(30000,1000*2**Math.min(retry++,5))+Math.random()*350);};}catch(error){serviceState('Offline');status((globalThis.VumiroI18n?.error(error)||error.message));}}
+function openRoom(room,signaling,name='Your room',grant,access) {hideDirectMessages();
   if(!lobbyInitialized)throw Error('Sign in to continue.');
   if(frame)throw Error('Leave your current room before opening another one.');
   const owner=room.slice(0,43)===profile.id, hint=access?.mode||rooms.find(value=>value.room===room)?.mode||(owner?'friends':'legacy');
@@ -1035,12 +1120,12 @@ function openRoom(room,signaling,name='Your room',grant,access) {
   $('roomReturnTitle').textContent=$('callTitle').textContent;
   $('callArea').hidden=false;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('roomReturn').hidden=true;$('friendsBody').hidden=true;setRoomView(true);renderFriends();status('Your room is opening. Enable your microphone or share a screen when ready.');
 }
-function setRoomView(visible){document.body.classList.toggle('room-view',visible);$('watchNav').hidden=!frame;for(const button of document.querySelectorAll('.nav>button')){if(visible)button.classList.toggle('active',button.id==='watchNav');else if(button.id==='watchNav')button.classList.remove('active');}if(!visible)$('friendsNav').classList.add('active');$('watchNav').setAttribute('aria-current',visible?'page':'false');$('friendsNav').setAttribute('aria-current',visible?'false':'page');}
-function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=false;$('roomReturn').hidden=false;setRoomView(false);}
-function returnToRoom(){if(!frame)return;$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;setRoomView(true);}
+function setRoomView(visible){if(visible)window.VumiroWorkspace?.suspendForRoom();document.body.classList.toggle('room-view',visible);$('watchNav').hidden=!frame;for(const button of document.querySelectorAll('.nav>button')){if(visible)button.classList.toggle('active',button.id==='watchNav');else if(button.id==='watchNav')button.classList.remove('active');}if(!visible)$('friendsNav').classList.add('active');$('watchNav').setAttribute('aria-current',visible?'page':'false');$('friendsNav').setAttribute('aria-current',visible?'false':'page');}
+function browseRoom(){if(!frame)return;$('callArea').hidden=false;$('callArea').style.cssText='position:absolute;inset:0;visibility:hidden;pointer-events:none';$('callArea').setAttribute('aria-hidden','true');$('friendsBody').hidden=typeof workspaceView!=='undefined'&&!['friends','conversations'].includes(workspaceView);$('roomReturn').hidden=false;setRoomView(false);}
+function returnToRoom(){if(!frame)return;hideDirectMessages();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('friendsBody').hidden=true;$('roomReturn').hidden=true;setRoomView(true);}
 function stopStreamAudioHost(id=streamAudioHostId){if(!id||!webViewHost)return;webViewHost.postMessage({type:'stream-audio',action:'stop',id});if(streamAudioHostId===id)streamAudioHostId='';}
 function retryRoomLaunch(){if(!frame)return;const url=new URL(frame.src),id=crypto.randomUUID();url.searchParams.set('launchId',id);roomLaunch?.start(frame,id);frame.src=url.href;}
-function finishRoom(){if(typeof roomLaunch!=='undefined')roomLaunch?.stop();if(pending?.existingRoom)clearPending('The room closed. Its invitation was cancelled.');clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;setRoomView(false);for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();status('You left the room.');}
+function finishRoom(){if(typeof roomLaunch!=='undefined')roomLaunch?.stop();if(pending?.existingRoom)clearPending('The room closed. Its invitation was cancelled.');clearTimeout(leaveTimer);stopStreamAudioHost();roomFrameLoaded=false;frame?.remove();frame=null;currentRoom='';currentAccess=null;joined=sharing=false;publishRoom();$('callArea').style.cssText='';$('callArea').setAttribute('aria-hidden','false');$('callArea').hidden=true;$('roomReturn').hidden=true;$('friendsBody').hidden=false;setRoomView(false);for(const item of requests.filter(item=>item.kind==='join-request'))removeRequest(item.id).catch(()=>{});renderFriends();void window.VumiroWorkspace?.showFriends();status('You left the room.');}
 function leaveRoom(){if(!frame)return;frame.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);clearTimeout(leaveTimer);leaveTimer=setTimeout(finishRoom,1200);}
 addEventListener('message',event=>{
   if(!frame||event.source!==frame.contentWindow||event.origin!==location.origin)return;
@@ -1137,7 +1222,7 @@ async function requestJoin(room,mode){
 function showQaNotification(kind){
   if(window.__VUMIRO_LOCAL_QA__!==true)return;
   if(kind==='desktop'){
-    status('A sample notification will appear in 3 seconds. Minimize Vumiro to test the desktop popup.');
+    status('A sample desktop popup will appear in 3 seconds.');
     setTimeout(()=>notifySocial('message','qa-'+crypto.randomUUID(),'This is your desktop notification preview.',{type:'qa-preview',target:'inbox'},runtimeNow()+60000,friends[0]||{name:'Sample friend'}),3000);return;
   }
   if(kind==='stop'){if(pending?.qa)clearPending('QA call notification test stopped.');return;}
@@ -1156,9 +1241,50 @@ if(window.__VUMIRO_LOCAL_QA__===true){
   document.querySelectorAll('[data-qa-notification]').forEach(button=>{button.onclick=()=>showQaNotification(button.dataset.qaNotification);});
   document.querySelector('[data-qa-notification-stop]').onclick=()=>showQaNotification('stop');
   for(const [label,silent]of[['Preview shake',false],['Preview silent glow',true]]){const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>window.VumiroNudge?.effect({silent});$('qaNotificationTools').append(button);}
-}$('acceptInvite').onclick=async()=>{const value=pending;if(!value||value.direction!=='incoming')return;$('acceptInvite').disabled=true;try{if(value.qa){clearPending('QA incoming call notification test completed.');return;}if(runtimeNow()>=value.expires||!await validGrant(friendById(value.friend),profile.id,value.room,value.grant))throw Error('This call approval expired.');await answer(value,true);if(pending!==value)return;const name=friendById(value.friend)?.nickname||'Your friend';clearPending();openRoom(value.room,serviceUrl,name,value.grant);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message));}finally{$('acceptInvite').disabled=false;}};
-async function dismissInvite(){const value=pending;if(!value)return;if(value.qa){clearPending(value.direction==='incoming'?'QA call notification test dismissed.':'QA call notification test stopped.');return;}try{if(runtimeNow()<value.expires)await answer(value,false);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message));}if(pending===value)clearPending(value.direction==='incoming'?'Call declined.':'Call cancelled.');}
-$('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;$('leaveRoomFromBrowse').onclick=leaveRoom;$('browseApp').onclick=browseRoom;$('returnToRoom').onclick=returnToRoom;
+}$('acceptInvite').onclick=async()=>{
+  const value=pending;if(!value||value.direction!=='incoming'||value.responding)return false;
+  value.responding=true;renderPending();
+  try{
+    if(value.qa){clearPending('QA incoming call notification test completed.');return true;}
+    const safeDialogs=new Set(['addDialog','userCardDialog','roomDialog']);
+    const openDialogs=()=>[...document.querySelectorAll('dialog[open]')];
+    const isSettings=node=>node.classList.contains('settingsScreen');
+    if(openDialogs().some(isSettings)){
+      if(!window.VumiroSettingsExit||!await window.VumiroSettingsExit.requestClose())return false;
+    }
+    if(pending!==value||runtimeNow()>=value.expires)return false;
+    const protectedDialog=()=>openDialogs().some(node=>isSettings(node)||!safeDialogs.has(node.id));
+    if(protectedDialog()){status('Finish or cancel the open dialog before opening this notification.');return false;}
+    if(runtimeNow()>=value.expires||!await validGrant(friendById(value.friend),profile.id,value.room,value.grant))throw Error('This call approval expired.');
+    if(pending!==value||runtimeNow()>=value.expires)return false;
+    if(protectedDialog()){status('Finish or cancel the open dialog before opening this notification.');return false;}
+    await answer(value,true);if(pending!==value)return false;
+    for(const node of openDialogs())if(safeDialogs.has(node.id))node.close();
+    $('notificationDialog').close();
+    const name=friendById(value.friend)?.nickname||'Your friend';openRoom(value.room,serviceUrl,name,value.grant);clearPending();
+    if(typeof frame!=='undefined'&&frame){returnToRoom();frame.focus();}return true;
+  }catch(error){if(pending===value)status((globalThis.VumiroI18n?.error(error)||error.message));return false;}
+  finally{if(pending===value){value.responding=false;renderPending();}}
+};
+async function dismissInvite(){
+  const value=pending;if(!value||value.responding)return false;
+  value.responding=true;renderPending();
+  try{
+    if(value.qa){clearPending(value.direction==='incoming'?'QA call notification test dismissed.':'QA call notification test stopped.');return true;}
+    if(runtimeNow()<value.expires)await answer(value,false);
+    if(pending===value)clearPending(value.direction==='incoming'?'Call declined.':'Call cancelled.');return true;
+  }catch(error){if(pending===value){status((globalThis.VumiroI18n?.error(error)||error.message));clearPending();}return false;}
+  finally{if(pending===value){value.responding=false;renderPending();}}
+}
+async function acceptIncomingCall(id){
+  const value=pending;if(!value||value.nonce!==id||value.direction!=='incoming'||value.responding||value.expires<=runtimeNow())return false;
+  if([...document.querySelectorAll('dialog[open]')].some(node=>node.classList.contains('settingsScreen'))){
+    if(!window.VumiroSettingsExit||!await window.VumiroSettingsExit.requestClose())return false;
+  }
+  if(pending!==value||value.expires<=runtimeNow()||value.responding)return false;
+  return $('acceptInvite').onclick();
+}
+$('declineInvite').onclick=dismissInvite;$('cancelInvite').onclick=dismissInvite;$('leaveCall').onclick=leaveRoom;$('leaveRoomFromBrowse').onclick=leaveRoom;$('browseApp').onclick=()=>{void showFriendsOverview();};$('returnToRoom').onclick=returnToRoom;
 $('watchNav').onclick=returnToRoom;
 $('addFriend').onclick=$('emptyAdd').onclick=()=>{$('addError').textContent='';dialog('addDialog');};$('roomSettings').onclick=showSettings;
 $('reconnectService').onclick=()=>{clearPending();connect();};$('reconnectRoom').onclick=()=>{frame?.contentWindow.postMessage({type:'vumiro-call-reconnect'},location.origin);if(!ready)connect();status('Reconnecting your room…');};
@@ -1167,7 +1293,7 @@ $('updatesNav').onclick=()=>{if(!$('profileDialog').open){browseRoom();showProfi
 $('exportDiagnostics').onclick=()=>{try{window.VumiroDiagnostics?.exportLogs();$('diagnosticsStatus').textContent=webViewHost?'Choose where to save your diagnostic ZIP.':'Diagnostic history downloaded.';}catch{$('diagnosticsStatus').textContent='Could not export diagnostics. Try again.';}};
 if(webViewHost)webViewHost.addEventListener('message',event=>{if(event.data?.type==='diagnostics')$('diagnosticsStatus').textContent=event.data.action==='exported'?'Diagnostic ZIP saved. You can share it with the developer.':event.data.action==='cancelled'?'Export cancelled.':'Could not export diagnostics. Try again.';});
 
-if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))host.postMessage({type:'window',action:'drag'});};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='notification-activate'){const item=notificationItems.find(item=>item.id===state.id);if(item&&notificationAvailable(item))notificationAction(item);else openNotifications();return;}if(state?.type==='window-state'){document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;streamAudioReason=typeof state.reason==='string'?state.reason:'';renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','warning','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
+if(host){document.documentElement.classList.add('native');if(linuxHost){document.documentElement.classList.add('desktop-linux');$('windowControls').hidden=true;$('installUpdate').textContent='Download update';$('updateInstallHelp').textContent='Download the Linux package and install it manually. Your local profile and friends stay on this device.';}else{$('windowControls').hidden=false;document.querySelectorAll('[data-window]').forEach(button=>{button.onclick=()=>host.postMessage({type:'window',action:button.dataset.window});});$('windowTitlebar').onpointerdown=event=>{if(event.button===0&&!event.target.closest('button'))host.postMessage({type:'window',action:'drag'});};document.querySelectorAll('[data-edge]').forEach(edge=>{edge.onpointerdown=event=>{if(event.button===0)host.postMessage({type:'window',action:'resize',edge:edge.dataset.edge});};});}host.addEventListener('message',event=>{const state=event.data;if(state?.type==='notification-activate'){const item=notificationItems.find(item=>item.id===state.id);if(item&&notificationAvailable(item))notificationAction(item);else openNotifications();return;}if(state?.type==='window-state'){incomingCallWindowState=state;incomingCall?.setWindowState(state);document.documentElement.classList.toggle('backdrop',!linuxHost&&state.backdrop===true);document.documentElement.classList.toggle('maximized',state.maximized===true);document.documentElement.classList.toggle('fullscreen',state.fullscreen===true);return;}if(state?.type==='stream-audio'&&!linuxHost){if(state.action==='state'){streamAudioSupported=state.supported===true;streamAudioReason=typeof state.reason==='string'?state.reason:'';renderSettings();if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);return;}if(state.id===streamAudioHostId&&['started','stopped','warning','error'].includes(state.action)){if(state.action==='error')streamAudioHostId='';if(frame)frame.contentWindow.postMessage({...state,type:'vumiro-stream-audio'},location.origin);}return;}if(state?.type!=='updates')return;updateAvailable=state.available===true;updateBusy=state.busy===true;$('updateStatus').textContent=typeof state.message==='string'?state.message:'';$('clientVersion').textContent=typeof state.current==='string'?'Vumiro '+state.current:'';$('checkUpdate').disabled=updateBusy;$('installUpdate').disabled=!updateAvailable||updateBusy||(!linuxHost&&!!frame)||(!linuxHost&&!!pending);$('updateBadge').hidden=!updateAvailable;$('profileUpdateDot').hidden=!updateAvailable;$('updateProgress').hidden=!updateBusy;$('updateProgress').value=Number(state.progress)||0;});}
 if(host)host.addEventListener('message',event=>{
   if(event.data?.type!=='window-state')return;
   const caption=document.querySelector('[data-window="maximize"]');
@@ -1182,7 +1308,7 @@ $('createRoom').onclick=$('createRoomFromDialog').onclick=$('roomCreateNav').onc
   try{openRoom(newRoom(),serviceUrl,'Your room',undefined,{mode:'friends',name:'Your room'});}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message));}
 };
 $('roomNav').onclick=()=>{browseRoom();const expanded=$('roomSubnav').hidden;$('roomSubnav').hidden=!expanded;$('roomNav').setAttribute('aria-expanded',String(expanded));if(matchMedia('(max-width:570px)').matches)showRooms();};$('discoverRooms').onclick=$('manualRoom').onclick=()=>{browseRoom();$('roomError').textContent='';showRooms();};
-const goHome=()=>{browseRoom();$('friendsNav').classList.add('active');$('roomNav').classList.remove('active');$('settingsNav').classList.remove('active');$('updatesNav').classList.remove('active');$('profileNav').classList.remove('active');if(!frame)$('search').focus();};$('homeNav').onclick=$('friendsNav').onclick=goHome;$('settingsNav').onclick=()=>{browseRoom();showSettings();};$('profileNav').onclick=()=>{browseRoom();showProfile();};$('search').oninput=renderFriends;$('filterAll').onclick=()=>{filter='all';renderFriends();};$('filterOnline').onclick=()=>{filter='online';renderFriends();};document.querySelectorAll('[data-close]').forEach(button=>{button.onclick=()=>{if(button.dataset.close==='profileDialog'&&profileSaving)return;$(button.dataset.close).close();};});$('setupDialog').addEventListener('cancel',event=>event.preventDefault());
+const goHome=()=>{void showFriendsOverview();};$('homeNav').onclick=$('friendsNav').onclick=goHome;$('settingsNav').onclick=()=>{browseRoom();showSettings();};$('profileNav').onclick=()=>{browseRoom();showProfile();};$('search').oninput=renderFriends;$('filterAll').onclick=()=>{filter='all';renderFriends();};$('filterOnline').onclick=()=>{filter='online';renderFriends();};document.querySelectorAll('[data-close]').forEach(button=>{button.onclick=()=>{if(button.dataset.close==='profileDialog'&&profileSaving)return;$(button.dataset.close).close();};});$('setupDialog').addEventListener('cancel',event=>event.preventDefault());
 $('setupForm').onsubmit=async event=>{event.preventDefault();if(!lobbyInitialized)return;$('createProfile').disabled=true;$('setupError').textContent='';try{profile=await local.createProfile($('setupName').value);await window.VumiroAccount?.onProfileReady();try{await seedLocalQaFriends();}catch(error){console.warn('Could not add LOCAL QA sample friends.',error);} $('setupDialog').close();renderProfile();await reloadFriends();connect();showInvitation();}catch(error){$('setupError').textContent=(globalThis.VumiroI18n?.error(error)||error.message);}finally{$('createProfile').disabled=false;}};
 $('profileForm').onsubmit=async event=>{
   event.preventDefault();if(profileSaving)return;profileSaving=true;profileFeedback('');
@@ -1251,13 +1377,15 @@ $('profileDialog').addEventListener('cancel',event=>{if(profileSaving)event.prev
 const notificationPanel=$('notificationDialog');
 roomLaunch=window.VumiroMotion?.roomLaunch({slot:$('callFrameSlot'),getFrame:()=>frame,origin:location.origin,onRetry:retryRoomLaunch,onCancel:()=>{frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);finishRoom();}});
 notificationCenter=window.VumiroNotificationCenter?.create({bell:$('notificationOpen'),panel:notificationPanel,list:$('notificationList'),empty:$('notificationEmpty'),onOpen:id=>{const item=notificationItems.find(item=>item.id===id);return item?notificationAction(item):false;},onDismiss:id=>{const index=notificationItems.findIndex(item=>item.id===id);if(index>=0)notificationItems.splice(index,1);renderNotifications();}});
+incomingCall=window.VumiroIncomingCall?.create({now:runtimeNow,isCurrent:id=>!!pending&&pending.direction==='incoming'&&pending.nonce===id&&pending.expires>runtimeNow()&&!blocked.includes(pending.friend)&&!blocking.has(pending.friend),canRing:()=>appSounds&&appSoundVolume>0&&notificationSettings.call.sound&&!pending?.responding,ring:()=>playUiCue('ring'),onAccept:acceptIncomingCall,onReject:id=>pending?.nonce===id?dismissInvite():false,onError:error=>status(globalThis.VumiroI18n?.error(error)||error.message)});
+incomingCall?.setWindowState(incomingCallWindowState);
 if(notificationCenter)notificationPanel.close=()=>notificationCenter.close();
 else $('notificationOpen').onclick=openNotifications;
 friendNudges=window.VumiroFriendNudges?.create({getFriend:id=>id===profile?.id||blocked.includes(id)||blocking.has(id)?null:friendById(id),isOnline:id=>online.has(id),isReady:()=>ready,transport:id=>peerProfiles.nudge(id),preferences:window.VumiroNudge.preferences(localStorage),status,toast,panel:$('notificationSettings'),anchors:[{anchor:$('contactCall'),id:()=>selected},{anchor:$('userCardCall'),id:()=>userCardId}]});
 const notificationGrid=$('notificationSettings').querySelector('.notificationOptions');
 if(notificationGrid){const name=document.createElement('span');name.textContent='Chat messages';notificationGrid.append(name);for(const [type,label]of[['Visual','Visual alert for chat messages'],['Sound','Sound for chat messages']]){const row=document.createElement('label'),input=document.createElement('input');row.className='checkLabel';input.type='checkbox';input.id='notificationMessage'+type;row.append(input,document.createTextNode(label));notificationGrid.append(row);}}
 const notificationPlatformHelp=$('notificationSettings').querySelector('p.help');
-if(notificationPlatformHelp)notificationPlatformHelp.textContent+=linuxHost?' Linux can also show system notifications when supported.':' On Windows, notifications also appear as desktop popups when Vumiro is in the background.';
+if(notificationPlatformHelp){const platformHelp=document.createElement('span');platformHelp.textContent=linuxHost?'Linux can also show system notifications when supported.':'On Windows, visual alerts appear as desktop corner popups, including while Vumiro has focus.';notificationPlatformHelp.append(document.createTextNode(' '),platformHelp);}
 resetNotificationDraft();renderNotifications();
 $('saveNotifications').onclick=()=>{const saved=saveNotificationPreferences();if(saved)toast('Notification settings saved.');else toast('Could not save notification settings.','error');return saved;};
 $('cancelNotifications').onclick=()=>{resetNotificationDraft();toast('Notification changes discarded.');};
@@ -1277,8 +1405,8 @@ window.VumiroSettingsSections=[
 ];
 $('roomForm').onsubmit=async event=>{event.preventDefault();$('roomError').textContent='';try{const {room,mode}=await parseRoomInvitation($('roomInvitation').value);await requestJoin(room,mode);$('roomForm').reset();}catch(error){$('roomError').textContent=(globalThis.VumiroI18n?.error(error)||error.message);}};
 addEventListener('storage',event=>{if(event.key==='vumiro-stream-settings'&&event.newValue){try{settings=normalizeSettings(JSON.parse(event.newValue));renderSettings();frame?.contentWindow.postMessage({type:'vumiro-stream-settings',settings},location.origin);}catch{}}});
-addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++generation;peerProfiles?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();rejectSocialAcks();clearTimeout(reconnectTimer);clearTimeout(leaveTimer);clearTimeout(requestTimer);clearTimeout(lookupTimer);if(pending)clearTimeout(pending.timer);const previous=socket;socket=null;previous?.close();frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);});
-(async()=>{try{const savedService=read('st-friends-signaling'),qaService=window.__VUMIRO_LOCAL_QA__===true&&typeof window.__VUMIRO_LOCAL_QA_SIGNALING__==='string'?window.__VUMIRO_LOCAL_QA_SIGNALING__:null;serviceUrl=normalizeService(qaService!==null?qaService:savedService||query.get('signaling')||location.origin);if(qaService===null&&savedService&&savedService!==serviceUrl)save('st-friends-signaling',serviceUrl);if(!await window.VumiroAccount?.ready?.())return;profile=await local.initialize();blocked=await local.listBlocked();if(!profile){serviceState('Profile needed');status('Create your local profile to get started.');dialog('setupDialog');return;}try{await seedLocalQaFriends();}catch(error){console.warn('Could not add LOCAL QA sample friends.',error);status('Some LOCAL QA sample friends could not be added.');}window.VumiroMotion?.markLaunchSeen();renderProfile();await hydrateRequests();await reloadFriends();lobbyInitialized=true;connect();showInvitation();}catch(error){serviceState('Not connected');status((globalThis.VumiroI18n?.error(error)||error.message));$('setupError').textContent=(globalThis.VumiroI18n?.error(error)||error.message);}})();
+addEventListener('beforeunload',()=>{serverWorkspaceController?.destroy();window.VumiroDirectTransport?.disconnected();window.VumiroDirectChatController?.destroy();incomingCall?.destroy();clearInterval(ringTimer);stopStreamAudioHost();stopped=true;++generation;peerProfiles?.reset();window.VumiroGamingDirectory?.reset();if(typeof friendNudges!=='undefined')friendNudges?.reset();rejectSocialAcks();clearTimeout(reconnectTimer);clearTimeout(leaveTimer);clearTimeout(requestTimer);clearTimeout(lookupTimer);if(pending)clearTimeout(pending.timer);const previous=socket;socket=null;previous?.close();frame?.contentWindow.postMessage({type:'vumiro-call-leave'},location.origin);});
+(async()=>{try{const savedService=read('st-friends-signaling'),qaService=window.__VUMIRO_LOCAL_QA__===true&&typeof window.__VUMIRO_LOCAL_QA_SIGNALING__==='string'?window.__VUMIRO_LOCAL_QA_SIGNALING__:null;serviceUrl=normalizeService(qaService!==null?qaService:savedService||query.get('signaling')||location.origin);if(qaService===null&&savedService&&savedService!==serviceUrl)save('st-friends-signaling',serviceUrl);if(!await window.VumiroAccount?.ready?.())return;profile=await local.initialize();blocked=await local.listBlocked();if(!profile){serviceState('Profile needed');status('Create your local profile to get started.');dialog('setupDialog');return;}try{await seedLocalQaFriends();}catch(error){console.warn('Could not add LOCAL QA sample friends.',error);status('Some LOCAL QA sample friends could not be added.');}window.VumiroMotion?.markLaunchSeen();renderProfile();await hydrateRequests();await reloadFriends();startDirectMessages();lobbyInitialized=true;connect();showInvitation();}catch(error){serviceState('Not connected');status((globalThis.VumiroI18n?.error(error)||error.message));$('setupError').textContent=(globalThis.VumiroI18n?.error(error)||error.message);}})();
 })();
 
 /* Full-page settings navigation. */
@@ -1290,7 +1418,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   if (!profileDialog) return;
   const sections = [
     ['profile', 'Your profile'], ['account', 'Account'], ['audio', 'Voice & audio'],
-    ['stream', 'Screen sharing'], ['sounds', 'App sounds'], ['notifications', 'Notifications'], ['connection', 'Connection'], ['blocked', 'Blocked people'], ['updates', 'App updates']
+    ['stream', 'Screen sharing'], ['sounds', 'App sounds'], ['notifications', 'Notifications'], ['appearance', 'Appearance & startup'], ['storage', 'Data & servers'], ['support', 'Support Vumiro'], ['connection', 'Connection'], ['blocked', 'Blocked people'], ['updates', 'App updates']
   ];
   if (window.__VUMIRO_LOCAL_QA__ === true) sections.push(['qa', 'QA notification tests']);
   const panels = new Map();
@@ -1431,7 +1559,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   const original = [...profileDialog.children];
   const heading = original.find(node => node.classList.contains('dialogHead'));
   const details = original.filter(node => node.tagName === 'DETAILS' && node.id !== 'accountDetails');
-  const names = new Map(details.map(node => [node, node.id === 'streamDetails' ? 'stream' : node.id === 'appSoundSettings' ? 'sounds' : node.id === 'notificationSettings' ? 'notifications' : node.id === 'updateDetails' ? 'updates' : node.id === 'qaNotificationTools' ? 'qa' : node.querySelector('summary')?.textContent.includes('Connection') ? 'connection' : 'blocked']));
+  const names = new Map(details.map(node => [node, node.id === 'appearanceDetails' ? 'appearance' : node.id === 'chatStorageDetails' ? 'storage' : node.id === 'supportDetails' ? 'support' : node.id === 'streamDetails' ? 'stream' : node.id === 'appSoundSettings' ? 'sounds' : node.id === 'notificationSettings' ? 'notifications' : node.id === 'updateDetails' ? 'updates' : node.id === 'qaNotificationTools' ? 'qa' : node.querySelector('summary')?.textContent.includes('Connection') ? 'connection' : 'blocked']));
   const profilePanel = element('section', 'settingsPanel'); profilePanel.id = 'settingsProfilePanel';
   panels.set('profile', profilePanel);
   if (heading?.querySelector('h2')) {
@@ -1462,7 +1590,7 @@ addEventListener('beforeunload',()=>{stopStreamAudioHost();stopped=true;++genera
   for (const id of ['profileNav', 'shareMyCode']) $(id)?.addEventListener('click', () => selectPanel('profile'), true);
   for (const id of ['settingsNav', 'roomSettings']) $(id)?.addEventListener('click', () => selectPanel('stream'), true);
   $('updatesNav')?.addEventListener('click', () => selectPanel('updates'), true);
-  for (const [id, key] of [['accountNav', 'account'], ['audioNav', 'audio']]) {
+  for (const [id, key] of [['accountNav', 'account'], ['audioNav', 'audio'], ['supportNav', 'support']]) {
     if ($(id)) $(id).onclick = () => navigate(key);
   }
   window.VumiroAccount?.setSettingsNavigation?.(() => navigate('account'));

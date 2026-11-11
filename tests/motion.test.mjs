@@ -5,20 +5,30 @@ import vm from 'node:vm';
 
 const path=new URL('../Vumiro.Client/WebServer/motion.js',import.meta.url);
 const source=fs.existsSync(path)?fs.readFileSync(path,'utf8'):'';
-function harness({reduced=false,storage=new Map(),native}={}) {
+function harness({reduced=false,storage=new Map(),native,launchId,disabled=false,now=1000,nodes={},accountReady,readyState,waitForHost=false}={}) {
   const timers=new Map(),listeners=new Map();let next=0;
   const hostListeners=new Map(),hostMessages=[];
   const media={matches:reduced,addEventListener(name,fn){this.changed=fn;},removeEventListener(){}};
-  const document={hidden:false,getElementById:()=>null,addEventListener(name,fn){listeners.set(name,fn);},removeEventListener(name){listeners.delete(name);}};
-  const app={document,sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},matchMedia:()=>media,setTimeout:(fn,ms)=>{const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),addEventListener(){},removeEventListener(){}};
+  const document={hidden:false,readyState,getElementById:id=>nodes[id]||null,addEventListener(name,fn){listeners.set(name,fn);},removeEventListener(name){listeners.delete(name);}};
+  const windowListeners=new Map();
+  const app={document,__VUMIRO_LAUNCH_ID__:launchId,__VUMIRO_WAIT_FOR_HOST__:waitForHost,Date:{now:()=>now},localStorage:{getItem:()=>disabled?'true':null},sessionStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},matchMedia:()=>media,setTimeout:(fn,ms)=>{const id=++next;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id),addEventListener(name,fn){windowListeners.set(name,fn);},removeEventListener(name){windowListeners.delete(name);}};
   const host={addEventListener:(name,fn)=>hostListeners.set(name,fn),postMessage:message=>hostMessages.push(message)};
-  if(native==='linux')app.vumiroDesktop=host;else if(native)app.chrome={webview:host};
+  if(native==='linux')app.vumiroDesktop={...host,launchId};else if(native)app.chrome={webview:host};
+  if(accountReady)app.VumiroAccount={ready:accountReady};
   app.window=app;vm.createContext(app);vm.runInContext(source,app);
   assert.ok(app.VumiroMotion,'motion controller is available');
-  return {api:app.VumiroMotion,timers,media,document,listeners,hostMessages,hostState(data){hostListeners.get('message')?.({data});},advance(ms){for(const [id,timer] of [...timers])if(timer.ms<=ms){timers.delete(id);timer.fn();}}};
+  return {api:app.VumiroMotion,timers,media,document,listeners,hostMessages,hostReady(){app.__VUMIRO_HOST_READY__=true;windowListeners.get('vumiro-host-ready')?.();},hostState(data){hostListeners.get('message')?.({data});},advance(ms){for(const [id,timer] of [...timers])if(timer.ms<=ms){timers.delete(id);timer.fn();}}};
 }
 function element(){const classes=new Set();return {hidden:false,inert:false,dataset:{},textContent:'',attributes:{},classList:{add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)},addEventListener(name,fn){this[name]=fn;},removeEventListener(name){delete this[name];},setAttribute(name,value){this.attributes[name]=value;},focus(){this.focused=true;}};}
 function bootNodes(){return {overlay:element(),content:element(),skip:element(),art:{setCurrentTime(){},unpauseAnimations(){},pauseAnimations(){}}};}
+
+test('native startup update overlay cannot consume the intro before the app is visible',()=>{
+  const nodes=bootNodes(),app=harness({waitForHost:true,nodes:{bootReveal:nodes.overlay,authContent:nodes.content,bootSkip:nodes.skip,bootArt:nodes.art}});
+  assert.equal(nodes.overlay.hidden,true);assert.equal(app.timers.size,0);
+  app.hostReady();assert.equal(nodes.overlay.hidden,false);assert.equal(app.timers.size,2);assert.equal(nodes.content.inert,true);
+  const host=fs.readFileSync(new URL('../Vumiro.Client/Program.cs',import.meta.url),'utf8'),navigation=host.slice(host.indexOf('browser.CoreWebView2.NavigationCompleted +='),host.indexOf('var signaling = DefaultSignaling;'));
+  assert.ok(navigation.indexOf('vumiro-host-ready')>navigation.indexOf('DismissStartupOverlay()'));
+});
 
 test('launch reveal completes once per browser session and unlocks sign in',()=>{
   const storage=new Map(),app=harness({storage}),nodes=bootNodes();app.api.boot(nodes);
@@ -27,6 +37,39 @@ test('launch reveal completes once per browser session and unlocks sign in',()=>
   app.advance(4800);assert.equal(nodes.overlay.hidden,true);assert.equal(nodes.content.inert,false);
   const later=harness({storage}),second=bootNodes();later.api.boot(second);
   assert.equal(second.overlay.hidden,true);assert.equal(later.timers.size,0);
+});
+test('native cold launch replays artwork while reloads in the same process stay quiet',()=>{
+  for(const native of ['windows','linux']){
+    const storage=new Map(),first=harness({native,launchId:'process-one',storage}),one=bootNodes();first.api.boot(one);first.advance(4800);
+    const reload=harness({native,launchId:'process-one',storage}),two=bootNodes();reload.api.boot(two);assert.equal(two.overlay.hidden,true);
+    const cold=harness({native,launchId:'process-two',storage}),three=bootNodes();cold.api.boot(three);assert.equal(three.overlay.hidden,false);assert.equal(three.content.inert,true);
+  }
+});
+test('persistent disable preference skips launch without trapping lobby controls',()=>{const app=harness({disabled:true}),nodes=bootNodes();app.api.boot(nodes);assert.equal(nodes.overlay.hidden,true);assert.equal(nodes.content.inert,false);assert.equal(app.timers.size,0);});
+test('redirect during launch resumes the remaining animation on the destination page',()=>{
+  const storage=new Map(),first=harness({launchId:'process-one',storage,now:1000});first.api.boot(bootNodes());
+  const next=harness({launchId:'process-one',storage,now:3000}),nodes=bootNodes();let time;nodes.art.setCurrentTime=value=>{time=value;};nodes.overlay.classList.add('boot-exiting');next.api.boot(nodes);
+  assert.equal(nodes.overlay.hidden,false);assert.equal(nodes.overlay.classList.contains('boot-exiting'),false);assert.equal(time,2);assert.ok([...next.timers.values()].some(timer=>timer.ms===2800));
+});
+test('friends auto boot targets the lobby content shell',()=>{const nodes=bootNodes();harness({nodes:{bootReveal:nodes.overlay,friendsContent:nodes.content,bootSkip:nodes.skip,bootArt:nodes.art}});assert.equal(nodes.overlay.hidden,false);assert.equal(nodes.content.inert,true);});
+test('bundled lobby boot waits for account readiness and is not consumed by markLaunchSeen',async()=>{
+ const nodes=bootNodes(),storage=new Map(),app=harness({storage,readyState:'loading',accountReady:async()=>true,nodes:{bootReveal:nodes.overlay,friendsContent:nodes.content,bootSkip:nodes.skip,bootArt:nodes.art}});
+ app.api.markLaunchSeen();assert.equal(storage.has('vumiro-launch-reveal-seen'),false);app.listeners.get('DOMContentLoaded')();await Promise.resolve();assert.equal(nodes.content.inert,true);assert.equal(nodes.overlay.hidden,false);
+});
+test('signed-out lobby redirect does not consume launch artwork before auth loads',async()=>{
+ const nodes=bootNodes(),storage=new Map(),app=harness({storage,accountReady:async()=>false,nodes:{bootReveal:nodes.overlay,friendsContent:nodes.content}});await Promise.resolve();assert.equal(storage.has('vumiro-launch-reveal-seen'),false);assert.equal(app.timers.size,0);assert.equal(nodes.overlay.hidden,true);assert.equal(nodes.content.inert,false);
+ const auth=harness({storage}),authNodes=bootNodes();auth.api.boot(authNodes);assert.equal(authNodes.overlay.hidden,false);
+});
+test('actual reveal restarts the CSS failsafe after a slow account startup',()=>{
+ const app=harness(),nodes=bootNodes(),changes=[];nodes.overlay.style={set animation(value){changes.push(value);}};Object.defineProperty(nodes.overlay,'offsetWidth',{get(){changes.push('layout');return 100;}});
+ app.api.boot(nodes);assert.deepEqual(changes,['none','layout','']);assert.equal(nodes.overlay.hidden,false);
+});
+test('native hosts expose an immutable launch identifier from the current process',()=>{
+ const windows=fs.readFileSync(new URL('../Vumiro.Client/Program.cs',import.meta.url),'utf8'),linux=fs.readFileSync(new URL('../Vumiro.Linux/main.cjs',import.meta.url),'utf8'),preload=fs.readFileSync(new URL('../Vumiro.Linux/preload.js',import.meta.url),'utf8');
+ assert.match(windows,/readonly string launchId\s*=\s*Guid.NewGuid\(\)/);assert.match(windows,/AddScriptToExecuteOnDocumentCreatedAsync\([^\n]*__VUMIRO_LAUNCH_ID__/);assert.match(windows,/writable:false,configurable:false/);
+ assert.match(linux,/const launchId\s*=\s*randomUUID\(\)/);assert.match(linux,/additionalArguments:[^\n]*--vumiro-launch-id=/);
+ let bridge;vm.runInNewContext(preload,{require:()=>({contextBridge:{exposeInMainWorld:(_name,value)=>{bridge=value;}},ipcRenderer:{on(){}}}),process:{argv:['--vumiro-launch-id=11111111-1111-4111-8111-111111111111']}});
+ assert.equal(bridge.launchId,'11111111-1111-4111-8111-111111111111');assert.equal(Object.isFrozen(bridge),true);
 });
 test('skip cancels reveal timers and restores keyboard access immediately',()=>{
   const app=harness(),nodes=bootNodes();app.api.boot(nodes);nodes.skip.click();

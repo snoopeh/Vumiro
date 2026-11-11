@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net48</TargetFramework><PlatformTarget>x64</PlatformTarget><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" GeneratePathProperty="true" ExcludeAssets="all" />
+    <Compile Include="Program.cs" />
+    <Compile Include="../../Vumiro.Client/GamingDependencies.cs" Link="GamingDependencies.cs" />
+    <EmbeddedResource Include="$(PkgNefarius_ViGEm_Client)/lib/netstandard2.0/Nefarius.ViGEm.Client.dll" LogicalName="Vumiro.Gaming.ViGEmClient" />
+  </ItemGroup>
+</Project>

@@ -114,6 +114,114 @@ internal static class Program
         await StalledResponseCancellation();
         HelperRecovery();
         MissingHelperMarksPackageIncomplete();
+        DesktopIconFiles();
+        DesktopIconMigration();
+    }
+
+    private static object ShortcutProperty(object shortcut, string name, params object[] value)
+    {
+        return shortcut.GetType().InvokeMember(name, value.Length == 0 ? BindingFlags.GetProperty : BindingFlags.SetProperty,
+            null, shortcut, value.Length == 0 ? null : value);
+    }
+
+    private static void DesktopIconFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "vumiro-icon-files-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var path = DesktopBranding.EnsureIconFile(root);
+            var sourceRoot = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "../../../../.."));
+            var expected = File.ReadAllBytes(Path.Combine(sourceRoot, "Vumiro.Client", "Brand", "vumiro.ico"));
+            string hash;
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+                hash = BitConverter.ToString(sha.ComputeHash(expected)).Replace("-", "").ToLowerInvariant();
+            Check(Path.GetFileName(path) == "vumiro-" + hash + ".ico", "The shell icon key must change with artwork, independently of the executable path or app version.");
+            Check(File.ReadAllBytes(path).SequenceEqual(expected), "Cached ICO must retain every size from the packaged brand resource.");
+            Check(DesktopBranding.EnsureIconFile(root) == path, "Repeated launches must reuse the same artwork key.");
+            File.WriteAllBytes(path, expected.Take(expected.Length / 2).ToArray());
+            Check(DesktopBranding.EnsureIconFile(root) == path && File.ReadAllBytes(path).SequenceEqual(expected),
+                "A truncated existing icon cache entry must be repaired at its expected artwork hash path.");
+            File.WriteAllBytes(path, Enumerable.Repeat((byte)0, expected.Length).ToArray());
+            Check(DesktopBranding.EnsureIconFile(root) == path && File.ReadAllBytes(path).SequenceEqual(expected),
+                "A same-size corrupt icon cache entry must be repaired before shortcuts reference it.");
+            Check(Directory.GetFiles(root).Length == 1, "Atomic icon publication must leave only the complete ICO after repair.");
+            using (var icon = DesktopBranding.LoadIcon()) Check(icon.Width > 0 && icon.Height > 0, "Window and tray icon must load directly from the packaged resource.");
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static void DesktopIconMigration()
+    {
+        var branding = typeof(ClientUpdates).Assembly.GetType("Vumiro.Client.DesktopBranding");
+        Check(branding != null, "Desktop branding must migrate the unchanged executable icon key after an update.");
+        var refresh = branding.GetMethod("RefreshShortcuts", BindingFlags.Static | BindingFlags.NonPublic);
+        Check(refresh != null, "Icon migration must accept explicit shortcut roots for isolated verification.");
+        var root = Path.Combine(Path.GetTempPath(), "vumiro-icons-test-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "install");
+        var executable = Path.Combine(install, "Vumiro.exe");
+        var icon = Path.Combine(root, "icons", "vumiro-artwork.ico");
+        var shortcuts = Path.Combine(root, "shortcuts");
+        var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+        var notifications = new List<string>();
+        try
+        {
+            Directory.CreateDirectory(install); Directory.CreateDirectory(shortcuts);
+            Directory.CreateDirectory(Path.Combine(shortcuts, "nested"));
+            File.WriteAllText(executable, "fixture");
+            var cases = new[] {
+                new[] { "Renamed app.lnk", executable, executable + ",0", icon + ",0" },
+                new[] { "nested/Pinned copy.lnk", executable, ",0", icon + ",0" },
+                new[] { "Vumiro.lnk", Path.Combine(root, "other", "Vumiro.exe"), executable + ",0", executable + ",0" },
+                new[] { "Local QA.lnk", Path.Combine(root, "Local QA.cmd"), executable + ",0", executable + ",0" },
+                new[] { "Custom icon.lnk", executable, Path.Combine(root, "custom.ico") + ",0", Path.Combine(root, "custom.ico") + ",0" },
+                new[] { "Different index.lnk", executable, executable + ",1", executable + ",1" },
+                new[] { "Earlier artwork.lnk", executable, Path.Combine(root, "icons", "vumiro-previous.ico") + ",0", icon + ",0" }
+            };
+            foreach (var item in cases)
+            {
+                var link = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell,
+                    new object[] { Path.Combine(shortcuts, item[0]) });
+                try
+                {
+                    ShortcutProperty(link, "TargetPath", item[1]); ShortcutProperty(link, "IconLocation", item[2]);
+                    ShortcutProperty(link, "Arguments", "--keep-this");
+                    link.GetType().InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
+                }
+                finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(link); }
+            }
+            refresh.Invoke(null, new object[] { executable, icon, new[] { shortcuts }, (Action<string>)notifications.Add, (Action<string>)(message => { }), true });
+            foreach (var item in cases)
+            {
+                var path = Path.Combine(shortcuts, item[0]);
+                var link = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { path });
+                try
+                {
+                    Check((string)ShortcutProperty(link, "IconLocation") == item[3], "Migrate only this executable's default icon: " + item[0]);
+                    Check((string)ShortcutProperty(link, "TargetPath") == item[1] && (string)ShortcutProperty(link, "Arguments") == "--keep-this",
+                        "Icon migration must preserve shortcut launch details: " + item[0]);
+                }
+                finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(link); }
+            }
+            Check(notifications.Count == 3, "Notify exactly the changed shortcuts, without global icon-cache invalidation.");
+            refresh.Invoke(null, new object[] { executable, icon, new[] { shortcuts }, (Action<string>)notifications.Add, (Action<string>)(message => { }), true });
+            Check(notifications.Count == 3, "An unchanged artwork must not rewrite or notify shortcuts on every launch.");
+            var nextIcon = Path.Combine(root, "icons", "vumiro-next.ico");
+            DesktopBranding.RefreshShortcuts(executable, nextIcon, new[] { shortcuts }, notifications.Add, message => { });
+            var nested = shell.GetType().InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell,
+                new object[] { Path.Combine(shortcuts, "nested", "Pinned copy.lnk") });
+            try
+            {
+                Check((string)ShortcutProperty(nested, "IconLocation") == icon + ",0",
+                    "Desktop and taskbar shortcut refresh must not traverse nested unrelated workspaces.");
+            }
+            finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(nested); }
+            Check(notifications.Count == 5, "A bounded desktop refresh updates only its two matching top-level shortcuts.");
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
     }
 
     private static void MissingHelperMarksPackageIncomplete()

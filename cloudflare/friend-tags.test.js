@@ -5,8 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 
 // Exercise production Durable Object logic and SQL, replacing only the Workers
 // host class and socket transport. All identity proofs use real ECDSA keys.
+const directSource=readFileSync(new URL('./direct-messages.js',import.meta.url),'utf8').replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject { constructor(ctx,env) { this.ctx=ctx;this.env=env; } }');
+const directModule=`data:text/javascript;base64,${Buffer.from(directSource).toString('base64')}`;
 const source=readFileSync(new URL('./friend-directory.js',import.meta.url),'utf8')
-  .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject { constructor(ctx,env) { this.ctx=ctx;this.env=env; } }');
+  .replace("from './gaming-signals.js'","from '"+new URL('./gaming-signals.js',import.meta.url).href+"'")
+  .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject { constructor(ctx,env) { this.ctx=ctx;this.env=env; } }')
+  .replace("'./direct-messages.js'",JSON.stringify(directModule));
 const {FriendDirectory,allocationBucket}=await import(`data:text/javascript;base64,${Buffer.from(source+'\nexport {allocationBucket};').toString('base64')}`);
 const encode=value=>Buffer.from(value).toString('base64url');
 const text=new TextEncoder();
@@ -374,6 +378,7 @@ test('alias protocol rejects array coercion for room identifiers and request non
 test('short links redirect with only the opaque token, remove extra URL data and disable caching/referrers',async()=>{
   const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
     .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
+    .replace("export { DirectConversation } from './direct-messages.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
     .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
@@ -389,10 +394,11 @@ test('short links redirect with only the opaque token, remove extra URL data and
 test('Worker serves every script referenced by current client HTML while rejecting unknown assets',async()=>{
   const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
     .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
+    .replace("export { DirectConversation } from './direct-messages.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
     .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
-  const scripts=new Set();
+  const scripts=new Set(['/server-workspace.js']);
   for(const page of ['auth','friends','call']) {
     const html=readFileSync(new URL(`../Vumiro.Client/WebServer/${page}.html`,import.meta.url),'utf8');
     for(const match of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/g)) scripts.add(match[1]);
@@ -442,4 +448,26 @@ test('migration before a source has a named handle still consumes its one-time h
   await announce(app,bw,'Mira',{username:'mira',transition:proof});
   assert.notEqual(bw.deserializeAttachment().friendHandle,replacement);
   assert.equal(app.sqlite.prepare('SELECT discriminator FROM friend_handles WHERE identity_id=?').get(a.id).discriminator,replacement.split('#')[1]);
+});
+
+
+test('gaming invitations relay only real signed mutual friends and reject replay/tampering',async t=>{
+  const app=fixture(t),alice=await identity(),bob=await identity(),stranger=await identity();
+  const a=await authenticate(app,alice),b=await authenticate(app,bob),c=await authenticate(app,stranger);
+  a.serializeAttachment({...a.deserializeAttachment(),watch:[bob.id]});b.serializeAttachment({...b.deserializeAttachment(),watch:[alice.id]});
+  const {gamingSignalText}=await import('./gaming-signals.js');
+  const signal={type:'gaming-signal',from:alice.id,to:bob.id,session:'0123456789abcdef0123456789abcdef',nonce:encode(crypto.getRandomValues(new Uint8Array(18))),expires:Date.now()+60000,payload:{kind:'invite',mode:'together'}};
+  signal.signature=await alice.sign(gamingSignalText(signal));
+  await app.directory.webSocketMessage(a,JSON.stringify(signal));
+  assert.equal(b.messages.filter(m=>m.type==='gaming-signal').length,1);
+  await app.directory.webSocketMessage(a,JSON.stringify(signal));assert.equal(b.messages.filter(m=>m.type==='gaming-signal').length,1,'replay is not relayed');
+  const forged={...signal,nonce:encode(crypto.getRandomValues(new Uint8Array(18)))};
+  await app.directory.webSocketMessage(c,JSON.stringify(forged));assert.equal(b.messages.filter(m=>m.type==='gaming-signal').length,1,'sender cannot impersonate a friend');
+});
+test('gaming relay rechecks friendship blocks and source socket after signature verification',async t=>{
+  const app=fixture(t),alice=await identity(),bob=await identity();const a=await authenticate(app,alice),b=await authenticate(app,bob);
+  a.serializeAttachment({...a.deserializeAttachment(),watch:[bob.id]});b.serializeAttachment({...b.deserializeAttachment(),watch:[alice.id],blocked:[alice.id]});
+  const {gamingSignalText}=await import('./gaming-signals.js');
+  const signal={type:'gaming-signal',from:alice.id,to:bob.id,session:'0123456789abcdef0123456789abcdef',nonce:encode(crypto.getRandomValues(new Uint8Array(18))),expires:Date.now()+60000,payload:{kind:'invite',mode:'lan'}};signal.signature=await alice.sign(gamingSignalText(signal));
+  await app.directory.webSocketMessage(a,JSON.stringify(signal));assert.equal(b.messages.some(m=>m.type==='gaming-signal'),false);
 });

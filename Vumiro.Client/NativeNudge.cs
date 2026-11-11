@@ -10,13 +10,16 @@ namespace Vumiro.Client {
  internal sealed class NativeNudge : IDisposable {
   private readonly Form owner;
   private readonly Func<bool> fullscreen;
+  private readonly Func<Rectangle?> externalFullscreen;
   private readonly Timer timer=new Timer { Interval=16 };
   private readonly Stopwatch clock=new Stopwatch();
-  private Rectangle original;
+  private Rectangle original,expected;
+  private FormWindowState originalState;
+  private bool originalFullscreen;
   private bool moving,disposed;
   private ScreenNudgeGlow glow;
   internal bool Active {get;private set;}
-  internal NativeNudge(Form owner,Func<bool> fullscreen){this.owner=owner;this.fullscreen=fullscreen;timer.Tick+=(s,e)=>Tick();}
+  internal NativeNudge(Form owner,Func<bool> fullscreen,Func<Rectangle?> externalFullscreen=null){this.owner=owner;this.fullscreen=fullscreen;this.externalFullscreen=externalFullscreen??ForegroundAttention.ExternalFullscreenMonitor;timer.Tick+=(s,e)=>Tick();}
   internal static bool TryParse(Dictionary<string,object> message,out bool silent){
    silent=false;object type,action,value;
    if(message==null||message.Count!=3||!message.TryGetValue("type",out type)||!Equals(type,"window")||!message.TryGetValue("action",out action)||!Equals(action,"nudge")||!message.TryGetValue("silent",out value)||!(value is bool))return false;
@@ -31,29 +34,31 @@ namespace Vumiro.Client {
   internal bool Start(bool silent){
    if(disposed||owner.IsDisposed)return false;
    if(Active){if(silent&&glow==null)ShowGlow();return false;}
-   Active=true;original=owner.Bounds;
-   // Motion of a maximized/hidden window would break its desktop state.
-   moving=!silent&&owner.Visible&&owner.WindowState==FormWindowState.Normal&&!fullscreen()&&MotionAllowed();
+   Active=true;original=expected=owner.Bounds;originalState=owner.WindowState;originalFullscreen=fullscreen();
+   moving=!silent&&!externalFullscreen().HasValue&&owner.Visible&&owner.WindowState!=FormWindowState.Minimized&&MotionAllowed();
    if(!moving)ShowGlow();
    clock.Restart();timer.Start();return true;
   }
   private void ShowGlow(){
    if(moving){RestorePosition();moving=false;}
    if(glow!=null)return;
-   glow=new ScreenNudgeGlow(Screen.FromControl(owner).Bounds);glow.Show();
+   var monitor=externalFullscreen();
+   glow=new ScreenNudgeGlow(monitor??(owner.Visible&&owner.WindowState!=FormWindowState.Minimized?owner.Bounds:Screen.FromControl(owner).WorkingArea),monitor.HasValue);glow.Show();
   }
   private void Tick(){
    if(owner.IsDisposed||!Active){Cancel();return;}
    var elapsed=clock.Elapsed.TotalMilliseconds;
+   if(moving&&owner.Bounds!=expected){Cancel(false);return;}
    if(elapsed>=900){Cancel();return;}
    if(moving){
-    if(!owner.Visible||owner.WindowState!=FormWindowState.Normal||fullscreen()){moving=false;ShowGlow();}
-    else{var offset=Offset(elapsed);SetWindowPos(owner.Handle,IntPtr.Zero,original.X+offset.X,original.Y+offset.Y,0,0,0x0010|0x0001|0x0004);}
+    if(externalFullscreen().HasValue){ShowGlow();return;}
+    if(!owner.Visible||owner.WindowState!=originalState||fullscreen()!=originalFullscreen){Cancel();return;}
+    else{var offset=Offset(elapsed);expected=new Rectangle(original.X+offset.X,original.Y+offset.Y,original.Width,original.Height);SetWindowPos(owner.Handle,IntPtr.Zero,expected.X,expected.Y,0,0,0x0010|0x0001|0x0004);}
    }
    if(glow!=null)glow.Pulse(elapsed);
   }
-  private void RestorePosition(){if(!owner.IsDisposed&&owner.Visible&&owner.WindowState==FormWindowState.Normal&&!fullscreen())SetWindowPos(owner.Handle,IntPtr.Zero,original.X,original.Y,original.Width,original.Height,0x0010|0x0004);}
-  internal void Cancel(){timer.Stop();clock.Reset();if(moving)RestorePosition();moving=false;Active=false;glow?.Dispose();glow=null;}
+  private void RestorePosition(){if(!owner.IsDisposed&&owner.Visible&&owner.WindowState==originalState&&fullscreen()==originalFullscreen)SetWindowPos(owner.Handle,IntPtr.Zero,original.X,original.Y,original.Width,original.Height,0x0010|0x0004);}
+  internal void Cancel(bool restoreOriginal=true){timer.Stop();clock.Reset();if(moving&&restoreOriginal&&owner.Bounds==expected)RestorePosition();moving=false;Active=false;glow?.Dispose();glow=null;}
   public void Dispose(){if(disposed)return;Cancel();timer.Dispose();disposed=true;}
   [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr window,IntPtr insertAfter,int x,int y,int width,int height,uint flags);
  }
@@ -61,7 +66,10 @@ namespace Vumiro.Client {
  internal sealed class ScreenNudgeGlow : Form {
   private IntPtr memoryDc,bitmap,oldBitmap;
   private readonly Size imageSize;
-  internal ScreenNudgeGlow(Rectangle monitor){
+  private readonly bool yellow;
+  internal ScreenNudgeGlow(Rectangle monitor,bool yellow=false){
+   this.yellow=yellow;
+   Text="Vumiro nudge";
    FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Bounds=monitor;imageSize=monitor.Size;
   }
   protected override bool ShowWithoutActivation {get{return true;}}
@@ -73,7 +81,7 @@ namespace Vumiro.Client {
      graphics.Clear(Color.Transparent);var feather=Math.Min(70,Math.Min(image.Width,image.Height)/4);
      for(var distance=0;distance<feather;distance++){
       var amount=1-distance/(double)feather;var alpha=(int)Math.Round(145*amount*amount);
-      using(var pen=new Pen(Color.FromArgb(alpha,255,211,68)))graphics.DrawRectangle(pen,distance,distance,image.Width-distance*2-1,image.Height-distance*2-1);
+      using(var pen=new Pen(Color.FromArgb(alpha,yellow?255:246,yellow?211:240,yellow?68:235)))graphics.DrawRectangle(pen,distance,distance,image.Width-distance*2-1,image.Height-distance*2-1);
      }
     }
     memoryDc=CreateCompatibleDC(IntPtr.Zero);bitmap=image.GetHbitmap(Color.FromArgb(0));oldBitmap=SelectObject(memoryDc,bitmap);

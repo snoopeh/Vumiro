@@ -151,13 +151,13 @@ test('notification button always uses only the bell and the full view is a nonmo
 });
 
 
-test('every visual event displays an in-app popup and only background events add a desktop popup',()=>{
+test('desktop visual events use one native popup in foreground and background',()=>{
   const app=harness();app.api.setCenter({sync(){},popup:item=>app.popups.push(item)});
   app.api.notifySocial('friend','background','Kai sent you a friend request.',null,5000);
-  assert.equal(app.popups.length,1);assert.equal(app.attention.length,1);
+  assert.equal(app.popups.length,0);assert.equal(app.attention.length,1);
   app.context.document.hasFocus=()=>true;
   app.api.notifySocial('friend','foreground','Kai is now your friend.',null,5000);
-  assert.equal(app.popups.length,2);assert.equal(app.attention.length,1);
+  assert.equal(app.popups.length,0);assert.equal(app.attention.length,2);
 });
 
 function routedItem(app,action){app.api.notifySocial('friend','route-'+app.api.notificationItems.length,'Activity',action,5000);return app.api.notificationItems[0];}
@@ -239,4 +239,19 @@ test('QA preview routes are unavailable outside QA or for unsupported targets',(
   const app=harness();const item={expires:5000,action:{type:'qa-preview',target:'inbox'}};
   assert.equal(app.api.notificationAvailable(item),false);app.context.__VUMIRO_LOCAL_QA__=true;assert.equal(app.api.notificationAvailable(item),true);
   item.action.target='https://untrusted.test';assert.equal(app.api.notificationAvailable(item),false);
+});
+
+
+test('focused desktop friend alerts use the native corner popup without an in-app duplicate',()=>{
+  const app=harness();app.context.document.hasFocus=()=>true;
+  app.api.setCenter({sync(){},popup:item=>app.popups.push(item)});
+  app.api.notifySocial('friend','focused','A new friend request',null,5000);
+  assert.equal(app.attention.length,1);assert.equal(app.popups.length,0);
+});
+
+test('browser social alerts retain the in-app popup',()=>{
+  const app=harness();app.context.host=null;app.context.document.hasFocus=()=>true;
+  app.api.setCenter({sync(){},popup:item=>app.popups.push(item)});
+  app.api.notifySocial('friend','browser','A new friend request',null,5000);
+  assert.equal(app.attention.length,0);assert.equal(app.popups.length,1);
 });

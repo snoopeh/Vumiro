@@ -5,6 +5,7 @@ let nativeNudge;
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID, randomBytes, createHash } = require('node:crypto');
+const launchId = randomUUID();
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
 
@@ -16,7 +17,18 @@ const RELEASES_API = 'https://api.github.com/repos/snoopeh/Vumiro/releases/lates
 const RELEASE_URL = 'https://github.com/snoopeh/Vumiro/releases/tag/';
 const ASSET_PATHS = new Map([
   ['/auth.html', 'text/html; charset=utf-8'],
+  ['/chat-storage.js', 'text/javascript; charset=utf-8'],
+  ['/incoming-call.js', 'text/javascript; charset=utf-8'],
+  ['/direct-messages.js', 'text/javascript; charset=utf-8'],
+  ['/direct-chat.js', 'text/javascript; charset=utf-8'],
+  ['/server-workspace.js', 'text/javascript; charset=utf-8'],
+
+  ['/app-extras.js', 'text/javascript; charset=utf-8'],
   ['/friends.html', 'text/html; charset=utf-8'],
+  ['/controller-mapping.js', 'text/javascript; charset=utf-8'],
+  ['/gaming-directory.js', 'text/javascript; charset=utf-8'],
+  ['/gaming-session.js', 'text/javascript; charset=utf-8'],
+  ['/gaming-client.js', 'text/javascript; charset=utf-8'],
   ['/friends-client.js', 'text/javascript; charset=utf-8'],
   ['/call.html', 'text/html; charset=utf-8'],
   ['/call-client.js', 'text/javascript; charset=utf-8'],
@@ -567,7 +579,7 @@ async function createWindows() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      additionalArguments: nativeNudge.positioningSupported ? ['--vumiro-native-nudge'] : [],
+      additionalArguments: ['--vumiro-launch-id='+launchId,...(nativeNudge.positioningSupported ? ['--vumiro-native-nudge'] : [])],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

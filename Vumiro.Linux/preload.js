@@ -3,6 +3,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const nativeNudgeSupported = typeof process !== 'undefined' && process.argv?.includes('--vumiro-native-nudge') === true;
+const launchArgument = typeof process !== 'undefined' ? process.argv?.find(value=>value.startsWith('--vumiro-launch-id=')) : '';
+const launchId = /^--vumiro-launch-id=[0-9a-f-]{36}$/i.test(launchArgument||'') ? launchArgument.slice('--vumiro-launch-id='.length) : '';
 const listeners = new Set();
 ipcRenderer.on('vumiro:message', (_event, data) => {
   for (const callback of [...listeners]) {
@@ -29,6 +31,7 @@ function allowedMessage(message) {
 
 contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
   platform: 'linux',
+  launchId,
   capabilities: Object.freeze({ nativeWindowFrame: true, systemAudio: false, manualUpdates: true, nativeWindowNudge: nativeNudgeSupported, screenNudgeGlow: nativeNudgeSupported }),
   postMessage(message) {
     if (allowedMessage(message)) {
