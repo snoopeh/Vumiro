@@ -15,14 +15,17 @@ Alternatives considered: implementing a new tunnel/streaming stack would require
 - No version bump, release, production deployment, destructive reset or changes to the other agent's files beyond a narrow additive merge.
 
 ## Slices
-- [ ] Baseline focused checks; failing pure engine, RPC/profile and native validation tests.
-- [ ] Native ZeroTier and Sunshine/Moonlight adapters with restricted bridge.
-- [ ] Native virtual controller and pure keyboard mapping engine.
-- [ ] Gaming navigation, setup/status flows, accessible controller diagram, mappings and local profiles.
-- [ ] Resource packaging/check coverage and integration verification.
-- [ ] Commit the isolated feature and merge narrowly into the original checkout preserving every concurrent edit.
+- [x] Baseline focused checks; failing pure engine, RPC/profile and native validation tests.
+- [x] Native ZeroTier and Sunshine/Moonlight adapters with restricted bridge.
+- [x] Native virtual controller and pure keyboard mapping engine.
+- [x] Gaming navigation, setup/status flows, accessible controller diagram, mappings and local profiles.
+- [x] Resource packaging/check coverage and integration verification.
+- [x] Commit the isolated feature and merge narrowly into the original checkout preserving every concurrent edit.
 
 ## Validation
 Node behavior tests cover invalid persisted profiles/imports, conflicting bindings, normalized axes, RPC failure/timeouts and response correlation. Native console checks exercise network/host validation, HTTP behaviors and controller state boundaries without requiring a live peer or installed driver. Run client checks and native build. Hardware gameplay, LAN authorization, remote latency and Steam enumeration require two Windows computers with the optional providers and drivers; report that limitation precisely.
 
 The user explicitly authorized autonomous decisions and isolated development followed by integration; approval pauses from generic workflow skills are waived by those instructions.
+
+## Integration result
+Feature commits remain on `codex/gaming`; the source was merged into the original checkout with per-file backups under `dist/gaming-integration/before`. Other agent changes remain uncommitted and were not staged, reset or included in feature commits. Combined checks passed 675 client tests, 89 backend tests and all ten native groups before the final localization/room-navigation polish; those final UI changes have focused regressions. The actual LOCAL QA WebView validated three routes, all 24 controller controls, rebinding, Tab behavior, real native mapper start/stop and layout. Two-PC gameplay and host Steam enumeration still require human QA.
