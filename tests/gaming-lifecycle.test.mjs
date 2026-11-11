@@ -21,6 +21,15 @@ test('close during pending mapper startup stops immediately and ignores late act
 test('physical controller mode preserves normal mapped keyboard input',async()=>{
   const h=harness();await h.open();h.physical.onchange();let converted=false;h.key({code:'KeyW',target:{closest(){return null;}},preventDefault(){converted=true;}});assert.equal(converted,false);assert.equal(h.nodes.get('gamingKeyboardEditor').hidden,true);assert.equal(h.sent.filter(m=>m.action==='mapper-start').length,0);h.drain();
 });
+test('mapping preview preserves Tab navigation and Enter activation on ordinary controls',async()=>{
+  const h=harness();await h.open();
+  for(const code of ['Tab','Enter']){
+    let prevented=false;
+    h.key({code,target:{tagName:'BUTTON',closest(){return null;}},preventDefault(){prevented=true;}});
+    assert.equal(prevented,false,code+' keeps its native browser action');
+  }
+  h.drain();
+});
 test('late heartbeat reply cannot resume mapping after navigation',async()=>{
   const h=harness();await h.open();const start=h.nodes.get('gamingMapperStart').onclick();h.reply(h.sent[1],{controller:{active:true}});await start;h.beat();const prior=h.sent[2];h.win.VumiroGaming.close();h.reply(h.sent[3],{controller:{active:false}});await h.settle();h.reply(prior,{controller:{active:true}});await h.settle();const count=h.sent.length;h.beat();assert.equal(h.sent.length,count);h.drain();
 });

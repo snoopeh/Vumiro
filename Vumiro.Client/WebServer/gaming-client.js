@@ -188,7 +188,7 @@
       if(!opened||route!=='mapping'||$('gamingKeyboardEditor').hidden)return;
       if(event.code==='Escape'){if(capturing){capturing='';renderBindings();message('Binding cancelled.');}if(controllerActive)stopMapper();clearPreview();return;}
       if(capturing){event.preventDefault();event.stopPropagation();const candidate={...bindings,[capturing]:event.code},check=engine.validateBindings(candidate);if(!check.valid)return message(check.errors.join(' '),true);bindings={...check.bindings};capturing='';renderBindings();message('Binding updated. Save the profile to keep it.');return;}
-      if(!textEntry(event.target)&&Object.values(bindings).includes(event.code)){event.preventDefault();pressed.add(event.code);preview();}
+      if(!textEntry(event.target)&&Object.values(bindings).includes(event.code)){pressed.add(event.code);preview();}
     },true);
     document.addEventListener('keyup',event=>{pressed.delete(event.code);if(opened)preview();});root.addEventListener('blur',clearPreview);
     function renderProfiles(){const select=$('gamingProfiles');select.replaceChildren();const base=document.createElement('option');base.value='-1';base.textContent=t('New profile');select.append(base);profiles.forEach((profile,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=profile.name;select.append(option);});select.value=String(profileIndex);}
