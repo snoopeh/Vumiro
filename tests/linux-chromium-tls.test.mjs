@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import https from 'node:https';
 import path from 'node:path';
 import os from 'node:os';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -29,6 +30,30 @@ test('Chromium TLS probe verifies fetch outcomes against native webRequest certi
   await assert.rejects(probe(session, cases), /unknown.*accepted/);
   session.fetch = async () => { throw Error('unobserved transport failure'); };
   await assert.rejects(probe(session, cases), /trusted/);
+});
+
+test('Electron browser startup runs when its default app imports CommonJS with a different require.main', async () => {
+  const source = await readFile(new URL('./fixtures/chromium-tls-probe.cjs', import.meta.url), 'utf8');
+  const output = [], paths = [], exits = [], timers = new Set();
+  const app = { setPath: (...args) => paths.push(args), whenReady: () => Promise.resolve(), exit: code => exits.push(code) };
+  const importedRequire = name => name === 'electron' ? { app, session: { defaultSession: {
+    webRequest: { onErrorOccurred() {} }, fetch: async () => ({ ok: true, text: async () => 'tls-fixture' })
+  } } } : name.startsWith('../../') ? require('../Vumiro.Linux/network-diagnostics.cjs') : require(name);
+  importedRequire.main = {}; // Electron 45 default_app uses import(fileURL), not Node's CJS entrypoint loader.
+  vm.runInNewContext(source, {
+    require: importedRequire, module: { exports: {} }, AbortSignal, console,
+    setTimeout(callback, delay) { const timer = setTimeout(callback, delay); timers.add(timer); return timer; },
+    clearTimeout(timer) { clearTimeout(timer); timers.delete(timer); },
+    process: { type: 'browser', env: { VUMIRO_TLS_PROFILE: '/disposable/profile', VUMIRO_TLS_CASES: JSON.stringify([{ name: 'trusted', url: 'https://127.0.0.1:1/' }]) },
+      stdout: { write(value, done) { output.push(value); done?.(); } } }
+  });
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(exits, [0], 'imported browser fixture must run and exit successfully');
+    assert.equal(paths.length, 2);
+    assert.ok(output.some(line => line.startsWith('VUMIRO_TLS_RESULT=')));
+    for (const stage of ['entry', 'waiting-ready', 'ready', 'fetch:trusted', 'accepted:trusted']) assert.ok(output.some(line => line === `VUMIRO_TLS_STAGE=${stage}\n`), stage);
+  } finally { for (const timer of timers) clearTimeout(timer); }
 });
 
 function command(executable, args, options = {}) {
