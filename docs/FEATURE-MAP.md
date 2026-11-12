@@ -15,7 +15,7 @@ The default `node scripts/Check-Client.mjs` keeps the complete client/backend su
 | `gaming` | Built-in gaming, signed friend sessions, virtual LAN, WebRTC game sharing and mapped/physical controller input | Yes | Services, controller, dependency, LAN and host |
 | `accounts` | Account entry, authentication, identity recovery, account profile data | Yes | OAuth callbacks, local service isolation |
 | `friends` | Directory, tags, invitations, notifications, nudges, sidebar | Yes | Notification payloads, window/nudge/resize |
-| `chat` | Direct conversations, local server sandbox, chat pane, scrolling, room messages, media, emoji | No | None |
+| `chat` | Direct conversations, Community Hub, chat pane, scrolling, room messages, media, emoji | Yes | None |
 | `streaming` | Call layout, audio preferences, standalone `stream-mosaic.js`, connection recovery | No | Audio recovery, window/nudge/resize |
 | `profile` | Profile cards, crop, cover encoding and transfer | Yes | None |
 | `native` | Windows host integration, updater, diagnostics, bridges | No | All thirteen |

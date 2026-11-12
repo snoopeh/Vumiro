@@ -25,14 +25,14 @@ test('default plans discover every top-level test and all native/backend checks'
   assert.ok(result.native.some(check => check.project.endsWith('NativeAudioSmoke.csproj') && check.args.includes('--self-test')));
 });
 
-test('chat group selects explicit chat tests without backend or unrelated release checks', async () => {
+test('chat group selects community backend and explicit chat tests without unrelated release checks', async () => {
   const result = await plan({ groups: ['chat'] });
   assert.equal(result.full, false);
   assert.deepEqual(result.groups, ['chat']);
   assert.ok(result.tests.includes('tests/chat-pane.test.mjs'));
   assert.ok(result.tests.includes('tests/room-chat-media.test.mjs'));
   assert.ok(!result.tests.includes('tests/ship-command.test.mjs'));
-  assert.equal(result.backend, false);
+  assert.equal(result.backend, true);
   assert.deepEqual(result.native, []);
 });
 

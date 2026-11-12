@@ -1,0 +1,62 @@
+{
+  "format": "vumirotheme",
+  "schemaVersion": 1,
+  "id": "viking",
+  "name": "Ember & Oak",
+  "version": "1.0.0",
+  "author": "Vumiro",
+  "description": "Original CSS artwork, local fonts, and app-owned accessible components.",
+  "license": "CC0-1.0",
+  "compatibility": {
+    "engine": 1
+  },
+  "tokens": {
+    "surface": "#191b17",
+    "surfaceRaised": "#27291f",
+    "text": "#f1ead8",
+    "muted": "#c1b99f",
+    "accent": "#dfb575",
+    "accentText": "#241b10",
+    "border": "#62513c",
+    "success": "#83d8aa",
+    "warning": "#f0ca79",
+    "danger": "#ff9b9b",
+    "fontBody": "\"Segoe UI\", sans-serif",
+    "fontHeading": "Georgia, serif",
+    "fontSize": "14px",
+    "spacing": "12px",
+    "radius": "6px",
+    "shadow": "0 8px 24px #00000055",
+    "density": "comfortable"
+  },
+  "components": {
+    "card": {
+      "borderWidth": "2px",
+      "borderStyle": "double",
+      "borderColor": "#827055",
+      "backgroundImage": "linear-gradient(135deg, #292b20, #1d211b)"
+    },
+    "banner": {
+      "backgroundImage": "radial-gradient(#695537, #242a20)",
+      "borderColor": "#af8e56"
+    },
+    "heading": {
+      "letterSpacing": "1px"
+    }
+  },
+  "layouts": {
+    "home": [
+      "compact",
+      "banner",
+      "split"
+    ],
+    "room": [
+      "standard",
+      "compact"
+    ]
+  },
+  "css": "[data-community-slot=\"badge\"] {border-color:#bfa572; border-radius:4px}",
+  "assets": [],
+  "previews": [],
+  "motion": "ember"
+}

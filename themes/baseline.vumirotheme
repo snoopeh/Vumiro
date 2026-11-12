@@ -1,0 +1,48 @@
+{
+  "format": "vumirotheme",
+  "schemaVersion": 1,
+  "id": "baseline",
+  "name": "Vumiro baseline",
+  "version": "1.0.0",
+  "author": "Vumiro",
+  "description": "Original CSS artwork, local fonts, and app-owned accessible components.",
+  "license": "CC0-1.0",
+  "compatibility": {
+    "engine": 1
+  },
+  "tokens": {
+    "surface": "#111820",
+    "surfaceRaised": "#19232e",
+    "text": "#edf3f9",
+    "muted": "#a9b8c8",
+    "accent": "#75c9c3",
+    "accentText": "#0d2224",
+    "border": "#354555",
+    "success": "#83d8aa",
+    "warning": "#f0ca79",
+    "danger": "#ff9b9b",
+    "fontBody": "\"Segoe UI\", sans-serif",
+    "fontHeading": "\"Segoe UI\", sans-serif",
+    "fontSize": "14px",
+    "spacing": "12px",
+    "radius": "12px",
+    "shadow": "0 8px 24px #00000033",
+    "density": "comfortable"
+  },
+  "components": {},
+  "layouts": {
+    "home": [
+      "compact",
+      "banner",
+      "split"
+    ],
+    "room": [
+      "standard",
+      "compact"
+    ]
+  },
+  "css": "",
+  "assets": [],
+  "previews": [],
+  "motion": "none"
+}

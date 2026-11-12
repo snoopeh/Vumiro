@@ -1,0 +1,61 @@
+{
+  "format": "vumirotheme",
+  "schemaVersion": 1,
+  "id": "cyberpunk",
+  "name": "Signal / Neon",
+  "version": "1.0.0",
+  "author": "Vumiro",
+  "description": "Original CSS artwork, local fonts, and app-owned accessible components.",
+  "license": "CC0-1.0",
+  "compatibility": {
+    "engine": 1
+  },
+  "tokens": {
+    "surface": "#111322",
+    "surfaceRaised": "#1b1d33",
+    "text": "#e4f1ff",
+    "muted": "#a7b9d3",
+    "accent": "#6ff5e5",
+    "accentText": "#082827",
+    "border": "#4b4a79",
+    "success": "#83d8aa",
+    "warning": "#f0ca79",
+    "danger": "#ff9b9b",
+    "fontBody": "\"Segoe UI\", sans-serif",
+    "fontHeading": "Consolas, monospace",
+    "fontSize": "14px",
+    "spacing": "12px",
+    "radius": "2px",
+    "shadow": "0 8px 24px #090d2455",
+    "density": "comfortable"
+  },
+  "components": {
+    "card": {
+      "borderWidth": "1px",
+      "borderStyle": "solid",
+      "borderColor": "#7460bb",
+      "backgroundImage": "linear-gradient(135deg, #25243c, #171e31)"
+    },
+    "banner": {
+      "backgroundImage": "linear-gradient(135deg, #442751, #163c44)"
+    },
+    "heading": {
+      "letterSpacing": "2px"
+    }
+  },
+  "layouts": {
+    "home": [
+      "compact",
+      "banner",
+      "split"
+    ],
+    "room": [
+      "standard",
+      "compact"
+    ]
+  },
+  "css": "[data-community-slot=\"badge\"] {color:#ffb8ef; border-color:#a967cb; border-radius:2px}",
+  "assets": [],
+  "previews": [],
+  "motion": "scan"
+}

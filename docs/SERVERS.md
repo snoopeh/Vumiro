@@ -1,3 +1,5 @@
+> The application now opens [Community Hub](COMMUNITY-HUB.md). This document describes the retained legacy sandbox API and migration source.
+
 # Local server sandbox
 
 Servers currently provide one local **Workshop** demo for testing the workspace design. The centered space uses a thin red rule and server monogram, with compact Overview/Channels navigation and Manage/Connections utilities. Overview continues the selected text conversation with its latest saved local message, then shows compact channel cards with descriptions and actual local message previews. If a voice preview was selected, Continue opens the first available text channel. Search filters channel names and categories, keeps its query across page changes, and offers an explicit reset. Its people and presence are simulated and separate from the real friends list. No server service, voice transport, microphone, invitations, or remote moderation is connected.

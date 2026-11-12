@@ -22,6 +22,13 @@ const ASSET_PATHS = new Map([
   ['/direct-messages.js', 'text/javascript; charset=utf-8'],
   ['/direct-chat.js', 'text/javascript; charset=utf-8'],
   ['/server-workspace.js', 'text/javascript; charset=utf-8'],
+  ['/community-model.js', 'text/javascript; charset=utf-8'],
+  ['/community-themes.js', 'text/javascript; charset=utf-8'],
+  ['/community-studio.js', 'text/javascript; charset=utf-8'],
+  ['/community-theme-sharing.js', 'text/javascript; charset=utf-8'],
+  ['/community-live.js', 'text/javascript; charset=utf-8'],
+  ['/community-voice.js', 'text/javascript; charset=utf-8'],
+  ['/community-workspace.js', 'text/javascript; charset=utf-8'],
 
   ['/app-extras.js', 'text/javascript; charset=utf-8'],
   ['/friends.html', 'text/html; charset=utf-8'],

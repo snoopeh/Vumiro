@@ -1935,7 +1935,13 @@
     "Continue conversation": "Continue conversation",
     "Search channels": "Search channels",
     "No channels match your search.": "No channels match your search.",
-    "Clear search": "Clear search"
+    "Clear search": "Clear search",
+    "Community Hub": "Community Hub",
+    "Theme Studio": "Theme Studio",
+    "Local demo · Permission preview": "Local demo · Permission preview",
+    "Access preview": "Access preview",
+    "Guild home": "Guild home",
+    "Search this hub": "Search this hub"
   },
   "es": {
     "Gaming": "Juegos",
@@ -3870,7 +3876,13 @@
     "Continue conversation": "Continuar conversación",
     "Search channels": "Buscar canales",
     "No channels match your search.": "Ningún canal coincide con tu búsqueda.",
-    "Clear search": "Borrar búsqueda"
+    "Clear search": "Borrar búsqueda",
+    "Community Hub": "Centro comunitario",
+    "Theme Studio": "Estudio de temas",
+    "Local demo · Permission preview": "Demo local · Vista previa de permisos",
+    "Access preview": "Vista previa de acceso",
+    "Guild home": "Inicio del gremio",
+    "Search this hub": "Buscar en esta comunidad"
   },
   "pt-BR": {
     "Gaming": "Jogos",
@@ -5805,7 +5817,13 @@
     "Continue conversation": "Continuar conversa",
     "Search channels": "Buscar canais",
     "No channels match your search.": "Nenhum canal corresponde à sua busca.",
-    "Clear search": "Limpar busca"
+    "Clear search": "Limpar busca",
+    "Community Hub": "Central da comunidade",
+    "Theme Studio": "Estúdio de temas",
+    "Local demo · Permission preview": "Demonstração local · Prévia de permissões",
+    "Access preview": "Prévia de acesso",
+    "Guild home": "Início da guilda",
+    "Search this hub": "Pesquisar nesta comunidade"
   },
   "ja": {
     "Gaming": "ゲーム",
@@ -7740,7 +7758,13 @@
     "Continue conversation": "会話を続ける",
     "Search channels": "チャンネルを検索",
     "No channels match your search.": "検索に一致するチャンネルはありません。",
-    "Clear search": "検索をクリア"
+    "Clear search": "検索をクリア",
+    "Community Hub": "コミュニティハブ",
+    "Theme Studio": "テーマスタジオ",
+    "Local demo · Permission preview": "ローカルデモ · 権限プレビュー",
+    "Access preview": "アクセスプレビュー",
+    "Guild home": "ギルドホーム",
+    "Search this hub": "ハブ内を検索"
   },
   "zh-CN": {
     "Gaming": "游戏",
@@ -9675,7 +9699,13 @@
     "Continue conversation": "继续聊天",
     "Search channels": "搜索频道",
     "No channels match your search.": "没有与搜索匹配的频道。",
-    "Clear search": "清除搜索"
+    "Clear search": "清除搜索",
+    "Community Hub": "社区中心",
+    "Theme Studio": "主题工作室",
+    "Local demo · Permission preview": "本地演示 · 权限预览",
+    "Access preview": "访问权限预览",
+    "Guild home": "公会主页",
+    "Search this hub": "搜索此社区"
   },
   "ru": {
     "Gaming": "Игры",
@@ -11610,7 +11640,13 @@
     "Continue conversation": "Продолжить разговор",
     "Search channels": "Поиск каналов",
     "No channels match your search.": "Нет каналов, соответствующих поиску.",
-    "Clear search": "Очистить поиск"
+    "Clear search": "Очистить поиск",
+    "Community Hub": "Центр сообщества",
+    "Theme Studio": "Студия тем",
+    "Local demo · Permission preview": "Локальная демонстрация · Просмотр прав",
+    "Access preview": "Просмотр доступа",
+    "Guild home": "Главная гильдии",
+    "Search this hub": "Поиск в сообществе"
   }
 };
   const locales = Object.freeze([

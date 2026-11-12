@@ -38,9 +38,9 @@
       "native": ["notifications", "window"]
     },
     "chat": {
-      "sources": ["Vumiro.Client/WebServer/server-workspace.js", "Vumiro.Client/WebServer/direct-chat.js", "Vumiro.Client/WebServer/direct-messages.js", "cloudflare/direct-messages.js", "Vumiro.Client/WebServer/chat-storage.js", "cloudflare/link-preview.js", "storage/server.mjs", "Vumiro.Client/WebServer/chat-pane.js", "Vumiro.Client/WebServer/chat-scrollbar.js"],
-      "tests": ["tests/server-workspace.test.mjs", "tests/direct-chat.test.mjs", "tests/direct-chat-wiring.test.mjs", "tests/direct-messages.test.mjs", "tests/chat-storage.test.mjs", "tests/chat-storage-service.test.mjs", "tests/link-preview.test.mjs", "tests/chat-pane.test.mjs", "tests/chat-scrollbar.test.mjs", "tests/room-chat.test.mjs", "tests/room-chat-media.test.mjs", "tests/emoji-picker.test.mjs"],
-      "backend": false,
+      "sources": ["Vumiro.Client/WebServer/server-workspace.js", "Vumiro.Client/WebServer/direct-chat.js", "Vumiro.Client/WebServer/direct-messages.js", "cloudflare/direct-messages.js", "Vumiro.Client/WebServer/chat-storage.js", "cloudflare/link-preview.js", "storage/server.mjs", "Vumiro.Client/WebServer/chat-pane.js", "Vumiro.Client/WebServer/chat-scrollbar.js", "Vumiro.Client/WebServer/community-model.js", "Vumiro.Client/WebServer/community-themes.js", "Vumiro.Client/WebServer/community-studio.js", "Vumiro.Client/WebServer/community-theme-sharing.js", "Vumiro.Client/WebServer/community-workspace.js", "Vumiro.Client/WebServer/community-live.js", "Vumiro.Client/WebServer/community-voice.js", "cloudflare/community-hub.js", "cloudflare/community-auth.js"],
+      "tests": ["tests/server-workspace.test.mjs", "tests/direct-chat.test.mjs", "tests/direct-chat-wiring.test.mjs", "tests/direct-messages.test.mjs", "tests/chat-storage.test.mjs", "tests/chat-storage-service.test.mjs", "tests/link-preview.test.mjs", "tests/chat-pane.test.mjs", "tests/chat-scrollbar.test.mjs", "tests/room-chat.test.mjs", "tests/room-chat-media.test.mjs", "tests/emoji-picker.test.mjs", "tests/community-model.test.mjs", "tests/community-themes.test.mjs", "tests/community-studio.test.mjs", "tests/community-theme-sharing.test.mjs", "tests/community-workspace.test.mjs", "tests/community-live.test.mjs", "tests/community-voice.test.mjs"],
+      "backend": true,
       "native": []
     },
     "streaming": {

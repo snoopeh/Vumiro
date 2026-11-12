@@ -379,6 +379,8 @@ test('short links redirect with only the opaque token, remove extra URL data and
   const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
     .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
     .replace("export { DirectConversation } from './direct-messages.js';",'')
+    .replace("import { handleCommunityRequest } from './community-hub.js';",'')
+    .replace("export { CommunityHub } from './community-hub.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
     .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
@@ -395,6 +397,8 @@ test('Worker serves every script referenced by current client HTML while rejecti
   const workerSource=readFileSync(new URL('./worker.js',import.meta.url),'utf8')
     .replace("import { DurableObject } from 'cloudflare:workers';",'class DurableObject {}')
     .replace("export { DirectConversation } from './direct-messages.js';",'')
+    .replace("import { handleCommunityRequest } from './community-hub.js';",'')
+    .replace("export { CommunityHub } from './community-hub.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
     .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);

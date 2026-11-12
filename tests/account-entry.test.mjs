@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const friends=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends-client.js',import.meta.url),'utf8');
 const call=fs.readFileSync(new URL('../Vumiro.Client/WebServer/call-client.js',import.meta.url),'utf8');
-function lobby(){let resolve,initialized=0,connected=0,created=0;const current={id:'identity-after-account-restore'},account=new Promise(done=>resolve=done),elements=new Map(),listeners=new Map();
+function lobby({fresh=false}={}){let resolve,initialized=0,connected=0,created=0;const current={id:'identity-after-account-restore'},account=new Promise(done=>resolve=done),elements=new Map(),listeners=new Map();
   const app={profile:null,lobbyInitialized:false,window:{VumiroAccount:{ready:()=>account,onProfileReady:async()=>{}}},read:()=>null,save(){},normalizeService:v=>v,query:{get:()=>null},location:{origin:'https://app.test'},local:{profile:()=>current,createProfile:async()=>{created++;return current;},initialize:async()=>{initialized++;return current;},listBlocked:async()=>[]},seedLocalQaFriends:async()=>{},renderOwnProfile(){},renderProfile(){},hydrateRequests:async()=>{},reloadFriends:async()=>{},startDirectMessages(){assert.equal(app.profile.id,current.id);},connect(){connected++;},showInvitation(){},serviceState(){},status(){},dialog(){},addEventListener:(name,fn)=>listeners.set(name,fn),$:id=>{if(!elements.has(id))elements.set(id,{close(){}});return elements.get(id);}};
+  if(fresh)app.local.initialize=async()=>{initialized++;return null;};
   vm.createContext(app);vm.runInContext(friends.slice(friends.indexOf('async function shareOwnProfile()'),friends.indexOf('function confirmAction(')),app);
   const form=friends.indexOf("$('setupForm').onsubmit=");vm.runInContext(friends.slice(form,friends.indexOf('\n',form)),app);
   const start=friends.lastIndexOf('(async()=>{try{const savedService=');assert.ok(start>=0);const pending=vm.runInContext(friends.slice(start,friends.indexOf('\n',start)),app);
@@ -16,6 +17,9 @@ test('lobby cannot initialize contacts or connect before account readiness or af
 });
 test('successful account restoration initializes the current identity before connecting the lobby',async()=>{
   const h=lobby();h.profileEvent();h.restoreEvent();h.resolve(true);await h.pending;assert.equal(h.initialized(),1);assert.equal(h.app.profile.id,'identity-after-account-restore');assert.equal(h.connected(),1);
+});
+test('a ready fresh lobby can submit its first device-only profile',async()=>{
+  const h=lobby({fresh:true});h.resolve(true);await h.pending;await h.submit();assert.equal(h.created(),1);assert.equal(h.connected(),1);assert.equal(h.app.profile.id,'identity-after-account-restore');
 });
 test('profile restore events and obsolete local setup cannot bypass pending or denied account entry',async()=>{
   const h=lobby();h.profileEvent();h.restoreEvent();await h.submit();await new Promise(resolve=>setImmediate(resolve));assert.equal(h.connected(),0);assert.equal(h.created(),0);
