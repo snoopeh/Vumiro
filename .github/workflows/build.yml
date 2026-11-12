@@ -72,8 +72,10 @@ jobs:
       - name: Install headless Electron dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes xvfb xauth libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libatk-bridge2.0-0 libcups2
+          sudo apt-get install --yes xvfb xauth libgtk-3-0 libnss3 libnss3-tools openssl libasound2 libgbm1 libxss1 libatk-bridge2.0-0 libcups2
       - run: npm ci --prefix Vumiro.Linux
+      - name: Check Chromium trust with disposable certificate authorities
+        run: xvfb-run -a env VUMIRO_RUN_CHROMIUM_TLS=1 node --test tests/linux-chromium-tls.test.mjs
       - name: Build unpacked app without distribution archives
         run: node scripts/Build-Linux.mjs --unpacked
       - name: Run offline packaged startup and UI regressions
@@ -86,4 +88,16 @@ jobs:
           overwrite: true
           path: dist/linux-release/linux-smoke.log
           if-no-files-found: ignore
+          retention-days: 14
+      - name: Archive Linux app for remote QA
+        env:
+          QA_SOURCE: ${{ github.sha }}
+        run: |
+          node -e 'require("node:fs").writeFileSync("dist/linux-release/linux-unpacked/QA-SOURCE.json", JSON.stringify({source:process.env.QA_SOURCE,qa:true,release:false},null,2)+"\n")'
+          tar -C dist/linux-release -czf dist/linux-release/Vumiro-linux-qa.tar.gz linux-unpacked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-qa-app
+          path: dist/linux-release/Vumiro-linux-qa.tar.gz
+          if-no-files-found: error
           retention-days: 14

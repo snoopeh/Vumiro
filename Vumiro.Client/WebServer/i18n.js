@@ -3,6 +3,17 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "Could not save your account session securely. Unlock the system keyring and try again.",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "Could not remove the saved account session from this device. Check your profile folder permissions and try again.",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.",
+    "The account service connection timed out. Check your connection, then reconnect.": "The account service connection timed out. Check your connection, then reconnect.",
+    "Your device is offline. Connect to the internet, then reconnect.": "Your device is offline. Connect to the internet, then reconnect.",
+    "Could not connect to the account service. Check your connection and try again.": "Could not connect to the account service. Check your connection and try again.",
     "Gaming": "Gaming",
     "LAN tunneling": "LAN tunneling",
     "Game together": "Game together",
@@ -1938,6 +1949,17 @@
     "Clear search": "Clear search"
   },
   "es": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "El almacenamiento protegido no está disponible. Inicializa o desbloquea GNOME Keyring o KWallet y reconecta. Tu sesión guardada no ha cambiado.",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Desbloquea o inicializa GNOME Keyring (Secret Service) y reconecta. Tu sesión guardada no ha cambiado.",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "Desbloquea o inicializa KWallet y reconecta. Tu sesión guardada no ha cambiado.",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "No se pudo leer tu sesión guardada. Desbloquea el llavero del sistema y reconecta. Tu sesión guardada no ha cambiado.",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "No se pudo guardar tu sesión de forma segura. Desbloquea el llavero del sistema e inténtalo de nuevo.",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "No se pudo eliminar la sesión guardada de este dispositivo. Revisa los permisos de la carpeta del perfil e inténtalo de nuevo.",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "No se pudo verificar la conexión segura. Revisa el reloj del dispositivo y pide al administrador que compruebe la confianza del certificado; luego reconecta.",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "No se pudo resolver la dirección del servicio de cuentas. Revisa la configuración DNS o VPN y reconecta.",
+    "The account service connection timed out. Check your connection, then reconnect.": "La conexión al servicio de cuentas agotó el tiempo de espera. Revisa tu conexión y reconecta.",
+    "Your device is offline. Connect to the internet, then reconnect.": "Tu dispositivo está sin conexión. Conéctate a internet y reconecta.",
+    "Could not connect to the account service. Check your connection and try again.": "No se pudo conectar al servicio de cuentas. Revisa tu conexión e inténtalo de nuevo.",
     "Gaming": "Juegos",
     "LAN tunneling": "LAN virtual",
     "Game together": "Jugar juntos",
@@ -3873,6 +3895,17 @@
     "Clear search": "Borrar búsqueda"
   },
   "pt-BR": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "O armazenamento protegido está indisponível. Inicialize ou desbloqueie o GNOME Keyring ou KWallet e reconecte. Sua sessão salva permanece intacta.",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Desbloqueie ou inicialize o GNOME Keyring (Secret Service) e reconecte. Sua sessão salva permanece intacta.",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "Desbloqueie ou inicialize o KWallet e reconecte. Sua sessão salva permanece intacta.",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "Não foi possível ler sua sessão salva. Desbloqueie o chaveiro do sistema e reconecte. Sua sessão salva permanece intacta.",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "Não foi possível salvar sua sessão com segurança. Desbloqueie o chaveiro do sistema e tente novamente.",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "Não foi possível remover a sessão salva deste dispositivo. Verifique as permissões da pasta do perfil e tente novamente.",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "Não foi possível verificar a conexão segura. Confira o relógio do dispositivo e peça ao administrador do ambiente para verificar a confiança do certificado; depois reconecte.",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "Não foi possível resolver o endereço do serviço de contas. Verifique as configurações de DNS ou VPN e reconecte.",
+    "The account service connection timed out. Check your connection, then reconnect.": "A conexão com o serviço de contas expirou. Verifique sua conexão e reconecte.",
+    "Your device is offline. Connect to the internet, then reconnect.": "Seu dispositivo está offline. Conecte-se à internet e reconecte.",
+    "Could not connect to the account service. Check your connection and try again.": "Não foi possível conectar ao serviço de contas. Verifique sua conexão e tente novamente.",
     "Gaming": "Jogos",
     "LAN tunneling": "Rede LAN virtual",
     "Game together": "Jogar juntos",
@@ -5808,6 +5841,17 @@
     "Clear search": "Limpar busca"
   },
   "ja": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "保護されたストレージを利用できません。GNOME Keyring または KWallet を初期化またはロック解除して再接続してください。保存済みセッションは保持されています。",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "GNOME Keyring（Secret Service）をロック解除または初期化して再接続してください。保存済みセッションは保持されています。",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "KWallet をロック解除または初期化して再接続してください。保存済みセッションは保持されています。",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "保存済みセッションを読み込めません。システムのキーリングをロック解除して再接続してください。保存済みセッションは保持されています。",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "セッションを安全に保存できません。システムのキーリングをロック解除して再試行してください。",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "この端末の保存済みセッションを削除できません。プロフィールフォルダーの権限を確認して再試行してください。",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "安全な接続を検証できません。端末の時計を確認し、環境の管理者に証明書の信頼設定の確認を依頼してから再接続してください。",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "アカウントサービスのアドレスを解決できません。DNS または VPN の設定を確認して再接続してください。",
+    "The account service connection timed out. Check your connection, then reconnect.": "アカウントサービスへの接続がタイムアウトしました。接続を確認して再接続してください。",
+    "Your device is offline. Connect to the internet, then reconnect.": "端末がオフラインです。インターネットに接続してから再接続してください。",
+    "Could not connect to the account service. Check your connection and try again.": "アカウントサービスに接続できません。接続を確認して再試行してください。",
     "Gaming": "ゲーム",
     "LAN tunneling": "仮想LAN",
     "Game together": "一緒にプレイ",
@@ -7743,6 +7787,17 @@
     "Clear search": "検索をクリア"
   },
   "zh-CN": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "受保护的存储不可用。请初始化或解锁 GNOME Keyring 或 KWallet，然后重新连接。已保存的会话保持不变。",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "请解锁或初始化 GNOME Keyring（Secret Service），然后重新连接。已保存的会话保持不变。",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "请解锁或初始化 KWallet，然后重新连接。已保存的会话保持不变。",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "无法读取已保存的会话。请解锁系统密钥环并重新连接。已保存的会话保持不变。",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "无法安全保存会话。请解锁系统密钥环后重试。",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "无法删除此设备上保存的会话。请检查个人资料文件夹的权限后重试。",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "无法验证安全连接。请检查设备时间，并请环境管理员验证证书信任设置，然后重新连接。",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "无法解析账户服务地址。请检查 DNS 或 VPN 设置，然后重新连接。",
+    "The account service connection timed out. Check your connection, then reconnect.": "账户服务连接超时。请检查网络连接，然后重新连接。",
+    "Your device is offline. Connect to the internet, then reconnect.": "设备处于离线状态。请连接互联网，然后重新连接。",
+    "Could not connect to the account service. Check your connection and try again.": "无法连接账户服务。请检查网络连接后重试。",
     "Gaming": "游戏",
     "LAN tunneling": "虚拟局域网",
     "Game together": "一起玩游戏",
@@ -9678,6 +9733,17 @@
     "Clear search": "清除搜索"
   },
   "ru": {
+    "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "Защищённое хранилище недоступно. Настройте или разблокируйте GNOME Keyring либо KWallet и подключитесь снова. Сохранённый сеанс не изменён.",
+    "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Разблокируйте или настройте GNOME Keyring (Secret Service) и подключитесь снова. Сохранённый сеанс не изменён.",
+    "Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.": "Разблокируйте или настройте KWallet и подключитесь снова. Сохранённый сеанс не изменён.",
+    "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.": "Не удалось прочитать сохранённый сеанс. Разблокируйте системное хранилище ключей и подключитесь снова. Сеанс не изменён.",
+    "Could not save your account session securely. Unlock the system keyring and try again.": "Не удалось безопасно сохранить сеанс. Разблокируйте системное хранилище ключей и повторите попытку.",
+    "Could not remove the saved account session from this device. Check your profile folder permissions and try again.": "Не удалось удалить сохранённый сеанс с устройства. Проверьте права доступа к папке профиля и повторите попытку.",
+    "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.": "Не удалось проверить защищённое соединение. Проверьте часы устройства и попросите администратора проверить доверие к сертификату, затем подключитесь снова.",
+    "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.": "Не удалось определить адрес службы учётных записей. Проверьте настройки DNS или VPN и подключитесь снова.",
+    "The account service connection timed out. Check your connection, then reconnect.": "Время ожидания подключения к службе учётных записей истекло. Проверьте соединение и подключитесь снова.",
+    "Your device is offline. Connect to the internet, then reconnect.": "Устройство не подключено к сети. Подключитесь к интернету и повторите подключение.",
+    "Could not connect to the account service. Check your connection and try again.": "Не удалось подключиться к службе учётных записей. Проверьте соединение и повторите попытку.",
     "Gaming": "Игры",
     "LAN tunneling": "Виртуальная LAN",
     "Game together": "Играть вместе",
@@ -11671,7 +11737,27 @@
     else for(const item of templates){const match=item.pattern.exec(source);if(match){result=t(item.key,Object.fromEntries(item.names.map((name,index)=>[name,match[index+1]])));break;}}
     return result===undefined?value:value.slice(0,value.indexOf(source))+result+value.slice(value.indexOf(source)+source.length);
   }
+  const environmentErrors = {
+    "SECURE_STORAGE_UNAVAILABLE": "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.",
+    "SECURE_STORAGE_UNPROTECTED": "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.",
+    "SECURE_STORAGE_READ_FAILED": "Could not read your saved account session. Unlock the system keyring and reconnect. Your saved session is unchanged.",
+    "SECURE_STORAGE_WRITE_FAILED": "Could not save your account session securely. Unlock the system keyring and try again.",
+    "SECURE_STORAGE_DELETE_FAILED": "Could not remove the saved account session from this device. Check your profile folder permissions and try again.",
+    "NETWORK_CERTIFICATE": "A secure connection could not be verified. Check the device clock and ask your environment administrator to verify certificate trust, then reconnect.",
+    "NETWORK_DNS": "The account service address could not be resolved. Check DNS or VPN settings, then reconnect.",
+    "NETWORK_TIMEOUT": "The account service connection timed out. Check your connection, then reconnect.",
+    "NETWORK_OFFLINE": "Your device is offline. Connect to the internet, then reconnect.",
+    "NETWORK_FAILED": "Could not connect to the account service. Check your connection and try again."
+};
   function error(cause) {
+    if(Object.prototype.hasOwnProperty.call(environmentErrors,cause?.code)){
+      let key=environmentErrors[cause.code];
+      if(cause.code==='SECURE_STORAGE_UNAVAILABLE'){
+        if(cause.backend==='gnome_libsecret')key="Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.";
+        else if(['kwallet','kwallet5','kwallet6'].includes(cause.backend))key="Unlock or initialize KWallet, then reconnect. Your saved session is unchanged.";
+      }
+      return t(key);
+    }
     const message=typeof cause==='string'?cause:cause?.message;
     if(typeof message==='string'){
       const translated=translateLiteral(message);

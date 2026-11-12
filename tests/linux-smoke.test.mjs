@@ -107,6 +107,7 @@ test('smoke credential adapter accepts only its synthetic session from its own m
   const signed=await fixture.serve(new Request('https://vumiro-smoke.supabase.co/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:'sb_publishable_vumiro_smoke_fixture_only'},body:JSON.stringify(fixture.credentials)}));
   const session=await signed.json(),value=JSON.stringify({version:2,refreshToken:session.refresh_token,deviceId:'22222222-2222-4222-8222-222222222222',deviceToken:'',deviceAccountId:session.user.id});
   assert.equal(fixture.secureStore(event,{action:'get'},contents),'');
+  assert.deepEqual(fixture.secureStore(event,{action:'status'},contents),{available:true,code:null,backend:'smoke_fixture'});
   assert.throws(()=>fixture.secureStore({...event,senderFrame:{url:'vumiro://app/auth.html'}},{action:'set',value},contents),/main frame/);
   assert.throws(()=>fixture.secureStore(event,{action:'set',value:JSON.stringify({refreshToken:'unrelated-real-credential'})},contents),/synthetic/);
   assert.equal(fixture.secureStore(event,{action:'set',value},contents),true);
