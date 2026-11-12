@@ -47,10 +47,31 @@ contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
   removeEventListener(type, callback) {
     if (type === 'message' && typeof callback === 'function') listeners.delete(callback);
   },
-  secureStore: Object.freeze({
-    async get() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'get' }); },
-    async set(value) { return ipcRenderer.invoke('vumiro:secure-store', { action: 'set', value }); },
-    async delete() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'delete' }); }
+  secureStore: (() => {
+    async function request(action, value) {
+      const codes = ['SECURE_STORAGE_UNAVAILABLE', 'SECURE_STORAGE_UNPROTECTED', 'SECURE_STORAGE_READ_FAILED', 'SECURE_STORAGE_WRITE_FAILED', 'SECURE_STORAGE_DELETE_FAILED', 'SECURE_STORAGE_INVALID_REQUEST', 'SECURE_STORAGE_FORBIDDEN'];
+      const backends = ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6', 'basic_text', 'unknown'];
+      let result;
+      try { result = await ipcRenderer.invoke('vumiro:secure-store', action === 'set' ? { action, value } : { action }); }
+      catch { /* IPC transport failures carry no trusted error metadata. */ }
+      if (result?.ok === true) return result.value;
+      const fallback = action === 'set' ? 'SECURE_STORAGE_WRITE_FAILED' : action === 'delete' ? 'SECURE_STORAGE_DELETE_FAILED' : action === 'status' ? 'SECURE_STORAGE_UNAVAILABLE' : 'SECURE_STORAGE_READ_FAILED';
+      const error = new Error('Secure account storage could not complete the request.');
+      error.code = codes.includes(result?.error?.code) ? result.error.code : fallback;
+      error.backend = backends.includes(result?.error?.backend) ? result.error.backend : 'unknown';
+      throw error;
+    }
+    return Object.freeze({
+      async get() { return request('get'); },
+      async set(value) { return request('set', value); },
+      async delete() { return request('delete'); },
+      async status() { return request('status'); }
+    });
+  })(),
+  networkDiagnostics: Object.freeze({
+    async check(url = 'https://vumiro-rooms.vumiro-signaling.workers.dev/api/v1/account/config') {
+      return ipcRenderer.invoke('vumiro:network-diagnostics', { url });
+    }
   }),
   marketplace: Object.freeze({
     async openExternal(url) { return ipcRenderer.invoke('vumiro:marketplace-external', { url }); }

@@ -67,7 +67,7 @@
     $('accountForgotPassword').onclick=()=>{$('accountResetEmail').value=$('accountEmail').value;setAccountScreen('recover');};
     if($('accountVerificationNav'))$('accountVerificationNav').hidden=true;
     $('accountBack').onclick=()=>setAccountScreen('signin');
-    $('accountRetry').onclick=async()=>{authConfig=null;$('accountRetry').disabled=true;$('accountError').textContent='';try{await loadAccountAvailability();if(session){await enqueue(syncInitial);completeAuthentication();}else status('Account service connected.');}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}finally{$('accountRetry').disabled=false;}};
+    $('accountRetry').onclick=async()=>{if($('accountRetry').disabled)return;authConfig=null;$('accountRetry').disabled=true;$('accountError').textContent='';try{await loadAccountAvailability();await resumeSavedAccount();render();if(session)completeAuthentication();else{if(pendingSignup)setAccountScreen('verify');status('Account service connected.');}}catch(error){showAvailabilityFailure(error);}finally{$('accountRetry').disabled=false;}};
   }
   function openAccount(screen) {
     if(!authPage&&session&&settingsNavigation){settingsNavigation();return;}
@@ -102,7 +102,13 @@
   }
   async function loadAccountAvailability() {
     let cfg;
-    try { cfg=await config(); }
+    try {
+      // Test both dependencies on every attempt, even when either one fails.
+      const [storage,network]=await Promise.allSettled([ensureSecureStorage(),config()]);
+      if(storage.status==='rejected')throw storage.reason;
+      if(network.status==='rejected')throw network.reason;
+      cfg=network.value;
+    }
     catch(error) {
       $('accountSignIn').disabled=$('accountSignUp').disabled=true;
       $('accountRegistrationStatus').textContent='';
@@ -116,6 +122,11 @@
     $('accountRetry').hidden=!!cfg.serviceEnabled;
     for(const [id,provider]of [['accountGoogle','google'],['accountMicrosoft','azure']])if($(id))$(id).disabled=!cfg.serviceEnabled||!cfg.oauthProviders?.includes(provider);
     return cfg;
+  }
+  function showAvailabilityFailure(error) {
+    status((globalThis.VumiroI18n?.error(error)||error.message),true);$('accountError').textContent='';
+    $('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;
+    for(const id of ['accountGoogle','accountMicrosoft'])if($(id))$(id).disabled=true;
   }
 
   function enqueue(operation) {
@@ -254,8 +265,21 @@
   function status(text, error = false) { for(const id of ['accountSyncStatus','accountFeedback']){const target=$(id);if(target){target.textContent=text;target.classList.toggle('error',error);}} }
   function confirmLocalized(message){return confirm(globalThis.VumiroI18n?.translateLiteral(message)||message);}
   function authError(data) { return data?.msg || data?.message || data?.error_description || data?.error || 'The account service could not complete this request.'; }
+  const networkErrorCodes=new Set(['NETWORK_CERTIFICATE','NETWORK_DNS','NETWORK_TIMEOUT','NETWORK_OFFLINE','NETWORK_FAILED']);
+  function accountFetch(url,options) {
+    return fetch(url,options).catch(async cause=>{throw await fetchFailure(cause,url);});
+  }
+  async function fetchFailure(cause,url) {
+    let code=networkErrorCodes.has(cause?.code)?cause.code:'';
+    if(!code){
+      try{const diagnostic=await window.vumiroDesktop?.networkDiagnostics?.check?.(url);if(diagnostic?.ok===false&&networkErrorCodes.has(diagnostic.code))code=diagnostic.code;}catch{}
+    }
+    if(!code&&globalThis.navigator?.onLine===false)code='NETWORK_OFFLINE';
+    const error=Error('The account service could not be reached. Check your connection and try again.');
+    error.code=code||'NETWORK_FAILED';return error;
+  }
   async function callJson(url, options={}) {
-    const response=await fetch(url,{...options,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})}});
+    const response=await accountFetch(url,{...options,credentials:'omit',cache:'no-store',headers:{'Content-Type':'application/json',...(options.headers||{})}});
     let data={};try{data=await response.json();}catch{}
     if(!response.ok){const error=Error(authError(data));error.status=response.status;error.code=typeof data.code==='string'?data.code:typeof data.error_code==='string'?data.error_code:'';throw error;}
     return data;
@@ -265,7 +289,7 @@
     // Accounts are pinned to the canonical Vumiro Worker. A user supplied
     // signaling URL may run calls, but it must never select a password target.
     accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
-    const response=await fetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store',headers:{'X-Vumiro-Profile-Cards':'1'}});
+    const response=await accountFetch(`${accountService}/api/v1/account/config`,{credentials:'omit',cache:'no-store',headers:{'X-Vumiro-Profile-Cards':'1'}});
     let data={};try{data=await response.json();}catch{}
     if(!response.ok)throw Error(response.status===404?'Accounts are not available yet. Please try again later.':authError(data));
     if(typeof data.authUrl!=='string'||typeof data.publishableKey!=='string')throw Error('The account service is not configured.');
@@ -292,12 +316,33 @@
     if(pendingSignup)state.pendingSignup=pendingSignup;
     if(identityRecoveryCode&&identityRecoveryAccountId)Object.assign(state,{identityRecoveryCode,identityRecoveryAccountId});
     if(!session&&deviceId&&deviceToken)Object.assign(state,{deviceId,deviceToken,deviceAccountId});
-    if(session||pendingSignup||identityRecoveryCode||(deviceId&&deviceToken))await secureStore.set(JSON.stringify(state));
-    else await secureStore.delete();
+    if(session||pendingSignup||identityRecoveryCode||(deviceId&&deviceToken)){
+      if(typeof secureStore.status==='function')await ensureSecureStorage(false);
+      await secureOperation('set',JSON.stringify(state));
+    }
+    else await secureOperation('delete');
   }
-  async function ensureSecureStorage() {
+  const storageErrorCodes=new Set(['SECURE_STORAGE_UNAVAILABLE','SECURE_STORAGE_UNPROTECTED','SECURE_STORAGE_READ_FAILED','SECURE_STORAGE_WRITE_FAILED','SECURE_STORAGE_DELETE_FAILED','SECURE_STORAGE_INVALID_REQUEST','SECURE_STORAGE_FORBIDDEN']);
+  function storageError(cause,fallback='SECURE_STORAGE_UNAVAILABLE') {
+    const code=storageErrorCodes.has(cause?.code)?cause.code:fallback;
+    const error=Error(code==='SECURE_STORAGE_UNPROTECTED'?'Secure account storage is not protected. Unlock a supported system keyring and reconnect.':'Secure account storage is unavailable. Unlock your system keyring and reconnect.');
+    error.code=code;
+    if(['gnome_libsecret','kwallet','kwallet5','kwallet6','basic_text','unknown'].includes(cause?.backend))error.backend=cause.backend;
+    return error;
+  }
+  async function secureOperation(action,value) {
+    try{return await secureStore[action](value);}
+    catch(error){throw storageError(error,{get:'SECURE_STORAGE_READ_FAILED',set:'SECURE_STORAGE_WRITE_FAILED',delete:'SECURE_STORAGE_DELETE_FAILED'}[action]);}
+  }
+  async function ensureSecureStorage(verifySavedData=true) {
     if(!secureStore?.get||!secureStore?.set||!secureStore?.delete)throw Error('This app version does not provide secure account session storage. Update Vumiro before signing in.');
-    await secureStore.get();
+    if(typeof secureStore.status==='function'){
+      let readiness;try{readiness=await secureStore.status();}catch(error){throw storageError(error);}
+      if(readiness?.available!==true||readiness.backend==='basic_text'||readiness.code)throw storageError(readiness,readiness?.backend==='basic_text'?'SECURE_STORAGE_UNPROTECTED':'SECURE_STORAGE_UNAVAILABLE');
+      if(!verifySavedData)return;
+    }
+    // Older Windows hosts use a DPAPI-protected read as their readiness check.
+    await secureOperation('get');
   }
   async function activate(value,unlock=null) {
     if(!value?.access_token||!value?.refresh_token)throw Error('The account provider did not return a valid session.');
@@ -375,7 +420,9 @@
     },20000);
     const bounded=promise=>Promise.race([promise,deadline]);
     try {
-      const response=await bounded(fetch(`${accountService}/api/v1/account/cover${method==='GET'?'/'+manifest.revision:''}`,{method,headers,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error',...(blob?{body:blob}:{})}));
+      const url=`${accountService}/api/v1/account/cover${method==='GET'?'/'+manifest.revision:''}`;let response;
+      try{response=await bounded(fetch(url,{method,headers,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error',...(blob?{body:blob}:{})}));}
+      catch(error){if(timedOut)throw error;throw await fetchFailure(error,url);}
       if(!response.ok){let data={};try{data=await bounded(response.json());}catch(error){if(timedOut)throw error;}const error=Error(authError(data));error.status=response.status;if(response.status===401||response.status===403){sessionGeneration++;session=null;deviceToken='';active=false;await secureStore?.delete?.();render();}throw error;}
       if(method==='POST')return await bounded(response.json());
       if(Number(response.headers.get('Content-Length'))>tools.MAX_BYTES)throw Error('The downloaded cover exceeds its size limit.');
@@ -777,35 +824,48 @@
     section.append(eyebrow,title,description,label,input,button,feedback);card.append(section);resolveStartup(false);return true;
   }
   /* End private LOCAL QA profile entry. */
+  async function resumeSavedAccount() {
+    // A refresh may already have rotated its token before a keyring write failed.
+    // Keep that session in memory and save it before resuming account requests.
+    if(!session){
+      const stored=await secureOperation('get');
+      if(stored){
+        let saved;try{saved=JSON.parse(stored);}catch{saved={refreshToken:stored};}
+        if(saved.pendingSignup&&typeof saved.pendingSignup.email==='string'&&typeof saved.pendingSignup.acceptedAt==='string'){
+          pendingSignup={email:saved.pendingSignup.email,acceptedAt:saved.pendingSignup.acceptedAt,noticeVersion:saved.pendingSignup.noticeVersion||NOTICE_VERSION};pendingEmail=pendingSignup.email;
+        }
+        if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode)&&(saved.identityRecoveryAccountId||saved.deviceAccountId)){identityRecoveryCode=saved.identityRecoveryCode;identityRecoveryAccountId=saved.identityRecoveryAccountId||saved.deviceAccountId;}
+        const hasDevice=typeof saved.deviceId==='string'&&/^[0-9a-f-]{36}$/i.test(saved.deviceId)&&typeof saved.deviceToken==='string'&&saved.deviceToken.length>=32;
+        if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
+        if(typeof saved.refreshToken==='string'&&saved.refreshToken){
+          if(!hasDevice){await secureOperation('delete');pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
+          let data;
+          try{data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});}
+          catch(error){
+            if(error.status!==400&&error.status!==401)throw error;
+            // Only a definitive rejection drops authentication. Keep pending
+            // signup, recovery material and linked-device credentials intact.
+            active=false;await persistCredentials();return;
+          }
+          sessionGeneration++;session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};
+          deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;
+          if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}
+        }
+      }
+    }
+    if(session){await persistCredentials();await enqueue(syncInitial);}
+  }
   addEventListener('DOMContentLoaded',async()=>{
     try{if(await preparePrivateQaEntry())return;}catch(error){status(error.message,true);resolveStartup(false);return;}
     let startupSucceeded=false;
     try {
       try {
         await window.VumiroLocalProfile?.initialize?.();
-        accountService='https://vumiro-rooms.vumiro-signaling.workers.dev';
-        if(secureStore?.get) {
-          const stored=await secureStore.get();
-          if(stored){
-            let saved;try{saved=JSON.parse(stored);}catch{saved={refreshToken:stored};}
-            if(saved.pendingSignup&&typeof saved.pendingSignup.email==='string'&&typeof saved.pendingSignup.acceptedAt==='string'){
-              pendingSignup={email:saved.pendingSignup.email,acceptedAt:saved.pendingSignup.acceptedAt,noticeVersion:saved.pendingSignup.noticeVersion||NOTICE_VERSION};pendingEmail=pendingSignup.email;
-            }
-            if(typeof saved.identityRecoveryCode==='string'&&/^vmr1\.[A-Za-z0-9_-]{48}$/.test(saved.identityRecoveryCode)&&(saved.identityRecoveryAccountId||saved.deviceAccountId)){identityRecoveryCode=saved.identityRecoveryCode;identityRecoveryAccountId=saved.identityRecoveryAccountId||saved.deviceAccountId;}
-            const hasDevice=typeof saved.deviceId==='string'&&/^[0-9a-f-]{36}$/i.test(saved.deviceId)&&typeof saved.deviceToken==='string'&&saved.deviceToken.length>=32;
-            if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
-            if(typeof saved.refreshToken==='string'&&saved.refreshToken){
-              if(!hasDevice){await secureStore.delete();pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
-              const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});sessionGeneration++;session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
-            }
-          }
-        }
+        await loadAccountAvailability();
+        await resumeSavedAccount();
         if(!authPage&&(!session||accountScreen==='unlock')){navigate('auth.html');return;}
-        await loadAccountAvailability();startupSucceeded=true;
-      } catch(error) {
-        if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});sessionGeneration++;session=null;deviceId='';deviceToken='';deviceAccountId='';}
-        else {status((globalThis.VumiroI18n?.error(error)||error.message),true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;}
-      }
+        startupSucceeded=true;
+      } catch(error) {showAvailabilityFailure(error);}
       render();
       if(!authPage&&(!session||!startupSucceeded||accountScreen==='unlock')){navigate('auth.html');return;}
       if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&startupSucceeded)completeAuthentication();}

@@ -65,7 +65,7 @@
     },
     "linux": {
       "sources": [],
-      "tests": ["tests/linux-nudge.test.mjs", "tests/linux-smoke.test.mjs", "tests/linux-smoke-ui.test.mjs", "tests/linux-smoke-assets.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/stream-mosaic.test.mjs"],
+      "tests": ["tests/linux-nudge.test.mjs", "tests/linux-smoke.test.mjs", "tests/linux-smoke-ui.test.mjs", "tests/linux-smoke-assets.test.mjs", "tests/linux-secure-store.test.mjs", "tests/network-diagnostics.test.mjs", "tests/linux-chromium-tls.test.mjs", "tests/native-notification-bridge.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/stream-mosaic.test.mjs"],
       "backend": false,
       "native": []
     },

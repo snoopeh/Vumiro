@@ -13,6 +13,25 @@ function load(saved, languages=['en'], document) {
   return {api:app.VumiroI18n,values};
 }
 
+test('allowlisted storage and network codes have safe actionable messages in every locale',()=>{
+  const {api}=load();
+  const codes=['SECURE_STORAGE_UNAVAILABLE','SECURE_STORAGE_UNPROTECTED','SECURE_STORAGE_READ_FAILED','SECURE_STORAGE_WRITE_FAILED','SECURE_STORAGE_DELETE_FAILED','NETWORK_CERTIFICATE','NETWORK_DNS','NETWORK_TIMEOUT','NETWORK_OFFLINE','NETWORK_FAILED'];
+  for(const {code:locale} of api.locales){
+    api.setLocale(locale);
+    for(const code of codes){
+      const message=api.error({code,message:'native secret-token from https://private.example'});
+      assert.notEqual(message,api.t('Could not complete this request. Try again.'),locale+': '+code);
+      assert.doesNotMatch(message,/secret-token|private\.example|ERR_/);
+      if(locale!=='en'){api.setLocale('en');const english=api.error({code});api.setLocale(locale);assert.notEqual(message,english);}
+    }
+  }
+  api.setLocale('en');
+  assert.match(api.error({code:'SECURE_STORAGE_UNAVAILABLE',backend:'gnome_libsecret'}),/GNOME Keyring/);
+  assert.match(api.error({code:'SECURE_STORAGE_UNAVAILABLE',backend:'kwallet6'}),/KWallet/);
+  assert.match(api.error({code:'NETWORK_CERTIFICATE'}),/certificate/i);
+  assert.equal(api.error({code:'UNRECOGNIZED',message:'secret-token'}),api.t('Could not complete this request. Try again.'));
+});
+
 test('Friends and server sandbox labels explain local-only behavior in every language',()=>{
   const {api}=load('pt-BR');
   assert.equal(api.t('Conversations'),'Conversas');

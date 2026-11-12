@@ -26,20 +26,21 @@ class Element {
 
 function response(status,value){return {ok:status>=200&&status<300,status,async json(){return value;}};}
 
-function harness({stored='',route,authPage=false,oauth,href,localProfile=null,callFrame=null,pageMarker=true}={}) {
+function harness({stored='',route,authPage=false,oauth,href,localProfile=null,callFrame=null,pageMarker=true,legacyStorage=false}={}) {
   href=href||(authPage?'https://vumiro.local/auth.html':'https://vumiro.local/friends.html');
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
   const listeners=new Map();
   const storage=new Map();
-  const secure={value:stored,writes:[],async get(){return this.value;},async set(value){this.value=value;this.writes.push(value);},async delete(){this.value='';this.writes.push('');}};
+  const secure={value:stored,writes:[],reads:0,statusChecks:0,readiness:{available:true,code:'',backend:'gnome_libsecret'},async get(){this.reads++;if(this.readError)throw this.readError;return this.value;},async set(value){if(this.writeError)throw this.writeError;this.value=value;this.writes.push(value);},async delete(){this.value='';this.writes.push('');}};
+  if(!legacyStorage)secure.status=async()=>{secure.statusChecks++;return secure.readiness;};
   const calls=[];
-  const events=[],clock={now:Date.now()};
+  const events=[],errors=[],clock={now:Date.now()};
   class ClockDate extends Date { static now(){return clock.now;} }
   const fetch=async(url,options={})=>{calls.push({url:String(url),options});return route?route(String(url),options,calls):response(200,{});};
   const navigations=[],createdProfiles=[];
   const sandbox={
-    window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,createProfile:async name=>{createdProfiles.push(name);localProfile={id:'new-local-identity',name};return localProfile;},accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
+    VumiroI18n:{translateLiteral:text=>text,error:error=>{errors.push(error);return error.message;}},window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,createProfile:async name=>{createdProfiles.push(name);localProfile={id:'new-local-identity',name};return localProfile;},accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
     document:{body:{dataset:pageMarker?{page:authPage?'auth':'friends'}:{}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
     crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
@@ -48,7 +49,7 @@ function harness({stored='',route,authPage=false,oauth,href,localProfile=null,ca
   };
   sandbox.window.window=sandbox.window;sandbox.window.chrome=undefined;
   vm.runInNewContext(source,sandbox,{filename:'account-client.js'});
-  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,clock,createdProfiles,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
+  return {elements,element,listeners,secure,calls,storage,sandbox,navigations,events,errors,clock,createdProfiles,async start(){for(const callback of listeners.get('DOMContentLoaded')||[])await callback();}};
 }
 
 const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishable_abcdefghijklmnopqrstuvwxyz',serviceEnabled:true,registrationEnabled:true,privacyNoticeVersion:'2026-11-03'};
@@ -687,4 +688,131 @@ for(const pauseAt of ['provider','persistence'])test(`marketplace equipment requ
   assert.ok(error,'the stale request must reject');assert.match(error.message,/account|session|changed|cancelled/i);
   assert.equal(account.getState().accountId,second.user.id,'stale refresh cannot replace the later signed-in session');
   assert.equal(app.calls.some(call=>call.url.includes('/api/v1/marketplace/profile/appearance/')),false,'no equipment write is sent under either account');
+});
+
+for(const code of ['SECURE_STORAGE_UNAVAILABLE','SECURE_STORAGE_UNPROTECTED','SECURE_STORAGE_READ_FAILED'])test(`empty storage cannot fake readiness when status reports ${code}`,async()=>{
+  let providerCalls=0;
+  const app=harness({authPage:true,oauth:{signIn:async()=>{providerCalls++;return {code:'unused'};}},route:url=>url.endsWith('/account/config')?response(200,{...config,oauthProviders:['google']}):commonRoute(url)});
+  app.secure.readiness={available:false,code,backend:'basic_text'};
+  await app.start();
+  assert.equal(app.secure.reads,0,'availability must be checked before reading a missing file');
+  assert.equal(app.element('accountSignIn').disabled,true);
+  assert.equal(app.element('accountGoogle').disabled,true);
+  assert.equal(app.element('accountRetry').hidden,false);
+  assert.ok(app.calls.some(call=>call.url.endsWith('/account/config')),'network readiness is checked independently');
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='existing password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});await app.element('accountGoogle').onclick();
+  assert.equal(providerCalls,0);
+  assert.equal(app.calls.some(call=>call.url.includes('/auth/v1/')),false);
+  assert.equal(app.secure.writes.length,0);
+  assert.equal(app.errors.at(-1).code,code);
+});
+
+for(const firstFixed of ['storage','network'])test(`reconnect checks both prerequisites and restores saved credentials once when ${firstFixed} recovers first`,async()=>{
+  let online=false,refreshes=0;
+  const pending={email:'pending@example.com',acceptedAt:'',noticeVersion:config.privacyNoticeVersion};
+  const original=JSON.stringify({...JSON.parse(saved),pendingSignup:pending});
+  const app=harness({authPage:true,stored:original,route:(url,options)=>{
+    if(!online)throw Object.assign(new TypeError('private native detail https://secret.invalid/token'),{code:'NETWORK_OFFLINE'});
+    if(url.includes('grant_type=refresh_token'))refreshes++;
+    return commonRoute(url,options);
+  }});
+  app.secure.readiness={available:false,code:'SECURE_STORAGE_UNAVAILABLE',backend:'gnome_libsecret'};
+  await app.start();
+  assert.equal(app.secure.value,original);assert.equal(refreshes,0);
+  if(firstFixed==='storage')app.secure.readiness={available:true,code:'',backend:'gnome_libsecret'};else online=true;
+  const initialChecks=app.secure.statusChecks,initialConfigs=app.calls.filter(call=>call.url.endsWith('/account/config')).length;
+  await app.element('accountRetry').onclick();
+  assert.ok(app.secure.statusChecks>initialChecks);
+  assert.ok(app.calls.filter(call=>call.url.endsWith('/account/config')).length>initialConfigs);
+  assert.equal(app.secure.value,original);assert.equal(refreshes,0);assert.equal(app.navigations.length,0);
+  online=true;app.secure.readiness={available:true,code:'',backend:'gnome_libsecret'};
+  await Promise.all([app.element('accountRetry').onclick(),app.element('accountRetry').onclick()]);
+  assert.equal(refreshes,1);assert.equal(app.navigations.length,1);
+  const persisted=JSON.parse(app.secure.value);
+  assert.equal(persisted.deviceToken,JSON.parse(saved).deviceToken);
+  assert.deepEqual(persisted.pendingSignup,pending);
+  assert.equal(persisted.refreshToken,session.refresh_token);
+});
+
+test('a locked saved session is preserved and restored after storage unlocks',async()=>{
+  const app=harness({authPage:true,stored:saved,route:commonRoute});
+  app.secure.readError=Object.assign(Error('private keyring diagnostic'),{code:'SECURE_STORAGE_READ_FAILED',backend:'gnome_libsecret'});
+  await app.start();
+  assert.equal(app.secure.value,saved);assert.equal(app.secure.writes.length,0);
+  assert.equal(app.calls.some(call=>call.url.includes('grant_type=refresh_token')),false);
+  app.element('accountEmail').value=session.user.email;app.element('accountPassword').value='existing password';
+  await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(app.calls.some(call=>call.url.includes('grant_type=password')),false,'unreadable ciphertext must not be overwritten by a fresh sign-in');
+  assert.doesNotMatch(app.element('accountError').textContent,/private keyring diagnostic/);
+  app.secure.readError=null;await app.element('accountRetry').onclick();
+  assert.equal(app.calls.filter(call=>call.url.includes('grant_type=refresh_token')).length,1);
+  assert.equal(app.navigations.length,1);
+});
+
+test('a failed session write resumes with the rotated in-memory refresh token without refreshing twice',async()=>{
+  let refreshes=0;
+  const app=harness({authPage:true,stored:saved,route:(url,options)=>{if(url.includes('grant_type=refresh_token'))refreshes++;return commonRoute(url,options);}});
+  app.secure.writeError=Object.assign(Error('keyring locked'),{code:'SECURE_STORAGE_WRITE_FAILED'});
+  await app.start();assert.equal(refreshes,1);assert.equal(app.secure.value,saved);assert.equal(app.navigations.length,0);
+  app.secure.writeError=null;await app.element('accountRetry').onclick();
+  assert.equal(refreshes,1);assert.equal(JSON.parse(app.secure.value).refreshToken,session.refresh_token);assert.equal(app.navigations.length,1);
+});
+
+test('Windows storage without a status method retains the protected read fallback',async()=>{
+  const app=harness({authPage:true,legacyStorage:true,stored:saved,route:commonRoute});await app.start();
+  assert.equal(app.navigations.length,1);assert.ok(app.secure.reads>0);
+});
+
+for(const code of ['NETWORK_CERTIFICATE','NETWORK_DNS','NETWORK_TIMEOUT','NETWORK_OFFLINE','NETWORK_FAILED'])test(`fetch failures preserve allowlisted ${code} without exposing native details`,async()=>{
+  const app=harness({authPage:true,stored:saved,route:()=>{throw Object.assign(new TypeError('secret-token https://private.invalid TLS text'),{code});}});await app.start();
+  assert.equal(app.errors.at(-1).code,code);
+  assert.doesNotMatch(app.element('accountFeedback').textContent,/secret-token|private.invalid|TLS text/);
+  assert.equal(app.secure.value,saved);assert.equal(app.secure.writes.length,0);
+});
+
+test('native network diagnostics classify a failing request without replay or token exposure',async()=>{
+  let offline=false;const diagnosed=[];
+  const app=harness({authPage:true,stored:saved,route:(url,options)=>{if(offline)throw new TypeError('secret raw failure');return commonRoute(url,options);}});
+  app.sandbox.window.vumiroDesktop.networkDiagnostics={check:async url=>{diagnosed.push(url);return {ok:false,code:'NETWORK_CERTIFICATE'};}};
+  await app.start();offline=true;await app.element('accountExport').onclick();
+  assert.equal(app.errors.at(-1).code,'NETWORK_CERTIFICATE');
+  assert.equal(diagnosed.length,1);assert.ok(diagnosed[0].endsWith('/account/export'));
+  assert.equal(app.calls.filter(call=>call.url.endsWith('/account/export')).length,1);
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,true);
+  assert.doesNotMatch(app.element('accountFeedback').textContent,/secret raw/);
+});
+
+test('unknown native error and diagnostic codes remain generic',async()=>{
+  const app=harness({authPage:true,route:()=>{throw Object.assign(new TypeError('secret arbitrary native failure'),{code:'NOT_ALLOWLISTED'});}});
+  app.sandbox.window.vumiroDesktop.networkDiagnostics={check:async()=>({ok:false,code:'secret-token'})};
+  await app.start();assert.equal(app.errors.at(-1).code,'NETWORK_FAILED');
+  assert.doesNotMatch(app.element('accountFeedback').textContent,/secret|arbitrary|NOT_ALLOWLISTED/);
+});
+
+test('clearing an empty saved account remains available when the encryption keyring is unavailable',async()=>{
+  const app=harness({authPage:true,route:commonRoute});await app.start();
+  app.secure.readiness={available:false,code:'SECURE_STORAGE_UNAVAILABLE',backend:'gnome_libsecret'};
+  const before=app.secure.statusChecks;
+  await app.sandbox.window.VumiroAccount.signOut();
+  assert.equal(app.secure.value,'');assert.deepEqual(app.secure.writes,['']);
+  assert.equal(app.secure.statusChecks,before,'deletion does not need an encryption key');
+});
+
+for(const statusCode of [400,401])test(`reconnect replaces a definitively rejected ${statusCode} refresh token with fresh sign-in while retaining pending and device state`,async()=>{
+  let online=false;
+  const pending={email:'pending@example.com',acceptedAt:'',noticeVersion:config.privacyNoticeVersion};
+  const original=JSON.stringify({...JSON.parse(saved),pendingSignup:pending});
+  const app=harness({authPage:true,stored:original,route:(url,options)=>{
+    if(!online)throw Object.assign(new TypeError('offline'),{code:'NETWORK_OFFLINE'});
+    if(url.includes('grant_type=refresh_token'))return response(statusCode,{message:'Refresh token is invalid'});
+    return commonRoute(url,options);
+  }});await app.start();assert.equal(app.secure.value,original);
+  online=true;await app.element('accountRetry').onclick();
+  assert.equal(app.element('accountSignIn').disabled,false);assert.equal(app.element('accountRetry').hidden,true);
+  assert.equal(app.sandbox.window.VumiroAccount.getState().signedIn,false);
+  const persisted=JSON.parse(app.secure.value);
+  assert.equal(persisted.refreshToken,undefined);assert.equal(persisted.deviceToken,JSON.parse(saved).deviceToken);assert.deepEqual(persisted.pendingSignup,pending);
+  await app.element('accountRetry').onclick();
+  assert.equal(app.calls.filter(call=>call.url.includes('grant_type=refresh_token')).length,1,'invalid refresh credentials are not retried');
 });
