@@ -44,6 +44,14 @@ test('Friends and server sandbox labels explain local-only behavior in every lan
       assert.notEqual(api.t(key),key,code+' explains '+key);
   }
 });
+
+test('sign out loading describes the pending session transition in every language',()=>{
+  const {api}=load();
+  for(const code of ['es','pt-BR','ja','zh-CN','ru']){
+    api.setLocale(code);
+    for(const key of ['Signing out…','Finishing your session. Your local profile stays on this device.'])assert.notEqual(api.t(key),key,code+' translates '+key);
+  }
+});
 test('lobby language selector stays in the settings menu while sign-in keeps its visible control',()=>{
   function fixture(withSidebar,withSettings=false){
     let dialog=null;

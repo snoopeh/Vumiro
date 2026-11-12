@@ -13,6 +13,7 @@ class Element {
   after(){}
   before(){}
   setAttribute(name,value){this.attributes[name]=value;}
+  removeAttribute(name){delete this.attributes[name];}
   addEventListener(type,callback){this.listeners.set(type,callback);}
   showModal(){this.open=true;}
   close(){this.open=false;this.listeners.get('close')?.();}
@@ -30,6 +31,8 @@ function harness({stored='',route,authPage=false,oauth,href,localProfile=null,ca
   href=href||(authPage?'https://vumiro.local/auth.html':'https://vumiro.local/friends.html');
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
+  const body=new Element('body');body.dataset=pageMarker?{page:authPage?'auth':'friends'}:{};
+  body.append=(...nodes)=>{const collect=node=>{if(node.id)elements.set(node.id,node);for(const child of node.children||[])collect(child);};for(const node of nodes)collect(node);};
   const listeners=new Map();
   const storage=new Map();
   const secure={value:stored,writes:[],reads:0,statusChecks:0,readiness:{available:true,code:'',backend:'gnome_libsecret'},async get(){this.reads++;if(this.readError)throw this.readError;return this.value;},async set(value){if(this.writeError)throw this.writeError;this.value=value;this.writes.push(value);},async delete(){this.value='';this.writes.push('');}};
@@ -41,7 +44,7 @@ function harness({stored='',route,authPage=false,oauth,href,localProfile=null,ca
   const navigations=[],createdProfiles=[];
   const sandbox={
     VumiroI18n:{translateLiteral:text=>text,error:error=>{errors.push(error);return error.message;}},window:{vumiroDesktop:{secureStore:secure,oauth},VumiroLocalProfile:{profile:()=>localProfile,createProfile:async name=>{createdProfiles.push(name);localProfile={id:'new-local-identity',name};return localProfile;},accountSnapshot:async()=>({version:1,profile:{name:'Local',username:'',avatar:''},friends:[],blocked:[],settings:{}}),applyAccountSnapshot:async()=>{}}},
-    document:{body:{dataset:pageMarker?{page:authPage?'auth':'friends'}:{}},getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
+    document:{body,getElementById:element,createElement:()=>new Element(),querySelector:selector=>selector==='#callFrameSlot iframe'?callFrame:null},location:{href,search:new URL(href).search,assign:url=>navigations.push(url)},fetch,Date:ClockDate,
     crypto:{...webcrypto,subtle:webcrypto.subtle,randomUUID,getRandomValues:bytes=>webcrypto.getRandomValues(bytes)},TextEncoder,Blob,URL,btoa:binary=>Buffer.from(binary,'binary').toString('base64'),
     localStorage:{getItem:key=>storage.has(key)?storage.get(key):null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)},
     addEventListener:(type,callback)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(callback);},
@@ -93,6 +96,39 @@ test('ordinary sign out uses local provider scope and retains only device creden
   assert.equal(persisted.refreshToken,undefined);
   assert.equal(persisted.deviceId,'22222222-2222-4222-8222-222222222222');
   assert.equal(persisted.deviceToken,'a'.repeat(64));
+});
+
+test('sign out opens a blocking loading screen immediately while pending work finishes and coalesces repeated requests',async()=>{
+  let releaseExport,exportStarted;
+  const started=new Promise(resolve=>{exportStarted=resolve;}),gate=new Promise(resolve=>{releaseExport=resolve;});
+  const app=harness({stored:saved,route:async url=>{if(url.endsWith('/account/export')){exportStarted();await gate;return response(200,{version:1,account:{},data:null,devices:[],noticeRecords:[]});}return commonRoute(url);}});
+  await app.start();const exporting=app.element('accountExport').onclick();await started;
+  const account=app.sandbox.window.VumiroAccount,signingOut=account.signOut();
+  assert.equal(app.element('accountSignOutLoading').open,true);
+  assert.equal(app.element('accountSignOutLoading').attributes['aria-labelledby'],'accountSignOutHeading');
+  assert.equal(app.element('accountSignOutHeading').textContent,'Signing out…');
+  assert.equal(app.sandbox.document.body.attributes['aria-busy'],'true');
+  assert.equal(account.signOut(),signingOut,'one logout operation owns the visible loading state');
+  let prevented=false;app.element('accountSignOutLoading').listeners.get('cancel')({preventDefault(){prevented=true;}});assert.equal(prevented,true);
+  assert.equal(app.navigations.length,0);
+  releaseExport();await Promise.all([exporting,signingOut]);
+  assert.equal(app.calls.filter(call=>call.url.includes('/logout?scope=local')).length,1);
+  assert.equal(app.navigations.at(-1),'https://vumiro.local/auth.html?authView=signin');
+});
+
+test('failed secure logout dismisses its loading screen and exposes the failure for retry',async()=>{
+  const app=harness({stored:saved,route:commonRoute});await app.start();app.secure.writeError=Error('Secure storage unavailable');
+  await assert.rejects(app.sandbox.window.VumiroAccount.signOut(),/Secure account storage is unavailable/);
+  assert.equal(app.element('accountSignOutLoading').open,false);
+  assert.equal(app.sandbox.document.body.attributes['aria-busy'],undefined);
+  assert.equal(app.navigations.length,0);
+});
+
+test('auth tabs keep only their selected tab in the keyboard tab order',async()=>{
+  const app=harness({authPage:true,route:commonRoute});await app.start();
+  assert.equal(app.element('accountSignInTab').tabIndex,0);assert.equal(app.element('accountSignUpTab').tabIndex,-1);
+  app.element('accountSignUpTab').onclick();
+  assert.equal(app.element('accountSignInTab').tabIndex,-1);assert.equal(app.element('accountSignUpTab').tabIndex,0);
 });
 
 test('sign out preserves invitation routing while returning to the sign in screen',async()=>{

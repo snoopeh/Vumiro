@@ -54,6 +54,40 @@ test('dynamic and translated button labels regain one decorative icon without mu
  observe([{target:button,addedNodes:[svg]},{target:button,addedNodes:[{nodeType:3,nodeValue:'Save profile'}]}]);assert.equal(inserts,2);
 });
 
+function actionButton(text,{nested=false,role=''}={}){
+ const classes=new Set(),label={nodeType:3,nodeValue:text},children=[],attributes=new Map(role?[['role',role]]:[]);let inserts=0;
+ const button={id:'addFriend',dataset:{},childNodes:children,onclick(){},classList:{contains:value=>classes.has(value),add:value=>classes.add(value),remove:value=>classes.delete(value)},
+  closest:selector=>selector.includes('.authCard')?{}:null,matches:selector=>selector==='button',querySelectorAll:()=>[],getAttribute:key=>attributes.get(key)??null,hasAttribute:key=>attributes.has(key),
+  querySelector:selector=>selector==='svg'?children.find(node=>node.tagName==='svg')||null:null,
+  insertAdjacentHTML:()=>{children.unshift({nodeType:1,tagName:'svg',childNodes:[],getAttribute:()=>null});inserts++;}};
+ const holder=nested?{nodeType:1,tagName:'SPAN',childNodes:[label],getAttribute:()=>null,parentElement:button}:button;label.parentElement=holder;children.push(nested?holder:label);
+ return {button,label,classes,inserts:()=>inserts};
+}
+test('mapped plus buttons replace legacy glyphs once without replacing their label or handler',()=>{
+ const {enhance}=require('../Vumiro.Client/WebServer/ui-controls.js');
+ for(const nested of [false,true])for(const prefix of ['+','＋']){
+  const h=actionButton(prefix+' Add friend',{nested}),handler=h.button.onclick;
+  enhance(h.button);enhance(h.button);
+  assert.equal(h.label.nodeValue,'Add friend');assert.equal(h.inserts(),1);assert.equal(h.button.onclick,handler);
+  h.label.nodeValue=prefix+' Adicionar amigo';enhance(h.button);enhance(h.button);
+  assert.equal(h.label.nodeValue,'Adicionar amigo');assert.equal(h.inserts(),1);
+ }
+ const plain=actionButton('Add friend');enhance(plain.button);assert.equal(plain.label.nodeValue,'Add friend');
+ const other=actionButton('+ Save profile');other.button.id='gamingSaveProfile';enhance(other.button);assert.equal(other.label.nodeValue,'+ Save profile');
+});
+test('localized text-node updates normalize redundant plus without creating another icon',()=>{
+ const h=actionButton('Add friend');let observe,options;
+ const document={readyState:'complete',head:{append(){}},body:{},createElement:()=>({}),querySelectorAll:selector=>selector==='button'?[h.button]:[]};
+ const window={document,MutationObserver:class{constructor(callback){observe=callback;}observe(_,value){options=value;}}};
+ vm.runInNewContext(readFileSync(new URL('../Vumiro.Client/WebServer/ui-controls.js',import.meta.url),'utf8'),{window});
+ h.label.nodeValue='＋ Adicionar amigo';observe([{type:'characterData',target:h.label,addedNodes:[]}]);
+ assert.equal(h.label.nodeValue,'Adicionar amigo');assert.equal(h.inserts(),1);assert.equal(options.characterData,true);
+});
+test('semantic auth tabs keep their selected state and page styling after enhancement',()=>{
+ const {enhance}=require('../Vumiro.Client/WebServer/ui-controls.js'),h=actionButton('Sign in',{role:'tab'});h.button.id='accountSignInTab';h.classes.add('v-button');
+ enhance(h.button);enhance(h.button);assert.equal(h.classes.has('v-button'),false);assert.equal(h.inserts(),0);assert.equal(h.label.nodeValue,'Sign in');assert.equal(h.button.getAttribute('role'),'tab');
+});
+
 test('icons are local, decorative vectors and unknown names cannot inject markup',()=>{
  const {icon}=require('../Vumiro.Client/WebServer/ui-controls.js');
  for(const name of ['network','gamepad','sliders','play','flask','save','plus','upload','download','refresh']){

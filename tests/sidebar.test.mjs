@@ -266,6 +266,17 @@ test('Support entry uses the shared settings navigation above the profile card',
   const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');assert.ok(html.indexOf('id="supportNav"')<html.indexOf('id="selfProfile"'));
 });
 
+test('compact navigation retains explicit names for destinations and nested room and gaming actions',()=>{
+  const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');
+  for(const id of ['friendsNav','messagesNav','serversNav','marketplaceNav','roomNav','gamingNav','discoverRooms','roomCreateNav','manualRoom','gamingLanNav','gamingTogetherNav','gamingMappingNav']){
+    const button=html.match(new RegExp(`<button\\b[^>]*\\bid="${id}"[^>]*>`))?.[0];
+    assert.ok(button,id+' exists');
+    assert.match(button,/aria-label="[^"]+"/,id+' remains named when visible labels collapse');
+    assert.match(button,/title="[^"]+"/,id+' exposes a pointer hint in the rail');
+  }
+  assert.match(html.match(/<button\b[^>]*\bid="roomNav"[^>]*>/)[0],/aria-controls="roomSubnav"/);
+});
+
 
 test('in-place profile identity replacement destroys the visible server workspace without dismissing settings',async()=>{
   const h=workspaceHarness(),records=new Map();h.context.profile={id:'A'.repeat(43),name:'Person A'};

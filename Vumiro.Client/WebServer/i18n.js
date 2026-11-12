@@ -3,6 +3,8 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Signing out…": "Signing out…",
+    "Finishing your session. Your local profile stays on this device.": "Finishing your session. Your local profile stays on this device.",
     "Marketplace": "Marketplace",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.",
@@ -1956,6 +1958,8 @@
     "Search this hub": "Search this hub"
   },
   "es": {
+    "Signing out…": "Cerrando sesión…",
+    "Finishing your session. Your local profile stays on this device.": "Terminando tu sesión. Tu perfil local permanece en este dispositivo.",
     "Marketplace": "Mercado",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "El almacenamiento protegido no está disponible. Inicializa o desbloquea GNOME Keyring o KWallet y reconecta. Tu sesión guardada no ha cambiado.",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Desbloquea o inicializa GNOME Keyring (Secret Service) y reconecta. Tu sesión guardada no ha cambiado.",
@@ -3909,6 +3913,8 @@
     "Search this hub": "Buscar en esta comunidad"
   },
   "pt-BR": {
+    "Signing out…": "Saindo da conta…",
+    "Finishing your session. Your local profile stays on this device.": "Finalizando sua sessão. Seu perfil local permanece neste dispositivo.",
     "Marketplace": "Mercado",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "O armazenamento protegido está indisponível. Inicialize ou desbloqueie o GNOME Keyring ou KWallet e reconecte. Sua sessão salva permanece intacta.",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Desbloqueie ou inicialize o GNOME Keyring (Secret Service) e reconecte. Sua sessão salva permanece intacta.",
@@ -5862,6 +5868,8 @@
     "Search this hub": "Pesquisar nesta comunidade"
   },
   "ja": {
+    "Signing out…": "サインアウト中…",
+    "Finishing your session. Your local profile stays on this device.": "セッションを終了しています。ローカルプロフィールはこの端末に保持されます。",
     "Marketplace": "マーケットプレイス",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "保護されたストレージを利用できません。GNOME Keyring または KWallet を初期化またはロック解除して再接続してください。保存済みセッションは保持されています。",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "GNOME Keyring（Secret Service）をロック解除または初期化して再接続してください。保存済みセッションは保持されています。",
@@ -7815,6 +7823,8 @@
     "Search this hub": "ハブ内を検索"
   },
   "zh-CN": {
+    "Signing out…": "正在退出登录…",
+    "Finishing your session. Your local profile stays on this device.": "正在结束会话。本地个人资料将保留在此设备上。",
     "Marketplace": "主题市场",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "受保护的存储不可用。请初始化或解锁 GNOME Keyring 或 KWallet，然后重新连接。已保存的会话保持不变。",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "请解锁或初始化 GNOME Keyring（Secret Service），然后重新连接。已保存的会话保持不变。",
@@ -9768,6 +9778,8 @@
     "Search this hub": "搜索此社区"
   },
   "ru": {
+    "Signing out…": "Выход из аккаунта…",
+    "Finishing your session. Your local profile stays on this device.": "Завершаем сеанс. Локальный профиль останется на этом устройстве.",
     "Marketplace": "Магазин",
     "Protected account storage is unavailable. Initialize or unlock GNOME Keyring or KWallet, then reconnect. Your saved session is unchanged.": "Защищённое хранилище недоступно. Настройте или разблокируйте GNOME Keyring либо KWallet и подключитесь снова. Сохранённый сеанс не изменён.",
     "Unlock or initialize GNOME Keyring (Secret Service), then reconnect. Your saved session is unchanged.": "Разблокируйте или настройте GNOME Keyring (Secret Service) и подключитесь снова. Сохранённый сеанс не изменён.",

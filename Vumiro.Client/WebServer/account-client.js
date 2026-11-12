@@ -88,6 +88,7 @@
     $('accountVerifyForm').hidden=accountScreen!=='verify';$('accountResetRequestForm').hidden=accountScreen!=='recover';$('accountResetForm').hidden=accountScreen!=='reset';
     $('accountTabs').hidden=!['signin','signup'].includes(accountScreen);$('accountFooter').hidden=!!session&&accountScreen!=='entering';$('accountForgotPassword').hidden=accountScreen!=='signin';$('accountBack').hidden=!!session||['signin','signup'].includes(accountScreen);
     $('accountSignInTab').setAttribute('aria-selected',String(accountScreen==='signin'));$('accountSignUpTab').setAttribute('aria-selected',String(accountScreen==='signup'));
+    $('accountSignInTab').tabIndex=accountScreen==='signin'?0:-1;$('accountSignUpTab').tabIndex=accountScreen==='signup'?0:-1;
     $('accountSignIn').hidden=accountScreen!=='signin';$('accountSignUp').hidden=accountScreen!=='signup';
     const passwordVisible=true;$('accountPassword').hidden=!passwordVisible;const passwordLabel=$('accountForm').querySelector('label[for="accountPassword"]');if(passwordLabel)passwordLabel.hidden=!passwordVisible;
     if(authPage&&$('accountPasswordField')){$('accountPasswordField').hidden=!passwordVisible;$('accountPassword').type='password';$('accountPasswordReveal')?.setAttribute('aria-pressed','false');$('accountPasswordReveal')?.setAttribute('aria-label','Show password');}
@@ -645,9 +646,27 @@
   }
   function requestReauth(action) { reauthAction=action;$('accountConfirmPassword').value='';$('accountReauthForm').hidden=false;for(const provider of ['google','azure'])if($(`accountReauth${provider}`))$(`accountReauth${provider}`).hidden=!session?.user?.app_metadata?.providers?.includes(provider)||!authConfig?.oauthProviders?.includes(provider);$('accountConfirmPassword').focus(); }
   function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||'',accountId:session?.user?.id||'',marketplaceEnabled:authConfig?.marketplaceEnabled===true}); }
+  let pendingSignOut=null,signOutLoading=null,signOutFocus=null;
+  function showSignOutLoading() {
+    if(!signOutLoading){
+      const style=document.createElement('style');
+      style.textContent=`.accountSignOutLoading{inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:32px;border:0;border-radius:0;background:#181818;color:#f0eff3;box-shadow:none;font:inherit}.accountSignOutLoading[open]{display:grid;place-items:center;animation:none;transform:none;opacity:1}.accountSignOutLoading::backdrop{background:#181818;backdrop-filter:none}.accountSignOutLoading section{text-align:center;max-width:360px}.accountSignOutLoading h1{font-size:28px;letter-spacing:-.6px;margin:24px 0 12px}.accountSignOutLoading p{color:#aaa9b4;font-size:14px;line-height:1.7;margin:0}.accountSignOutSpinner{display:block;width:40px;height:40px;margin:auto;border:3px solid #474951;border-top-color:#ef7b76;border-radius:50%;animation:accountSignOutSpin .9s linear infinite}@keyframes accountSignOutSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.accountSignOutSpinner{animation:none}}@media(forced-colors:active){.accountSignOutLoading{background:Canvas;color:CanvasText}.accountSignOutLoading p{color:CanvasText}.accountSignOutSpinner{border-color:GrayText;border-top-color:Highlight}}`;
+      signOutLoading=document.createElement('dialog');signOutLoading.id='accountSignOutLoading';signOutLoading.className='accountSignOutLoading';signOutLoading.tabIndex=-1;signOutLoading.setAttribute('aria-labelledby','accountSignOutHeading');signOutLoading.setAttribute('aria-describedby','accountSignOutDescription');
+      const content=document.createElement('section'),spinner=document.createElement('span'),heading=document.createElement('h1'),description=document.createElement('p');
+      spinner.className='accountSignOutSpinner';spinner.setAttribute('aria-hidden','true');heading.id='accountSignOutHeading';heading.textContent='Signing out…';description.id='accountSignOutDescription';description.textContent='Finishing your session. Your local profile stays on this device.';
+      content.append(spinner,heading,description);signOutLoading.append(content);signOutLoading.addEventListener('cancel',event=>event.preventDefault());document.body.append(style,signOutLoading);
+    }
+    signOutFocus=document.activeElement;document.body.setAttribute('aria-busy','true');signOutLoading.showModal();signOutLoading.focus();
+  }
+  function withSignOutLoading(operation) {
+    if(pendingSignOut)return pendingSignOut;
+    showSignOutLoading();
+    pendingSignOut=Promise.resolve().then(operation).catch(error=>{signOutLoading.close();document.body.removeAttribute('aria-busy');signOutFocus?.focus?.();throw error;}).finally(()=>{pendingSignOut=null;});
+    return pendingSignOut;
+  }
   function signOutLocally() {
     const wasActive=active;active=false;clearTimeout(syncTimer);
-    return enqueue(async()=>{try{if(wasActive&&session&&await differsFromAcknowledged(await snapshot()))await upload(false);}catch(error){status('Your latest changes remain on this device and could not sync. '+(globalThis.VumiroI18n?.error(error)||error.message),true);}finally{await signOut(false);}});
+    return withSignOutLoading(()=>enqueue(async()=>{try{if(wasActive&&session&&await differsFromAcknowledged(await snapshot()))await upload(false);}catch(error){status('Your latest changes remain on this device and could not sync. '+(globalThis.VumiroI18n?.error(error)||error.message),true);}finally{await signOut(false);}}));
   }
   async function signOut(everywhere=false, tokenOverride='') {
     active=false;clearTimeout(syncTimer);
@@ -779,7 +798,7 @@
   $('accountSignOut').onclick=()=>signOutLocally().catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message),true));
   $('accountSignOutEverywhere').onclick=()=>{
     if(!confirmLocalized('Sign out every linked device? Each device will need the password again.'))return;
-    requestReauth(token=>enqueue(()=>signOut(true,token)).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message),true)));
+    requestReauth(token=>withSignOutLoading(()=>enqueue(()=>signOut(true,token))).catch(error=>status((globalThis.VumiroI18n?.error(error)||error.message),true)));
   };
   $('accountChangePasswordForm').onsubmit=async event=>{
     event.preventDefault();const button=$('accountChangePassword');button.disabled=true;

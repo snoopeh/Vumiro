@@ -17,6 +17,11 @@ async function checkLabels() {
   try {
     const section=realm.document.createElement('section');section.className='gamingWorkspace';
     const button=realm.document.createElement('button');button.id='gamingSaveProfile';button.type='button';button.className='primary';button.textContent='Save profile';section.append(button);realm.document.body.append(section);
+    const plusButton=realm.document.createElement('button');plusButton.id='addFriend';plusButton.type='button';plusButton.className='primary';const plusLabel=realm.document.createElement('span');plusLabel.textContent='＋ Add friend';plusButton.append(plusLabel);section.append(plusButton);
+    let plusClicks=0;const plusHandler=()=>plusClicks++;plusButton.onclick=plusHandler;
+    const authHtml=await fetch(new URL('auth.html',location.href)).then(response=>response.text()),authDocument=new DOMParser().parseFromString(authHtml,'text/html');
+    for(const source of authDocument.querySelectorAll('style')){const style=realm.document.createElement('style');style.textContent=source.textContent;realm.document.head.append(style);}
+    const auth=realm.document.createElement('section');auth.className='authCard';const tabs=realm.document.importNode(authDocument.getElementById('accountTabs'),true);auth.append(tabs);realm.document.body.append(auth);
     let clicks=0;const handler=()=>clicks++;button.onclick=handler;
     await load('ui-controls.js');await load('i18n.js');await settle();
     function inspect(key,phase) {
@@ -25,17 +30,24 @@ async function checkLabels() {
       assert(button.querySelectorAll('svg.uiIcon').length===1,phase+': expected exactly one decorative icon');
       assert(realm.document.getElementById('gamingSaveProfile')===button,phase+': the button node was replaced');
       assert(button.onclick===handler,phase+': its click handler was replaced');
+      assert(plusButton.textContent===realm.VumiroI18n.t('Add friend'),phase+': a redundant plus remains in the action label');
+      assert(plusButton.querySelectorAll('svg.uiIcon').length===1,phase+': the plus action must have one decorative icon');
+      assert(plusButton.onclick===plusHandler&&plusLabel.parentElement===plusButton,phase+': plus label or handler was replaced');
+      const previousPlusClicks=plusClicks;plusButton.click();assert(plusClicks===previousPlusClicks+1,phase+': plus action must click once');
       const before=clicks;button.click();assert(clicks===before+1,phase+': one click must invoke exactly one handler');
       phases.push({phase,locale:realm.VumiroI18n.locale,label,icons:button.querySelectorAll('svg.uiIcon').length,handlerPreserved:true});
     }
     for(const locale of ['en','pt-BR','ja','en']) {
       realm.VumiroI18n.setLocale(locale,{persist:false,broadcast:false});await settle();inspect('Save profile','locale '+locale);
-      button.textContent='Sign in';await settle();inspect('Sign in','dynamic replacement '+locale);
+      button.textContent='Sign in';plusLabel.textContent='＋ Add friend';await settle();inspect('Sign in','dynamic replacement '+locale);
       realm.VumiroControls.enhance(section);realm.VumiroControls.enhance(section);realm.VumiroI18n.refresh(section);realm.VumiroI18n.refresh(section);await settle();inspect('Sign in','repeated enhancement '+locale);
       button.textContent='Save profile';await settle();inspect('Save profile','reset '+locale);
     }
+    const signin=tabs.querySelector('#accountSignInTab'),signup=tabs.querySelector('#accountSignUpTab');
+    function inspectTabs(selected,other){const active=realm.getComputedStyle(selected),inactive=realm.getComputedStyle(other);assert(!selected.classList.contains('v-button')&&!other.classList.contains('v-button'),'Semantic auth tabs must retain their own skin');assert(selected.getBoundingClientRect().height>=44&&other.getBoundingClientRect().height>=44,'Auth tabs need usable click targets');assert(active.borderBottomWidth==='2px'&&active.borderBottomColor!==inactive.borderBottomColor,'The selected tab needs a distinct underline');assert(active.backgroundColor==='rgba(0, 0, 0, 0)'&&inactive.backgroundColor==='rgba(0, 0, 0, 0)','Generic gray button backgrounds must not override auth tabs');selected.focus();assert(realm.document.activeElement===selected,'Auth tabs must retain native focus');}
+    inspectTabs(signin,signup);signin.setAttribute('aria-selected','false');signup.setAttribute('aria-selected','true');realm.VumiroControls.enhance(auth);inspectTabs(signup,signin);
     assert(window.VumiroI18n?.locale===originalLocale,'The isolated test changed the application locale');
-    return {passed:true,scope:'Ephemeral button DOM fixture in the actual LOCAL QA WebView2; not a whole-app button audit',phases,clicks,parentLocaleUnchanged:true};
+    return {passed:true,scope:'Ephemeral button and production auth-tab DOM fixture in the actual LOCAL QA WebView2; not a whole-app button audit',phases,clicks,plusClicks,authTabs:true,parentLocaleUnchanged:true};
   }finally{fixture.remove();if(window.VumiroI18n?.locale!==originalLocale)window.VumiroI18n?.setLocale(originalLocale,{persist:false,broadcast:false});}
 }
 
@@ -53,7 +65,7 @@ test('real WebView button keeps one label, one icon, and its handler across loca
     });
     if(response.error)throw Error(response.error.message);
     if(response.result.exceptionDetails)throw Error(response.result.exceptionDetails.exception?.description||response.result.exceptionDetails.text);
-    const result=response.result.result.value;assert.equal(result.passed,true);assert.equal(result.phases.length,16);assert.equal(result.clicks,16);
+    const result=response.result.result.value;assert.equal(result.passed,true);assert.equal(result.phases.length,16);assert.equal(result.clicks,16);assert.equal(result.plusClicks,16);assert.equal(result.authTabs,true);
     let launch=null;try{launch=JSON.parse(await readFile(new URL('../dist/local-qa/launch.json',import.meta.url),'utf8'));}catch{}
     const output=path.resolve('dist/button-label-validation');await mkdir(output,{recursive:true});await writeFile(path.join(output,'result.json'),JSON.stringify({checkedAt:new Date().toISOString(),target:target.url,launch,...result},null,2));
   }finally{clearTimeout(timeout);ws.close();}
