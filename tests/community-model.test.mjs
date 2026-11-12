@@ -5,6 +5,82 @@ import vm from 'node:vm';
 
 const file = new URL('../Vumiro.Client/WebServer/community-model.js', import.meta.url);
 const identity='A'.repeat(43), other='B'.repeat(43);
+
+function sharedFixture(){return {hubId:'hub',id:'hub',ownerId:identity,equalAuthorityModeration:false,
+ nodes:[{id:'hub',type:'hub',parentId:null},{id:'space',type:'space',parentId:'hub'},{id:'channel',type:'text',parentId:'space'},{id:'sibling',type:'text',parentId:'hub'}],
+ members:[{id:identity,roles:[]},{id:other,roles:['Member']}],
+ roles:[{id:'Member',permissions:['view','post','voice','speak'],authority:10}]};}
+function serviceAccess(){
+ const source=fs.readFileSync(new URL('../cloudflare/community-hub.js',import.meta.url),'utf8');
+ const helpers=['list','ids','rolePermissions'].map(name=>source.match(new RegExp('^const '+name+'=.*$','m'))?.[0]);
+ assert.ok(helpers.every(Boolean),'service permission dependencies remain available');
+ const start=source.indexOf('export function canAccess('),end=source.indexOf('\nfunction requireAccess(',start);
+ assert.ok(start>=0&&end>start,'extract the real service authorization function');
+ return vm.runInNewContext(helpers.join('\n')+'\n'+source.slice(start,end).replace('export ','')+'\ncanAccess');
+}
+function serviceState(snapshot){return {...snapshot,id:snapshot.hubId||snapshot.id,...Object.fromEntries(['nodes','members','roles'].map(key=>[key,Object.fromEntries(snapshot[key].map(value=>[value.id,value]))]))};}
+
+test('shared menu permissions match service authorization across scoped grants and inherited restrictions',()=>{
+ const M=api(),authoritative=serviceAccess();assert.equal(typeof M.sharedAccess,'function','shared permission gating must be exported');
+ const permissions=['view','post','voice','speak','moderate','structure','themes','roles'];
+ const cases=[
+  ['ordinary membership',()=>{}],
+  ['scoped builder',s=>{s.roles.push({id:'Builder',scopeId:'space',permissions:['view','structure','themes','roles']});s.members[1].roles.push('Builder');}],
+  ['boolean role permissions and voice alias',s=>{s.roles[0].permissions={view:true,joinVoice:true,structure:true,roles:false};}],
+  ['member roleIds alias',s=>{s.members[1].roleIds=s.members[1].roles;delete s.members[1].roles;}],
+  ['manager delegation',s=>{s.roles[0].permissions=[];s.nodes[1].managers=[other];}],
+  ['managerIds alias',s=>{s.nodes[1].managerIds=[other];}],
+  ['ancestor structure deny defeats descendant allow',s=>{s.nodes[0].access={permissions:{structure:{denyRoles:['Member']}}};s.nodes[2].access={permissions:{structure:{allowMembers:[other]}}};}],
+  ['ancestor view deny defeats manager',s=>{s.nodes[1].managers=[other];s.nodes[0].permissions={view:false};}],
+  ['ancestor permission boolean deny',s=>{s.nodes[1].access={permissions:{post:false}};s.nodes[2].access={permissions:{post:{allowRoles:['Member']}}};}],
+  ['node permission deny',s=>{s.nodes[2].permissions={voice:false};}],
+  ['restricted ancestor',s=>{s.nodes[1].access={mode:'restricted'};}],
+  ['selected member admission',s=>{s.nodes[1].access={mode:'restricted',memberIds:[other]};}],
+  ['selected role admission',s=>{s.nodes[1].access={mode:'restricted',roles:['Member']};}],
+  ['explicit member deny defeats admission',s=>{s.nodes[1].access={mode:'restricted',members:[other],deniedMembers:[other]};}],
+  ['explicit role deny',s=>{s.nodes[1].access={deniedRoles:['Member']};}],
+  ['approval pending',s=>{s.nodes[1].access={mode:'approval'};}],
+  ['approval joined',s=>{s.nodes[1].access={mode:'approval',joinedMemberIds:[other]};}],
+  ['approved member',s=>{s.nodes[1].access={mode:'restricted',approvedMembers:[other]};}],
+  ['invited member',s=>{s.nodes[1].access={mode:'invite',invitedMemberIds:[other]};}],
+  ['joinable joined member',s=>{s.nodes[1].access={mode:'joinable',joinedMemberIds:[other]};}],
+  ['joinable pending',s=>{s.nodes[1].access={mode:'joinable'};}],
+  ['owner bypasses ancestor policy',s=>{s.nodes[0].access={mode:'restricted',permissions:{view:false,roles:false}};}],
+  ['owner banned',s=>{s.members[0].banned=true;}],
+  ['member banned',s=>{s.members[1].banned=true;}],
+  ['archived ancestor',s=>{s.nodes[1].archived=true;}],
+  ['missing ancestor',s=>{s.nodes=s.nodes.filter(n=>n.id!=='space');}],
+  ['cycle',s=>{s.nodes[1].parentId='channel';}],
+  ['missing assigned role',s=>{s.roles=[];}],
+  ['own membership and roles only',s=>{s.members=[s.members[1]];}],
+  ['hubId without id',s=>{delete s.id;}],
+  ['id without hubId',s=>{delete s.hubId;}]
+ ];
+ for(const [label,change]of cases){const snapshot=sharedFixture();change(snapshot);const state=serviceState(snapshot),before=JSON.stringify(snapshot);
+  for(const actor of [identity,other,'not-a-member'])for(const scope of ['hub','space','channel','sibling','missing'])for(const permission of permissions){
+   assert.equal(M.sharedAccess(snapshot,actor,scope,permission),authoritative(state,actor,scope,permission),`${label}: ${actor.slice(0,3)} ${scope} ${permission}`);
+  }
+  assert.equal(JSON.stringify(snapshot),before,'menu gating must not mutate the snapshot');
+ }
+});
+
+test('shared manager grants do not imply role, post, speak or voice authority',()=>{
+ const snapshot=sharedFixture(),M=api();assert.equal(typeof M.sharedAccess,'function');snapshot.roles=[];snapshot.nodes[1].managerIds=[other];
+ for(const permission of ['view','structure','themes','moderate'])assert.equal(M.sharedAccess(snapshot,other,'channel',permission),true,permission);
+ for(const permission of ['roles','post','voice','speak'])assert.equal(M.sharedAccess(snapshot,other,'channel',permission),false,permission);
+ assert.equal(M.sharedAccess(snapshot,other,'sibling','structure'),false,'delegation stays in its subtree');
+ assert.equal(M.sharedAccess(snapshot,other,'channel'),true,'view is the default permission');
+});
+
+test('shared permission gating fails closed for omitted or malformed snapshot policy',()=>{
+ const M=api();assert.equal(typeof M.sharedAccess,'function');
+ for(const value of [null,{},[],{...sharedFixture(),nodes:null},{...sharedFixture(),members:null},{...sharedFixture(),roles:null},
+  {...sharedFixture(),ownerId:undefined},{...sharedFixture(),nodes:[{id:'hub'},{id:'hub'}]},
+  {...sharedFixture(),members:[null]},{...sharedFixture(),roles:[null]}])assert.equal(M.sharedAccess(value,other,'channel','structure'),false);
+ const missing=sharedFixture();missing.nodes=missing.nodes.filter(n=>n.id!=='hub');
+ assert.equal(M.sharedAccess(missing,identity,'channel','structure'),false,'even an owner needs the complete ancestor chain');
+});
+
 test('inherited theme overrides survive a binding save and reload',async()=>{
  const storage=memory(),s=await store(storage);await s.setThemeBinding('valheim',{mode:'inherit',overrides:{tokens:{accent:'#aabbcc'}}});
  const reload=await store(storage);assert.equal(reload.snapshot().nodes.find(n=>n.id==='valheim').themeBinding.overrides.tokens.accent,'#aabbcc');

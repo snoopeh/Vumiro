@@ -60,3 +60,18 @@ test('untrusted icon names cannot become SVG markup or URLs', () => {
     assert.deepEqual(icon.children.map(n => n.attributes), fallback.children.map(n => n.attributes));
   }
 });
+
+test('community menus have distinct decorative action icons instead of fallback channel hashes', () => {
+  const ui = load(), document = safeDocument();
+  const drawing = name => ui.icon(document, name).children.map(node => [node.tagName, node.attributes]);
+  const fallback = drawing('hash'), seen = new Set();
+  for (const name of ['edit', 'trash', 'invite', 'arrow-right', 'palette', 'shield', 'chevron-down']) {
+    const icon = ui.icon(document, name), shape = drawing(name);
+    assert.equal(icon.attributes['aria-hidden'], 'true');
+    assert.equal(icon.attributes.focusable, 'false');
+    assert.notDeepEqual(shape, fallback, name + ' has a recognizable action glyph');
+    const signature = JSON.stringify(shape);
+    assert.ok(!seen.has(signature), name + ' is visually distinct');
+    seen.add(signature);
+  }
+});

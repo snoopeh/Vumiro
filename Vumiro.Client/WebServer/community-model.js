@@ -8,6 +8,48 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
   const emptyMap = () => Object.create(null);
+  // Shared UI affordances mirror the service's canAccess rules. The service
+  // still authorizes every request; this never changes the local demo schema.
+  function sharedAccess(snapshot, actorId, scopeId, permission='view') {
+    if(!snapshot||typeof snapshot!=='object'||Array.isArray(snapshot)||typeof actorId!=='string'||!actorId||typeof scopeId!=='string'||!scopeId)return false;
+    const hubId=snapshot.hubId||snapshot.id;
+    if(typeof hubId!=='string'||!hubId||typeof snapshot.ownerId!=='string'||!snapshot.ownerId)return false;
+    const state={id:hubId,ownerId:snapshot.ownerId,equalAuthorityModeration:snapshot.equalAuthorityModeration};
+    for(const key of ['nodes','members','roles']) {
+      if(!Array.isArray(snapshot[key]))return false;
+      const records=emptyMap();
+      for(const value of snapshot[key]) {
+        if(!value||typeof value!=='object'||Array.isArray(value)||typeof value.id!=='string'||!value.id||own(records,value.id))return false;
+        records[value.id]=value;
+      }
+      state[key]=records;
+    }
+    const sharedIds=value=>Array.isArray(value)?value.filter(x=>typeof x==='string'):[];
+    const rolePermissions=role=>Array.isArray(role.permissions)?role.permissions:Object.keys(role.permissions||{}).filter(k=>role.permissions[k]===true).map(k=>k==='joinVoice'?'voice':k);
+    const member=state.members[actorId];if(!member||member.banned)return false;
+    const chain=[],seen=new Set();let node=state.nodes[scopeId];
+    while(node){if(seen.has(node.id))return false;seen.add(node.id);chain.push(node);if(node.id===state.id)break;node=state.nodes[node.parentId];}
+    if(chain.at(-1)?.id!==state.id||chain.some(n=>n.archived))return false;
+    if(actorId===state.ownerId)return true;
+    const roles=sharedIds(member.roles||member.roleIds).map(r=>state.roles[r]).filter(Boolean);
+    let granted=roles.some(r=>rolePermissions(r).includes(permission)&&(!r.scopeId||chain.some(n=>n.id===r.scopeId))),viewGranted=roles.some(r=>rolePermissions(r).includes('view')&&(!r.scopeId||chain.some(n=>n.id===r.scopeId)));
+    let denied=false,viewDenied=false;
+    for(const n of chain) {
+      const access=n.access||{},mode=access.mode||'all',allowedMembers=sharedIds(access.members||access.memberIds),allowedRoles=sharedIds(access.roles||access.roleIds),approved=[...sharedIds(access.approvedMembers),...(['joinable','approval'].includes(mode)?sharedIds(access.joinedMemberIds):mode==='invite'?sharedIds(access.invitedMemberIds):[])];
+      if(!['all','open','public','members','inherit'].includes(mode)&&!allowedMembers.includes(actorId)&&!approved.includes(actorId)&&!roles.some(r=>allowedRoles.includes(r.id)))return false;
+      if(sharedIds(access.deniedMembers).includes(actorId)||roles.some(r=>sharedIds(access.deniedRoles).includes(r.id)))return false;
+      if(access.permissions?.[permission]===false||n.permissions?.[permission]===false)denied=true;if(access.permissions?.view===false||n.permissions?.view===false)viewDenied=true;
+      if(sharedIds(n.managers||n.managerIds).includes(actorId)){viewGranted=true;if(['view','structure','themes','moderate'].includes(permission))granted=true;}
+      for(const dimension of [permission,...(permission==='view'?[]:['view'])]) {
+        const rule=access.permissions?.[dimension]||access.permissions?.[dimension==='voice'?'joinVoice':dimension];
+        if(!rule||typeof rule!=='object')continue;
+        const deny=sharedIds(rule.denyMembers).includes(actorId)||roles.some(r=>sharedIds(rule.denyRoles).includes(r.id)),allow=sharedIds(rule.allowMembers).includes(actorId)||roles.some(r=>sharedIds(rule.allowRoles).includes(r.id));
+        if(dimension==='view'){viewDenied=viewDenied||deny;viewGranted=viewGranted||allow;}
+        if(dimension===permission){denied=denied||deny;granted=granted||allow;}
+      }
+    }
+    return granted&&!denied&&viewGranted&&!viewDenied;
+  }
   function identityKey(value) {
     if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value)) throw Error('A valid profile identity is required.');
     return value;
@@ -261,5 +303,5 @@
     store.selectChannel=store.selectNode;
     return store;
   }
-  window.VumiroCommunityModel={createStore,createLocalStorageAdapter,validateState,evaluateAccess,canModerate,DIMENSIONS,HOME_PRESETS,ACCESS_MODES,LIMITS};
+  window.VumiroCommunityModel={createStore,createLocalStorageAdapter,validateState,evaluateAccess,sharedAccess,canModerate,DIMENSIONS,HOME_PRESETS,ACCESS_MODES,LIMITS};
 })();

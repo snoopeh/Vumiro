@@ -51,6 +51,53 @@ test('persistent tree opens a text channel and preserves a draft through home na
   await h.find('message-form').dispatch('submit');assert.equal(h.calls.at(-1)[0],'post');
 });
 
+test('community dropdown and channel menus preserve the attached composer and close with focus restored',async()=>{
+ const h=harness({realModel:true});await h.view.open();await h.find('node-workbench').dispatch('click');const input=h.find('message');input.value='Keep this draft';await input.dispatch('input');
+ const trigger=h.find('hub-menu');assert.ok(trigger,'community name opens its dropdown');await trigger.dispatch('click');assert.equal(h.find('community-menu').attributes.role,'menu');assert.equal(h.find('message'),input);assert.equal(input.value,'Keep this draft');
+ await h.find('community-menu').dispatch('keydown',{key:'End'});assert.equal(h.document.activeElement,h.find('menu-connections'));
+ await h.find('community-menu').dispatch('keydown',{key:'Home'});assert.equal(h.document.activeElement,h.find('menu-create-text'));
+ await h.find('community-menu').dispatch('keydown',{key:'Escape'});assert.equal(h.find('community-menu'),undefined);assert.equal(h.document.activeElement,trigger);assert.equal(trigger.attributes['aria-expanded'],'false');
+ await trigger.dispatch('click');await h.find('community-menu').dispatch('keydown',{key:'Tab'});assert.equal(h.find('community-menu'),undefined);assert.equal(h.document.activeElement,trigger,'Tab returns focus to the live trigger');
+ const channel=h.find('node-builds');await channel.dispatch('contextmenu');assert.ok(h.find('menu-edit'));assert.equal(h.find('message'),input);assert.equal(h.records.get('A'.repeat(43)).selectedNodeId,'workbench');
+ await h.find('menu-layer').dispatch('pointerdown');assert.equal(h.find('community-menu'),undefined);assert.equal(h.document.activeElement,channel);
+});
+
+test('visible overflow and keyboard context menu route settings to their scope without navigating',async()=>{
+ const h=harness({realModel:true});await h.view.open();await h.find('node-workbench').dispatch('click');
+ await h.find('node-builds').dispatch('keydown',{key:'F10',shiftKey:true});await h.find('menu-edit').dispatch('click');assert.equal(h.find('edit-name').value,'Builds');assert.equal(h.records.get('A'.repeat(43)).selectedNodeId,'workbench');await h.find('settings-close').dispatch('click');
+ const more=h.find('more-valheim');assert.ok(more);assert.equal(more.attributes['aria-haspopup'],'menu');await more.dispatch('click');await h.find('menu-create-category').dispatch('click');assert.equal(h.find('quick-create-kind').value,'folder');h.find('quick-create-name').value='Expeditions';await h.find('quick-create-name').parentNode.parentNode.dispatch('submit');
+ const saved=h.records.get('A'.repeat(43)),category=saved.nodes.find(n=>n.name==='Expeditions');assert.equal(category.kind,'folder');assert.equal(category.parentId,'valheim');
+});
+
+test('channel menu archive acts on its target while preserving an unrelated conversation',async()=>{
+ const h=harness({realModel:true});await h.view.open();await h.find('node-workbench').dispatch('click');h.find('message').value='Still here';await h.find('message').dispatch('input');
+ await h.find('more-builds').dispatch('click');assert.equal(h.find('menu-create-text'),undefined,'a channel cannot contain another channel');await h.find('menu-archive').dispatch('click');
+ const state=h.records.get('A'.repeat(43));assert.equal(state.nodes.find(n=>n.id==='builds').archived,true);assert.equal(state.selectedNodeId,'workbench');assert.equal(h.find('message').value,'Still here');
+});
+
+test('shared invitation menu uses the real invitation service and hides unavailable member mutations',async()=>{
+ const me='A'.repeat(43),snapshot={hubId:'live',id:'live',ownerId:me,name:'Guild',revision:7,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'chat',type:'text',name:'Chat',parentId:'live'}],members:[{id:me,roles:[]}],roles:[]},invites=[];
+ const liveApi={disconnect(){},async connect(){return snapshot;},async invite(value){invites.push(value);return {hubId:'live',token:'issued-service-token'};}};
+ const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('hub-menu').dispatch('click');await h.find('menu-invite').dispatch('click');await h.find('live-invite-member').parentNode.parentNode.dispatch('submit');assert.equal(invites.length,1);assert.ok(h.find('invitation-link').value.includes('issued-service-token'));
+ snapshot.ownerId='B'.repeat(43);
+ // Reconnect through the existing invitation flow to load changed service authority.
+ await h.find('local-demo').dispatch('click');await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('hub-menu').dispatch('click');
+ assert.equal(h.find('menu-invite'),undefined);assert.equal(h.find('menu-create-text'),undefined);assert.equal(h.find('menu-manage'),undefined);assert.ok(h.find('menu-connections'));assert.equal(h.find('add-root'),undefined);await h.find('community-menu').dispatch('keydown',{key:'Escape'});await h.find('scope-settings').dispatch('click');assert.equal(h.find('live-edit-name'),undefined);assert.ok(h.find('connection-disconnect'));
+});
+
+test('delegated shared rename preserves existing access, managers, themes and home metadata',async()=>{
+ const me='A'.repeat(43),target={id:'chat',type:'text',name:'Plans',description:'Original',parentId:'space',access:{mode:'restricted',members:[me]},managers:[me],themeBinding:{mode:'inherit'},home:{welcome:'Retain this'}},snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:4,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'space',type:'space',name:'Workshop',parentId:'live',managers:[me]},target],members:[{id:me,roles:['Member']}],roles:[{id:'Member',permissions:['view','post']}]},mutations=[];
+ const liveApi={disconnect(){},async connect(){return snapshot;},async mutate(operations,revision){mutations.push({operations:structuredClone(operations),revision});return snapshot;}};
+ const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('more-chat').dispatch('click');assert.ok(h.find('menu-rename'));assert.equal(h.find('menu-permissions'),undefined);await h.find('menu-rename').dispatch('click');h.find('live-edit-name').value='New plans';await h.find('live-edit-name').parentNode.parentNode.dispatch('submit');
+ const saved=mutations[0].operations[0].node;assert.equal(saved.name,'New plans');for(const key of ['access','managers','themeBinding','home'])assert.deepEqual(saved[key],target[key],key);assert.equal(mutations[0].revision,4);
+});
+
+test('shared Builders can create root children without gaining community identity settings',async()=>{
+ const me='A'.repeat(43),snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:2,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[{id:me,roles:['Builder']}],roles:[{id:'Builder',permissions:['view','structure']}]},operations=[];
+ const liveApi={disconnect(){},async connect(){return snapshot;},async mutate(value){operations.push(...value);return snapshot;}};
+ const h=harness({realModel:true,liveApi});h.window.crypto={randomUUID:()=> 'new-category'};await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('hub-menu').dispatch('click');assert.ok(h.find('add-root'));assert.ok(h.find('menu-create-category'));assert.equal(h.find('menu-manage'),undefined);await h.find('menu-create-category').dispatch('click');h.find('quick-create-name').value='Meetups';await h.find('quick-create-name').parentNode.parentNode.dispatch('submit');assert.equal(operations[0].node.parentId,'live');assert.equal(operations[0].node.type,'folder');
+});
+
 test('conversation has independently scrolling history and an anchored composer with keyboard sending',async()=>{
   const h=harness();await h.view.open();await h.find('node-text').dispatch('click');const input=h.find('message'),frame=h.find('chat-frame'),history=h.find('message-list'),form=h.find('message-form');
   assert.ok(frame);assert.equal(history.parentNode,frame);assert.equal(form.parentNode,frame);assert.ok(history.className.includes('ch-history'));assert.ok(form.className.includes('ch-composer'));
@@ -179,7 +226,7 @@ test('theme libraries have separate identity metadata and asset namespaces',asyn
   assert.equal(h.themeManagerCalls.length,2);assert.ok(h.themeManagerCalls[0].storageKey.endsWith('A'.repeat(43)));assert.ok(h.themeManagerCalls[1].storageKey.endsWith('B'.repeat(43)));
 });
 test('shared Space managers review pending approvals through revision-checked service actions',async()=>{
-  const reviews=[],snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Live',revision:3,nodes:[{id:'live',type:'hub',name:'Live',parentId:null},{id:'space',type:'space',name:'Members',parentId:'live'}],members:[],roles:[]};
+  const reviews=[],snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Live',revision:3,nodes:[{id:'live',type:'hub',name:'Live',parentId:null},{id:'space',type:'space',name:'Members',parentId:'live'}],members:[{id:'A'.repeat(43),roles:['Member','Admissions']}],roles:[{id:'Member',permissions:['view']},{id:'Admissions',scopeId:'space',permissions:['view','roles']}]};
   const liveApi={disconnect(){},async publish(){return {hubId:'live'};},async connect(){return snapshot;},async accessRequests(){return {revision:3,requests:[{scopeId:'space',memberId:'requester',name:'Applicant'}]};},async reviewAccess(value){reviews.push(value);return {status:'approved',revision:4};},async snapshot(){return {...snapshot,revision:4};}};
   const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');await h.find('live-node-space').dispatch('click');await settings(h,'live-page-access');await h.find('load-access-requests').dispatch('click');await h.find('approve-requester').dispatch('click');
   assert.deepEqual(structuredClone(reviews[0]),{scopeId:'space',memberId:'requester',approve:true,expectedRevision:3});
@@ -193,7 +240,7 @@ test('all new community scripts reach development hosts and frozen release bundl
 });
 
 test('shared owners configure home placement, authority roles and restore archived nodes',async()=>{
-  const mutations=[],snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:5,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null,home:{preset:'banner',welcome:'Welcome guild',announcements:'Tonight we build',featuredIds:['space']}},{id:'space',type:'space',name:'Valheim',parentId:'live'}],members:[],roles:[{id:'Member',name:'Member',authority:10,permissions:['view','post']}]};
+  const mutations=[],snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:5,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null,home:{preset:'banner',welcome:'Welcome guild',announcements:'Tonight we build',featuredIds:['space']}},{id:'space',type:'space',name:'Valheim',parentId:'live'}],members:[{id:'A'.repeat(43),roles:[]}],roles:[{id:'Member',name:'Member',authority:10,permissions:['view','post']}]};
   const liveApi={disconnect(){},async publish(){return {hubId:'live'};},async connect(){return snapshot;},async mutate(ops,revision){mutations.push({ops:structuredClone(ops),revision});return snapshot;},async archives(){return {revision:5,nodes:[{id:'old',name:'Old channel'}]};}};
   const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');
   assert.ok(h.all().some(n=>n.className==='ch-banner'));assert.ok(h.all().some(n=>n.textContent==='Tonight we build'));assert.ok(h.find('live-featured-space'));
@@ -212,7 +259,7 @@ test('shared moderators remove messages with service authorization',async()=>{
 });
 
 test('invitation notices never survive a shared disconnect or identity switch',async()=>{
-  const snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[],roles:[]};
+  const snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[{id:'A'.repeat(43),roles:[]}],roles:[]};
   const liveApi={disconnect(){},async publish(){return {hubId:'live'};},async connect(){return snapshot;},async invite(){return {hubId:'live',token:'PRIVATE-INVITE-TOKEN'};}};
   const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');await settings(h,'live-page-connections');await h.find('live-invite-member').parentNode.parentNode.dispatch('submit');assert.ok(h.all().some(n=>n.textContent.includes('PRIVATE-INVITE-TOKEN')));
   await h.find('local-demo').dispatch('click');h.profile({id:'B'.repeat(43),name:'Other'});await h.view.open();await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');assert.equal(h.all().some(n=>n.textContent.includes('PRIVATE-INVITE-TOKEN')),false);

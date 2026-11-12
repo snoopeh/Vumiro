@@ -8,7 +8,7 @@
   const communitySlots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
   const slots=[...communitySlots,...Object.values(personalSlots).flat()];
   const layouts={home:['compact','banner','split'],room:['standard','compact']};
-  const defaults={surface:'#2b2c33',surfaceRaised:'#34363f',text:'#f0eff3',muted:'#aaa9b4',accent:'#ef7b76',accentText:'#251415',border:'#474951',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
+  const defaults={surface:'#171717',surfaceRaised:'#232323',text:'#f6f0eb',muted:'#b0a6a4',accent:'#e31c29',accentText:'#ffffff',border:'#383838',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
   const colorTokens=new Set(['surface','surfaceRaised','text','muted','accent','accentText','border','success','warning','danger']);
   const properties=new Set(['color','backgroundColor','backgroundImage','borderColor','borderWidth','borderStyle','borderRadius','boxShadow','fontFamily','fontSize','fontWeight','letterSpacing','padding','gap']);
   const copy=value=>JSON.parse(JSON.stringify(value));
