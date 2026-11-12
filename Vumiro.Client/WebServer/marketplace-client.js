@@ -81,7 +81,18 @@
     function hide(){mount.hidden=true;++epoch;busy=false;cleanup();}
     async function openExternal(value){let url;try{url=new URL(value);}catch{throw Error('A secure HTTPS URL is required');}if(url.protocol!=='https:'||url.username||url.password)throw Error('A secure HTTPS URL is required');const fn=options.openExternal||window.VumiroMarketplaceExternal?.openExternal||window.vumiroDesktop?.marketplace?.openExternal;if(typeof fn!=='function')throw Error('The system browser bridge is unavailable');return fn(url.href);}
     const refreshOnReturn=()=>{if(!mount.hidden&&store&&current()&&mode==='remote')void action(isCurrent=>refreshService(isCurrent));};window.addEventListener?.('focus',refreshOnReturn);const onAccountChanged=()=>{if(!mount.hidden)void show();};window.addEventListener?.('vumiro-account-state-changed',onAccountChanged);
-    return {show,hide,open:show,close:hide,openExternal,refresh:()=>action(isCurrent=>refreshService(isCurrent)),destroy(){hide();store=null;owner='';stylesheet.remove();window.removeEventListener?.('focus',refreshOnReturn);window.removeEventListener?.('vumiro-account-state-changed',onAccountChanged);},get mode(){return mode;}};
+    async function openItem(itemId,{kind}={}){
+      const loading=show(),token=epoch;
+      if(!await loading||token!==epoch||!current())return false;
+      const item=store.catalog().find(value=>value.id===itemId);
+      if(!item){
+        if(!model.isPersonal(kind))throw Error('This marketplace item is unavailable.');
+        selected=null;tab='search';filters={category:kind};
+        feedback='This original sample is not published in the connected catalog. Browse available cosmetics in this category, or export the sample from Profile styles.';
+      }else{selected=item.id;tab='discover';feedback='';}
+      render();return true;
+    }
+    return {show,hide,openItem,open:show,close:hide,openExternal,refresh:()=>action(isCurrent=>refreshService(isCurrent)),destroy(){hide();store=null;owner='';stylesheet.remove();window.removeEventListener?.('focus',refreshOnReturn);window.removeEventListener?.('vumiro-account-state-changed',onAccountChanged);},get mode(){return mode;}};
   }
   let singleton;
   window.VumiroMarketplace={init:options=>{singleton?.destroy();return singleton=init(options);},show:()=>singleton?.show(),hide:()=>singleton?.hide()};

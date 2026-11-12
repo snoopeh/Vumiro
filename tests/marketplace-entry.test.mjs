@@ -1,4 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+
+test('profile style bridge respects settings exit and routes exact item through the marketplace controller',async()=>{
+  const nodes=new Map(),calls=[];let allowed=false;
+  const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:true,textContent:'',classList:{toggle(){}},setAttribute(){},addEventListener(){}});return nodes.get(id);};
+  const window={VumiroAccount:{getState:()=>({signedIn:true,accountId:'owner'})},VumiroWorkspace:{prepareExternal:async()=>allowed},VumiroMarketplace:{init:()=>({show:async()=>true,openItem:async(...args)=>{calls.push(args);return true;}})}};
+  vm.runInNewContext(fs.readFileSync(file,'utf8'),{window,document:{readyState:'complete',getElementById:node},addEventListener(){}});
+  assert.equal(typeof window.VumiroMarketplaceEntry?.open,'function');assert.equal(await window.VumiroMarketplaceEntry.open({itemId:'sample-frame',kind:'avatar-frame'}),false);assert.equal(calls.length,0);
+  allowed=true;assert.equal(await window.VumiroMarketplaceEntry.open({itemId:'sample-frame',kind:'avatar-frame'}),true);assert.equal(calls[0][0],'sample-frame');assert.equal(calls[0][1].kind,'avatar-frame');
+});
 const file=new URL('../Vumiro.Client/WebServer/marketplace-entry.js',import.meta.url);
 test('marketplace navigation cooperates with existing workspace and closes when another view opens',async()=>{
   const listeners=new Map(),nodes=new Map(),calls=[];
