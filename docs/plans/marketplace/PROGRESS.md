@@ -53,9 +53,17 @@ Final verification command: `node scripts/Check-Client.mjs --native --output dis
 
 ## Verified handoff (2026-11-11)
 
-- Full uncached check command passed: 864 client tests passed, zero failed, one platform-specific skip; 162 backend tests passed; fourteen native checks passed. Receipt: `dist/marketplace-full-checks/checks-report.json`, source fingerprint `0c26bcace5c62630d0201e9c8099f4e09947210a17b7bd9adb61bcf38c0ac14e`.
+- Full uncached check command passed: 864 client tests passed, zero failed, one opt-in WebView/CDP skip; 162 backend tests passed; fourteen native checks passed. Receipt: `dist/marketplace-full-checks/checks-report.json`, source fingerprint `0c26bcace5c62630d0201e9c8099f4e09947210a17b7bd9adb61bcf38c0ac14e`.
 - Windows Debug client build succeeded with zero errors/warnings.
 - Separate marketplace Worker and existing gateway Worker both bundled successfully through `wrangler deploy --dry-run`; no deployment occurred.
 - Linux preparation emitted all 43 shared assets; packaging/trusted-route regressions passed. Native Linux runtime QA is still pending on a Linux host.
 - This verification section is a documentation-only addition after the recorded test fingerprint. Implementation source was not changed after the passing run.
 - Keep `codex/marketplace` and this checkout for review/integration; do not merge another agent's uncommitted work by copying whole directories. Full marketplace localization and bounded-list pagination remain follow-ups.
+
+## Actual Windows LOCAL QA evidence
+
+- Launched this checkout's actual native app with its separate profile; title verified as `Vumiro · LOCAL QA · 569ae2e`.
+- Ran the optional real WebView button interaction test separately against that isolated host: 1/1 passed, no skip.
+- Ran the marketplace production modules inside an ephemeral, explicitly local-demo fixture in that same native WebView2: three catalog listings rendered; product preview, acquire, install, sponsor, apply and undo all passed. This used an ephemeral fixture account and local adapters, with no real credentials, hub writes or charges. The fixture was removed afterward.
+- Screenshots: `dist/marketplace-discover.png` and `dist/marketplace-product.png`; result: `dist/marketplace-native-qa-result.json`. Visual inspection confirmed readable layouts and real theme styling.
+- Reopen the normal LOCAL QA app without the temporary debug endpoint for user review. Human acceptance, actual Linux runtime and configured Stripe/hub end-to-end acceptance remain pending.
