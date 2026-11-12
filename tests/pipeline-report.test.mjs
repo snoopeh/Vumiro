@@ -21,7 +21,10 @@ function fixture(t) {
   return { directory, put, run };
 }
 
-test('fast checker stops at the first failure and preserves its compact report and log', t => {
+for (const [context, environment] of [
+  ['branch', { GITHUB_REF_TYPE: 'branch', GITHUB_REF: 'refs/heads/main' }],
+  ['tag', { GITHUB_REF_TYPE: 'tag', GITHUB_REF: 'refs/tags/client-v1.2.3' }]
+]) test(`fast checker stops at the first failure and preserves its compact report and log (${context})`, t => {
   const f = fixture(t);
   f.put('scripts/Check-ReleaseVersion.mjs', "throw Error('unaligned release fixture');\n");
   f.put('scripts/Check-Syntax.mjs', "throw Error('this stage must not start');\n");
@@ -29,7 +32,7 @@ test('fast checker stops at the first failure and preserves its compact report a
   cpSync(path.join(root, 'scripts/lib'), path.join(f.directory, 'scripts/lib'), { recursive: true });
   copyFileSync(path.join(root, 'scripts/feature-checks.json'), path.join(f.directory, 'scripts/feature-checks.json'));
   mkdirSync(path.join(f.directory, 'tests'));
-  const result = f.run('scripts/Check-Client.mjs', ['--skip-backend']);
+  const result = f.run('scripts/Check-Client.mjs', [], environment);
   assert.equal(result.status, 1, result.stderr);
   const report = JSON.parse(readFileSync(path.join(f.directory, 'dist/checks/checks-report.json')));
   assert.equal(report.state, 'failed');
