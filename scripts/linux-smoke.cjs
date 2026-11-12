@@ -52,7 +52,8 @@ function createSmokeAccountFixture() {
     let frame;
     try{frame=new URL(event.senderFrame.url);}catch{}
     if(!contents||event.sender!==contents||event.senderFrame!==contents.mainFrame||!frame||!allowSmokeRequest(frame.href)||!['/auth.html','/friends.html'].includes(frame.pathname))throw Error('Smoke storage is restricted to its own account main frame.');
-    if(!request||!['get','set','delete'].includes(request.action)||Object.keys(request).sort().join(',')!==(request.action==='set'?'action,value':'action'))throw Error('Invalid smoke storage operation.');
+    if(!request||!['get','set','delete','status'].includes(request.action)||Object.keys(request).sort().join(',')!==(request.action==='set'?'action,value':'action'))throw Error('Invalid smoke storage operation.');
+    if(request.action==='status')return {available:true,code:null,backend:'smoke_fixture'};
     if(request.action==='get')return memory;
     if(request.action==='delete'){memory='';return true;}
     let value;try{if(typeof request.value!=='string'||request.value.length>8192)throw Error();value=JSON.parse(request.value);}catch{throw Error('Smoke storage accepts only its synthetic session.');}
@@ -284,7 +285,7 @@ function install({ app, session }) {
       // process. The preload and renderer account/profile globals stay real.
       const {ipcMain}=require('electron');
       ipcMain.removeHandler('vumiro:secure-store');
-      ipcMain.handle('vumiro:secure-store',(event,request)=>fixture.secureStore(event,request,window.webContents));
+      ipcMain.handle('vumiro:secure-store',(event,request)=>({ok:true,value:fixture.secureStore(event,request,window.webContents)}));
       fixtureEnabled=true;progress('fixture:native-adapter-ready');
       const authReloadUrl=smokeAuthReloadUrl(await evaluate(()=>location.href));
       progress('fixture:auth-document-load');

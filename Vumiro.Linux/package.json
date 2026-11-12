@@ -30,6 +30,8 @@
     "files": [
       "main.cjs",
       "native-nudge.cjs",
+      "network-diagnostics.cjs",
+      "secure-store.cjs",
       "preload.js",
       "capture-picker.js",
       "capture-picker-preload.js",

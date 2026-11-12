@@ -26,6 +26,8 @@ Profiles and signing keys stay in the Linux user's Vumiro application data direc
 
 ## Updates and validation
 
+For account keyring errors, certificate trust failures, and remote QA builds, see [Linux environment QA](LINUX-ENVIRONMENT-QA.md).
+
 Updates checks GitHub on startup or when requested; Download update opens the trusted release page. Install the new deb/rpm/AppImage manually while preserving your user data. This first Linux release does not run the Windows updater or replace Linux executables in the background.
 
 Packages are built on Linux in CI. Runtime validation of Wayland/X11 capture, microphone, tray integration and distro-specific permissions remains with the user, as requested.
