@@ -4,7 +4,7 @@
   const SCHEMA_VERSION=1, ENGINE_VERSION=1, MAX_PACKAGE=2*1024*1024, MAX_ASSET=512*1024;
   const slots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
   const layouts={home:['compact','banner','split'],room:['standard','compact']};
-  const defaults={surface:'#111820',surfaceRaised:'#19232e',text:'#edf3f9',muted:'#a9b8c8',accent:'#75c9c3',accentText:'#0d2224',border:'#354555',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
+  const defaults={surface:'#2b2c33',surfaceRaised:'#34363f',text:'#f0eff3',muted:'#aaa9b4',accent:'#ef7b76',accentText:'#251415',border:'#474951',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
   const colorTokens=new Set(['surface','surfaceRaised','text','muted','accent','accentText','border','success','warning','danger']);
   const properties=new Set(['color','backgroundColor','backgroundImage','borderColor','borderWidth','borderStyle','borderRadius','boxShadow','fontFamily','fontSize','fontWeight','letterSpacing','padding','gap']);
   const copy=value=>JSON.parse(JSON.stringify(value));
@@ -123,7 +123,7 @@
     }
     if(preferences.simplified){tokens={...tokens,fontBody:defaults.fontBody,fontHeading:defaults.fontHeading,shadow:'none',radius:defaults.radius};components={};css='';assets=[];motion='none';}
     if(preferences.reducedMotion)motion='none';
-    if(preferences.highContrast){tokens={...tokens,surface:'#080c10',surfaceRaised:'#111820',text:'#ffffff',muted:'#d5e0eb',border:'#b8c9da',accent:'#96f5e8',accentText:'#061a17'};components={};css='';}
+    if(preferences.highContrast){tokens={...tokens,surface:'#080c10',surfaceRaised:'#2b2c33',text:'#ffffff',muted:'#d5e0eb',border:'#b8c9da',accent:'#96f5e8',accentText:'#061a17'};components={};css='';}
     if(preferences.fontScale&&Number.isFinite(preferences.fontScale))tokens.fontSize=Math.max(12,Math.min(28,parseFloat(tokens.fontSize)*Math.max(1,Math.min(1.5,preferences.fontScale))))+'px';
     return {packageId:selected.id,version:selected.version,tokens,components,css,assets,motion,layout,warnings};
   }
@@ -183,10 +183,21 @@
     // Reset decoration, preserving the app's heading hierarchy, control sizing and layout.
     for(const slot of slots){
       const base={color:resolved.tokens.text,backgroundColor:slot==='heading'?'#00000000':['surface','message'].includes(slot)?resolved.tokens.surface:resolved.tokens.surfaceRaised,backgroundImage:'none',borderColor:resolved.tokens.border,borderWidth:['surface','heading','navigation','message','call-controls'].includes(slot)?'0':'1px',borderStyle:'solid',borderRadius:resolved.tokens.radius,boxShadow:slot==='card'?resolved.tokens.shadow:'none',fontFamily:slot==='heading'?resolved.tokens.fontHeading:resolved.tokens.fontBody,letterSpacing:'0'};
-      if(slot==='button'){base.backgroundColor=resolved.tokens.accent;base.color=resolved.tokens.accentText;}
       css+=`${rootSlot(`[data-community-slot="${slot}"]`)}{${declarations({...base,...resolved.components[slot]})}}\n`;
     }
     for(const rule of parseCss(resolved.css,assetIds,[]))css+=`${rootSlot(rule.selector)}{${declarations(Object.fromEntries(rule.declarations))}}\n`;
+    // App-owned action semantics follow package decoration. Selectors cover the root
+    // itself as well as descendants, and outrank the permitted slot pseudo-classes.
+    const button='[data-community-slot="button"]',neutral=`${button}:not([data-variant="primary"]):not([data-variant="quiet"]):not([data-variant="danger"])`;
+    const variantSelectors=[neutral,...['primary','secondary','quiet','danger'].map(variant=>`${button}[data-variant="${variant}"]`)];
+    const variantColors=[['surface-raised','text','border'],['accent','accent-text','accent'],['surface-raised','text','border'],[null,'muted',null],[null,'danger','danger']];
+    for(let index=0;index<variantSelectors.length;index++){
+      const [background,color,border]=variantColors[index];
+      css+=`${rootSlot(variantSelectors[index])}{background-color:${background?`var(--community-${background})`:'transparent'} !important;color:var(--community-${color}) !important;border-color:${border?`var(--community-${border})`:'transparent'} !important;background-image:none !important;box-shadow:none !important}\n`;
+    }
+    for(const state of ['[aria-selected="true"]','[aria-current="page"]','[data-selected="true"]']){
+      css+=`${variantSelectors.map(variant=>rootSlot(variant+state)).join(',')}{background-color:var(--community-surface-raised) !important;color:var(--community-text) !important;border-color:var(--community-border) !important;box-shadow:inset 3px 0 0 var(--community-accent) !important}\n`;
+    }
     // Motion uses app-owned, bounded color effects. Packages cannot define animations or geometry.
     if(resolved.motion!=='none')css+=`@keyframes ${id}-glow{from{border-color:var(--community-border)}to{border-color:var(--community-accent)}}${selector} [data-community-slot="banner"]{animation:${id}-glow 5s ease-in-out infinite alternate}@media(prefers-reduced-motion:reduce){${selector} *{animation:none!important;transition:none!important}}`;
     css+=`${selector} :focus-visible{outline:2px solid var(--community-accent)!important;outline-offset:3px!important}${selector} [data-community-slot="navigation"],${selector} [data-community-slot="call-controls"]{position:relative;visibility:visible!important;opacity:1!important;pointer-events:auto!important;min-height:32px}`;

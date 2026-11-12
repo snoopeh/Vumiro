@@ -6,9 +6,9 @@ The former Servers entry opens a persistent tree of hubs, folders, independently
 
 Each signing identity owns a separate v2 local store. Existing category labels migrate into folders. Channel IDs, selected conversations, messages and drafts survive migration and moves. The old snapshot and backup remain intact; migration writes are read back before being reported saved. Storage failures keep usable edits in memory and display an unsaved status.
 
-Select a hub or create another in Manage. Expand/collapse the tree, use arrow keys/Home/End, or search to reveal matching ancestors. Manage provides forms for creating, renaming, moving, ordering, archiving and restoring nodes. Moves retain history and drafts and reject cycles and unauthorized destinations. Homes offer compact, banner and split presets, welcome copy, announcements and featured destinations.
+Select a hub or create another in Manage. Expand/collapse the tree, use arrow keys/Home/End, or search to reveal matching ancestors. Space headers and channel rows offer contextual plus/gear controls. The plus opens creation in that exact container; the gear opens scoped settings for renaming, moving, ordering, archiving and restoring. Hub settings also provide multiple-hub management. Moves retain history and drafts and reject cycles and unauthorized destinations. Homes offer compact, banner and split presets, welcome copy, announcements and featured destinations.
 
-Local access screens are explicitly **permission previews**. Owners configure Space access, separate operation permissions, delegated management and authority brackets. Equal-authority moderation starts disabled. Unsaved policies can be previewed for a member before saving. Simulated members and local voice previews remain labeled. They never join real calls or use the friends transport.
+Scoped settings separate channel details, access, appearance and connections. Permission outcomes use readable allowed/denied rows; invitation links or codes can be pasted into Connections. Local access screens are explicitly **permission previews**. Owners configure Space access, separate operation permissions, delegated management and authority brackets. Equal-authority moderation starts disabled. Unsaved policies can be previewed for a member before saving. Simulated members and local voice previews remain labeled. They never join real calls or use the friends transport.
 
 ## Themes
 
@@ -20,7 +20,9 @@ See [the creator kit](THEME-CREATOR-KIT.md) for `.vumirotheme`, starter packages
 
 ## Shared communities
 
-Connections offers explicit publication or connection by community ID and optional invitation token. Publishing transfers structure, access settings and theme bindings, excluding local conversations, drafts and simulated members. A shared composer uses signed requests and stable retry IDs, displays durable history, recovers events, and preserves device drafts independently of the demo.
+Connections offers explicit publication or connection by community ID and optional invitation token. Publishing transfers structure, access settings and theme bindings, excluding local conversations, drafts and simulated members. The conversation frame keeps its composer at the bottom while history scrolls independently. Enter sends; Shift+Enter inserts a line; IME composition does not submit. Voice rows join inline without replacing the selected conversation, and a persistent sidebar dock retains mute/disconnect and participant state. Local voice stays explicitly simulated. Narrow screens use a channel drawer.
+
+A shared composer uses signed requests and stable retry IDs, displays durable history, recovers events, and preserves device drafts independently of the demo.
 
 Shared Manage exposes home presets, ordering, archive discovery/restoration, access modes, delegated managers, per-role permission dimensions, authority brackets, member roles and invitations. Pending Space approvals are reviewed by authorized managers. Message removal uses service moderation and author authority checks. Shared theme assets are validated, authenticated and kept in an identity-isolated session cache.
 

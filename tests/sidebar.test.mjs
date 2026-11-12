@@ -250,9 +250,9 @@ test('in-place profile identity replacement destroys the visible server workspac
     setAttribute(key,value){this.attributes[key]=value;}addEventListener(key,fn){(this.handlers[key]??=[]).push(fn);}removeEventListener(key,fn){this.handlers[key]=(this.handlers[key]||[]).filter(item=>item!==fn);}focus(){}
     async dispatch(type){for(const fn of this.handlers[type]||[])await fn({preventDefault(){}});}
   }
-  const mount=h.node('serverWorkspace');Object.assign(mount,new Element('section'));Object.setPrototypeOf(mount,Element.prototype);h.context.document.createElement=tag=>new Element(tag);
+  const mount=h.node('serverWorkspace');Object.assign(mount,new Element('section'));Object.setPrototypeOf(mount,Element.prototype);h.context.document.createElement=tag=>new Element(tag);h.context.document.createElementNS=(_,tag)=>new Element(tag);
   h.context.window.localStorage={getItem:key=>records.get(key)||null,setItem:(key,value)=>records.set(key,value)};
-  for(const name of ['community-model.js','community-workspace.js'])vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/'+name,import.meta.url),'utf8'),h.context);
+  for(const name of ['community-ui.js','community-model.js','community-workspace.js'])vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/'+name,import.meta.url),'utf8'),h.context);
   await h.context.showServerWorkspace();
   const all=(node=mount.shadowRoot)=>[node,...node.children.flatMap(child=>all(child))],find=action=>all().find(node=>node.dataset.action===action);
   await find('node-welcome').dispatch('click');find('message').value='private A draft';await find('message').dispatch('input');

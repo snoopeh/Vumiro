@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const copy=value=>JSON.parse(JSON.stringify(value));let duplicateNumber=0;
-  function create({mount,previewRoot,manager,binding={mode:'inherit'},bindings=[],preferences={},onSave=async()=>{},onPreview=()=>{},draftKey,draftStorage}={}){
+  function create({mount,previewRoot,manager,binding={mode:'inherit'},bindings=[],preferences={},onSave=async()=>{},onPreview=()=>{},draftKey,draftStorage,contextLabel}={}){
     const themes=window.VumiroCommunityThemes;if(!themes)throw Error('Community theme engine must load before Theme Studio');
     if(!mount?.ownerDocument)throw Error('Theme Studio requires a mount element');manager=manager||themes.createManager();
     if(!draftStorage)try{draftStorage=window.localStorage;}catch{}
@@ -11,45 +11,56 @@
     if(draftKey&&draftStorage){try{const stored=draftStorage.getItem(draftKey);if(stored){const parsed=JSON.parse(stored);if(parsed?.binding)draft=parsed;}}catch{notice='Stored draft could not be read. Your saved theme is intact.';}}
     const el=(tag,text,className)=>{const node=document.createElement(tag);if(text)node.textContent=text;if(className)node.className=className;return node;};
     const container=el('section',null,'community-theme-studio');container.setAttribute('aria-label','Theme Studio');
-    const heading=el('h2','Theme Studio'),description=el('p',manager.persistent?'Themes and artwork are stored locally on this device.':'Session-only theme storage: persistent storage is unavailable. Export packages to keep them.');
-    const status=el('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const scopeLabel=typeof contextLabel==='string'?contextLabel.trim():'';
+    const heading=el('h2','Theme Studio'),description=el('p',(scopeLabel?`Editing appearance for ${scopeLabel}. `:'Editing a local appearance. ')+(manager.persistent?'Personal theme packages and artwork are stored on this device.':'Session-only package storage. Export packages to keep a copy.'),'community-studio-description');
+    const status=el('p',null,'community-studio-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
     const controls=el('div',null,'community-studio-controls'),actions=el('div',null,'community-studio-actions'),tokenControls=new Map();
     const trackedControls=[];
-    function field(label,node){node.setAttribute('aria-label',label);const wrapper=el('label',label);wrapper.append(node);controls.append(wrapper);trackedControls.push(node);return node;}
-    function select(label,values){const node=el('select');for(const [value,text] of values){const option=el('option',text);option.value=value;node.append(option);}return field(label,node);}
-    function button(label,action){const node=el('button',label);node.type='button';node.onclick=()=>{try{const result=action();if(result?.catch)result.catch(error=>report(error.message));}catch(error){report(error.message);}};actions.append(node);trackedControls.push(node);return node;}
-    const packageSelect=select('Theme package',[]);
-    const pickerNotice=el('p','Each package selection starts from the Vumiro baseline. Inherit keeps the nearest parent appearance.');
+    function section(title,description,open=false){const node=el('details',null,'community-studio-section');node.open=open;const summary=el('summary',title,'community-studio-section-title'),fields=el('div',null,'community-studio-fields');node.append(summary,el('p',description,'community-studio-section-description'),fields);controls.append(node);return fields;}
+    const selectionFields=section('Theme selection','Choose a starting point. Inherit follows the parent appearance; selecting a package starts a fresh visual baseline.',true);
+    const colorFields=section('Colors','Set the surfaces, text and accent used throughout this scope.',true);
+    const layoutFields=section('Typography & layout','Adjust local fonts, spacing and the available home and room layouts.');
+    const componentFields=section('Components','Fine-tune a component’s decoration. Action hierarchy and selected states remain app-owned.');
+    const artworkFields=section('Artwork','Add local raster artwork and use its asset name in component backgrounds.');
+    const advancedFields=section('Advanced & export','Edit validated slot CSS, import a package or export a portable copy.');
+    function sectionActions(){return el('div',null,'community-studio-section-actions');}
+    const selectionActions=sectionActions(selectionFields),componentActions=sectionActions(componentFields),advancedActions=sectionActions(advancedFields);
+    function field(label,node,target=layoutFields){node.setAttribute('aria-label',label);node.setAttribute('data-community-slot','input');const wrapper=el('label',label);wrapper.append(node);target.append(wrapper);trackedControls.push(node);return node;}
+    function select(label,values,target){const node=el('select');for(const [value,text] of values){const option=el('option',text);option.value=value;node.append(option);}return field(label,node,target);}
+    function button(label,action,target=actions,variant='quiet'){const node=el('button',label);node.type='button';node.dataset.variant=variant;node.setAttribute('data-community-slot','button');node.onclick=()=>{try{const result=action();if(result?.catch)result.catch(error=>report(error.message));}catch(error){report(error.message);}};target.append(node);trackedControls.push(node);return node;}
+    const packageSelect=select('Theme package',[],selectionFields);
     for(const [key,value] of Object.entries(themes.tokenDefaults)){
       let node;
       if(key==='density')node=select('Density',[['comfortable','Comfortable'],['compact','Compact']]);
       else if(['fontBody','fontHeading'].includes(key))node=select(key==='fontBody'?'Body font':'Heading font',[[value,'System UI'],['Georgia, serif','Georgia'],['Consolas, monospace','Consolas'],['Arial, sans-serif','Arial']]);
-      else{node=el('input');node.type=/^#[\da-f]{6}$/i.test(value)?'color':'text';field(key.replace(/[A-Z]/g,letter=>' '+letter.toLowerCase()),node);}
+      else{node=el('input');node.type=/^#[\da-f]{6}$/i.test(value)?'color':'text';field(key.replace(/[A-Z]/g,letter=>' '+letter.toLowerCase()),node,['surface','surfaceRaised','text','muted','accent','accentText','border','success','warning','danger'].includes(key)?colorFields:layoutFields);}
       node.onchange=()=>{try{setToken(key,node.value);}catch(error){report(error.message);sync();}};tokenControls.set(key,node);
     }
     const homeLayout=select('Home layout',[['compact','Compact overview'],['banner','Banner-led home'],['split','Split introduction and activity']]);
     const roomLayout=select('Room layout',[['standard','Standard room'],['compact','Compact room']]);
     homeLayout.onchange=()=>setLayout('home',homeLayout.value);roomLayout.onchange=()=>setLayout('room',roomLayout.value);
     const motionSelect=select('Bounded motion',[['none','None'],['ember','Ember glow'],['scan','Signal glow']]);motionSelect.onchange=()=>change(next=>{next.motion=motionSelect.value;});
-    const componentSlot=select('Component slot',themes.slots.map(slot=>[slot,slot]));
-    const componentProperty=select('Component style',[['backgroundColor','Background color'],['borderColor','Border color'],['borderRadius','Corners'],['borderWidth','Border width'],['boxShadow','Shadow'],['backgroundImage','Background artwork or gradient'],['padding','Padding'],['fontSize','Font size'],['fontWeight','Font weight']]);
-    const componentValue=field('Component value',el('input'));componentValue.placeholder='#292b20, 12px, or asset(my-artwork)';
-    button('Apply component style',()=>setComponent(componentSlot.value,componentProperty.value,componentValue.value));
-    const cssInput=field('Advanced CSS',el('textarea'));cssInput.rows=5;cssInput.placeholder='[data-community-slot="card"] { border-color: #dfb575; }';cssInput.onchange=()=>{try{setCss(cssInput.value);}catch(error){report(error.message);sync();}};
-    const cssHelp=el('p','Advanced CSS uses documented component slots and visual properties. External resources, scripts, geometry, and overlays are rejected.');
-    const creatorName=field('Export theme name',el('input')),creatorAuthor=field('Export author',el('input')),creatorVersion=field('Export version',el('input'));
+    const componentSlot=select('Component slot',themes.slots.map(slot=>[slot,slot]),componentFields);
+    const componentProperty=select('Component style',[['backgroundColor','Background color'],['borderColor','Border color'],['borderRadius','Corners'],['borderWidth','Border width'],['boxShadow','Shadow'],['backgroundImage','Background artwork or gradient'],['padding','Padding'],['fontSize','Font size'],['fontWeight','Font weight']],componentFields);
+    const componentValue=field('Component value',el('input'),componentFields);componentValue.placeholder='#292b20, 12px, or asset(my-artwork)';
+    button('Apply component style',()=>setComponent(componentSlot.value,componentProperty.value,componentValue.value),componentActions,'secondary');
+    const cssInput=field('Advanced CSS',el('textarea'),advancedFields);cssInput.rows=5;cssInput.placeholder='[data-community-slot="card"] { border-color: #dfb575; }';cssInput.onchange=()=>{try{setCss(cssInput.value);}catch(error){report(error.message);sync();}};
+    advancedFields.append(el('p','CSS accepts documented slots and visual properties. External resources, scripts, geometry and overlays are rejected.','community-studio-section-description'));
+    const creatorName=field('Export theme name',el('input'),advancedFields),creatorAuthor=field('Export author',el('input'),advancedFields),creatorVersion=field('Export version',el('input'),advancedFields);
     const setMetadata=()=>change(next=>{next.metadata={name:creatorName.value,author:creatorAuthor.value,version:creatorVersion.value};});
     creatorName.onchange=setMetadata;creatorAuthor.onchange=setMetadata;creatorVersion.onchange=setMetadata;
-    const previewSelect=select('Preview width',[['desktop','Desktop'],['narrow','Narrow window']]);previewSelect.onchange=()=>setViewport(previewSelect.value);
-    const assetInput=field('Add local artwork',el('input'));assetInput.type='file';assetInput.accept='image/png,image/jpeg,image/webp,image/gif';assetInput.onchange=async()=>{try{if(assetInput.files?.[0])await addAsset(assetInput.files[0]);}catch(error){report(error.message);}finally{assetInput.value='';}};
+    const previewSelect=select('Preview width',[['desktop','Desktop'],['narrow','Narrow window']],selectionFields);previewSelect.onchange=()=>setViewport(previewSelect.value);
+    const assetInput=field('Add local artwork',el('input'),artworkFields);assetInput.type='file';assetInput.accept='image/png,image/jpeg,image/webp,image/gif';assetInput.onchange=async()=>{try{if(assetInput.files?.[0])await addAsset(assetInput.files[0]);}catch(error){report(error.message);}finally{assetInput.value='';}};
     const assetList=el('p','Artwork: none');
-    const importInput=field('Import .vumirotheme package',el('input'));importInput.type='file';importInput.accept='.vumirotheme,application/json';
+    artworkFields.append(assetList);
+    const importInput=field('Import .vumirotheme package',el('input'),advancedFields);importInput.type='file';importInput.accept='.vumirotheme,application/json';
     importInput.onchange=async()=>{try{if(importInput.files?.[0]){const file=importInput.files[0];if(file.size>themes.MAX_PACKAGE)throw Error('Theme package is too large');await importPackage(await file.text());}}catch(error){report(error.message);}finally{importInput.value='';}};
-    const undoButton=button('Undo',undo),redoButton=button('Redo',redo),saveButton=button('Save',save);
-    button('Discard',discard);button('Duplicate',duplicate);button('Reset',reset);button('Import',()=>importInput.click());
-    button('Export',async()=>{const content=await exportPackage(),blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=JSON.parse(content).id+'.vumirotheme';container.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);report('Portable theme exported.');});
-    button('Uninstall selected version',async()=>{const selected=draft.binding;if(selected.mode==='inherit'||themes.builtins.some(pkg=>pkg.id===selected.packageId&&pkg.version===selected.version))throw Error('Select an installed creator theme to uninstall.');await manager.uninstall(selected.packageId,selected.version);await refreshPackages();change(next=>{next.binding={mode:'inherit'};next.css=null;next.metadata=null;next.motion=null;next.assets=null;next.previews=null;});report('Version uninstalled locally. Saved bindings to it fall back to the baseline.');});
-    container.append(heading,description,pickerNotice,controls,cssHelp,assetList,actions,status);mount.append(container);
+    const saveButton=button('Save',save,actions,'primary'),undoButton=button('Undo',undo),redoButton=button('Redo',redo);
+    button('Discard',discard);button('Duplicate',duplicate,selectionActions);button('Reset',reset,selectionActions);button('Import',()=>importInput.click(),advancedActions);
+    button('Export',async()=>{const content=await exportPackage(),blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),link=el('a');link.href=url;link.download=JSON.parse(content).id+'.vumirotheme';container.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);report('Portable theme exported.');},advancedActions);
+    button('Uninstall selected version',async()=>{const selected=draft.binding;if(selected.mode==='inherit'||themes.builtins.some(pkg=>pkg.id===selected.packageId&&pkg.version===selected.version))throw Error('Select an installed creator theme to uninstall.');await manager.uninstall(selected.packageId,selected.version);await refreshPackages();change(next=>{next.binding={mode:'inherit'};next.css=null;next.metadata=null;next.motion=null;next.assets=null;next.previews=null;});report('Version uninstalled locally. Saved bindings to it fall back to the baseline.');},advancedActions,'danger');
+    selectionFields.append(selectionActions);componentFields.append(componentActions);advancedFields.append(advancedActions);
+    container.append(heading,description,controls,actions,status);mount.append(container);
     function report(message){notice=message;status.textContent=message;}
     function source(state=draft){if(state.binding.mode!=='inherit'&&state.binding.packageId)return packages.find(pkg=>pkg.id===state.binding.packageId&&pkg.version===(state.binding.version||'1.0.0'))||themes.builtins[0];const inherited=themes.resolve({bindings,packages,preferences});return packages.find(pkg=>pkg.id===inherited.packageId&&pkg.version===inherited.version)||themes.builtins[0];}
     function flattened(state=draft,{portable=false}={}){
@@ -75,7 +86,7 @@
       const pkg=source();homeLayout.value=appearance.layout.home;roomLayout.value=appearance.layout.room;motionSelect.value=draft.motion||pkg.motion||'none';cssInput.value=draft.css??pkg.css;
       creatorName.value=draft.metadata?.name||pkg.name+' custom';creatorAuthor.value=draft.metadata?.author||'Local creator';creatorVersion.value=draft.metadata?.version||'1.0.0';
       assetList.textContent='Artwork: '+(draft.assets||pkg.assets).map(asset=>asset.id).join(', ');if(!(draft.assets||pkg.assets).length)assetList.textContent='Artwork: none';
-      for(const node of trackedControls)node.disabled=saving;undoButton.disabled=saving||history.length===0;redoButton.disabled=saving||future.length===0;saveButton.disabled=saving;
+      for(const node of trackedControls)node.disabled=saving;undoButton.disabled=saving||history.length===0;redoButton.disabled=saving||future.length===0;saveButton.disabled=saving;saveButton.textContent=saving?'Saving…':'Save';
       status.textContent=notice||(dirty()?'Unsaved local draft.':'Saved appearance.');
     }
     function dirty(){return JSON.stringify(draft)!==JSON.stringify(saved);}
@@ -94,7 +105,7 @@
       try{let nextBinding=copy(draft.binding);
         if(draft.css!==null||draft.metadata!==null||draft.motion!==null||draft.assets!==null){const pkg=flattened(draft,{portable:true});await manager.install(pkg);await refreshPackages();nextBinding={mode:'package',packageId:pkg.id,version:pkg.version,overrides:{}};}
         if(disposed)throw Error('Theme Studio closed before save completed');if(await onSave(copy(nextBinding))===false)throw Error('Appearance was not saved. Your local draft is still available.');
-        draft={binding:nextBinding,css:null,metadata:null,motion:null,assets:null,previews:null};saved=copy(draft);history=[];future=[];notice='Appearance saved locally.';storeDraft();clearDraftArtwork();return copy(nextBinding);
+        draft={binding:nextBinding,css:null,metadata:null,motion:null,assets:null,previews:null};saved=copy(draft);history=[];future=[];notice=scopeLabel?`Appearance saved in ${scopeLabel}.`:'Appearance saved locally.';storeDraft();clearDraftArtwork();return copy(nextBinding);
       }finally{saving=false;sync();}
     }
     async function importPackage(input){if(typeof input==='string'&&input.length>themes.MAX_PACKAGE)throw Error('Theme package is too large');const result=themes.validate(input);if(!result.valid)throw Error(result.errors.join('; '));await manager.install(result.package);await refreshPackages();change(next=>{next.binding={mode:'package',packageId:result.package.id,version:result.package.version,overrides:{}};next.css=null;next.metadata=null;next.motion=null;next.assets=null;next.previews=null;});report('Package installed locally. Save to apply it to this scope.');return result.package;}

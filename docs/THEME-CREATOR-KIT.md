@@ -16,6 +16,8 @@ Choose `baseline`, `viking`, or `cyberpunk` for the starter. Existing output fil
 
 Theme Studio opens from Community Hub appearance controls. It offers a package/version picker, semantic tokens, component styles, fonts, density, layouts, bounded motion, CSS, artwork, desktop/narrow preview, undo/redo, save/discard, duplication, import, and export. A token edit normally saves a scope override. Editing CSS, artwork, motion, or export metadata saves an independent creator package. The export-name/author/version fields identify this package; increase the version before replacing previously installed creator work.
 
+The editor groups controls into Theme selection, Colors, Typography & layout, Components, Artwork, and Advanced & export disclosures. Theme selection and Colors start open. Open other sections as needed; Save, Undo, Redo, and Discard remain in the action row. Native disclosure summaries support keyboard operation.
+
 ## JSON format, schema 1 / engine 1
 
 `.vumirotheme` is UTF-8 JSON, never a ZIP or other archive. Both the browser and CLI execute `VumiroCommunityThemes.validate` from `community-themes.js`.
@@ -90,6 +92,8 @@ Advanced `css` uses ordinary CSS property names and exactly one documented slot 
 
 The optional pseudo-classes are `:hover`, `:focus-visible`, and `:disabled`. Rules are scoped to an app-owned root; global selectors, combinators, at-rules, comments, escapes, custom properties, and `!important` are rejected. Geometry, positioning, transforms, visibility, pointer events, arbitrary animation, opacity, and control replacement are unavailable. App-owned focus indicators and essential navigation/call behavior remain enforced. Native controls and their semantics remain owned by Vumiro.
 
+Button slots use the app-owned `data-variant="primary|secondary|quiet|danger"` attribute. Missing or unknown variants receive neutral secondary styling. Primary actions use the accent; secondary actions use a neutral surface; quiet actions use a transparent surface; danger actions use the danger token. Packages can decorate control shape and typography, but button color, background artwork, and shadows are reapplied after package CSS to preserve this hierarchy. Selected controls (`aria-selected="true"`, `aria-current="page"`, or `data-selected="true"`) retain a visible inset indicator as well as selected colors. These rules cover both the appearance root and its descendants without changing control geometry. Variant/state selectors are app-owned and cannot appear in portable package CSS.
+
 Artwork can use `asset(texture-id)` in `backgroundImage` or `background-image`. Local CSS gradients accept two to five hex-color stops with optional percentages and a bounded angle. `motion` selects only `none`, `ember`, or `scan`; the app supplies slow border-color effects. Reduced motion disables them, and simplified styling clears decoration.
 
 ## Assets, previews, and limits
@@ -143,12 +147,13 @@ const studio = window.VumiroCommunityStudio.create({
   bindings: ancestors,
   preferences,
   draftKey: `community-studio:${identityId}:${nodeId}`,
+  contextLabel: 'Oak hall', // Optional name of the scope persisted by onSave.
   onSave: async nextBinding => saveScopeAppearance(nextBinding)
 });
 await studio.ready;
 ```
 
-`onSave` must throw or return `false` if scope persistence fails. A failed save retains the draft. `draftKey` must include identity and target scope; omit it for an in-memory draft. The returned API includes `getDraft`, `dirty`, `setToken`, `setComponent`, `setLayout`, `setCss`, `undo`, `redo`, `save`, `discard`, `duplicate`, `reset`, `importPackage`, `exportPackage`, `addAsset`, `setViewport`, and `destroy`. Call `destroy` before leaving the editor. Theme Studio uses local operations and does not publish to a marketplace.
+`onSave` must throw or return `false` if scope persistence fails. A failed save retains the draft. `contextLabel` names the destination in the editor and successful save feedback (for example, “Appearance saved in Oak hall.”). Omit it for local-only persistence, which reports “Appearance saved locally.” Package storage notices remain separate from scope save feedback. The label does not change persistence or authorize sharing; `onSave` owns that behavior. `draftKey` must include identity and target scope; omit it for an in-memory draft. The returned API includes `getDraft`, `dirty`, `setToken`, `setComponent`, `setLayout`, `setCss`, `undo`, `redo`, `save`, `discard`, `duplicate`, `reset`, `importPackage`, `exportPackage`, `addAsset`, `setViewport`, and `destroy`. Call `destroy` before leaving the editor. Theme Studio does not publish to a marketplace.
 
 ## Authenticated sharing in live communities
 
