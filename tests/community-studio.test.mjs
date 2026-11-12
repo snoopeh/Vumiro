@@ -27,6 +27,65 @@ test('an identity-scoped stored draft survives reopening and discard restores th
 test('a declined save preserves edits and does not claim the scope was saved',async()=>{const env=harness(),studio=env.VumiroCommunityStudio.create({mount:env.mount,onSave:async()=>false});await studio.ready;studio.setToken('accent','#123456');await assert.rejects(studio.save(),/save|saved/i);assert.equal(studio.dirty(),true);});
 test('artwork drafts persist raster bytes separately from local draft metadata',async()=>{const env=harness(),records=new Map(),storage={getItem:key=>records.get(key)||null,setItem:(key,value)=>records.set(key,value),removeItem:key=>records.delete(key)},manager=env.VumiroCommunityThemes.createManager({adapter:env.VumiroCommunityThemes.createMemoryAdapter()}),options={mount:env.mount,manager,draftKey:'alice:space:art',draftStorage:storage};let studio=env.VumiroCommunityStudio.create(options);await studio.ready;const png=Uint8Array.from(atob('iVBORw0KGgo='),char=>char.charCodeAt(0));await studio.addAsset({name:'grain.png',type:'image/png',size:png.length,arrayBuffer:async()=>png.buffer});assert.ok(![...records.values()].join('').includes('iVBOR'));studio.destroy();studio=env.VumiroCommunityStudio.create(options);await studio.ready;assert.equal(JSON.parse(await studio.exportPackage()).assets[0].data,'iVBORw0KGgo=');studio.discard();assert.equal(records.size,0);});
 const descendants=node=>[node,...node.children.flatMap(descendants)];
+
+test('Space customizer offers curated themes without creator imports, uploads or CSS',async()=>{
+  const env=harness(),studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,previewRoot:env.previewRoot,contextLabel:'Design den'});
+  await studio.ready;const nodes=descendants(env.mount),text=nodes.map(n=>n.textContent).join(' ');
+  assert.match(text,/Design den/);assert.match(text,/curated/i);
+  assert.ok(nodes.some(n=>n.className==='community-theme-gallery'));
+  assert.ok(!nodes.some(n=>n.type==='file'||n.tagName==='textarea'));
+  for(const label of ['Advanced CSS','Import','Export','Add local artwork','Component value'])assert.ok(!text.includes(label),label);
+  studio.chooseTheme('cyberpunk','1.0.0');assert.equal(studio.getDraft().packageId,'cyberpunk');
+  assert.throws(()=>studio.chooseTheme('unreviewed','1.0.0'),/curated|available/i);
+});
+
+test('Space presets preview, retain independent scopes, undo, discard and save failure',async()=>{
+  const env=harness(),saved=[],previews=[],studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,previewRoot:env.previewRoot,binding:{mode:'package',packageId:'viking',version:'1.0.0'},onPreview:value=>previews.push(value),onSave:async binding=>saved.push(binding)});
+  await studio.ready;studio.setPreset('corners','round');assert.equal(studio.getDraft().overrides.tokens.radius,'24px');
+  studio.setToken('accent','#123456');assert.equal(previews.at(-1).tokens.accent,'#123456');studio.undo();assert.notEqual(previews.at(-1).tokens.accent,'#123456');studio.redo();
+  await studio.save();assert.equal(saved[0].overrides.tokens.accent,'#123456');assert.equal(studio.dirty(),false);
+  studio.setPreset('corners','square');assert.equal(studio.getDraft().overrides.tokens.radius,'0px');studio.discard();assert.equal(studio.getDraft().overrides.tokens.radius,'24px');
+  assert.throws(()=>studio.setToken('accent','url(https://bad.test)'),/Unsupported|Unsafe/);assert.throws(()=>studio.setPreset('corners','evil'),/preset/i);
+  const other=env.VumiroCommunityStudio.createCustomizer({mount:env.document.createElement('section'),onSave:async()=>false});await other.ready;other.chooseTheme('cyberpunk');await assert.rejects(other.save(),/saved/i);assert.equal(other.dirty(),true);
+});
+
+test('Space customizer ignores legacy creator packages and malicious saved drafts',async()=>{
+  const env=harness(),records=new Map([['space-draft',JSON.stringify({mode:'package',packageId:'creator-only',version:'1.0.0',css:'body{}'})]]),storage={getItem:key=>records.get(key),setItem:(key,value)=>records.set(key,value),removeItem:key=>records.delete(key)};
+  const studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,binding:{mode:'package',packageId:'creator-only',version:'1.0.0'},draftKey:'space-draft',draftStorage:storage});await studio.ready;
+  assert.equal(studio.getDraft().packageId,'baseline');assert.equal(studio.getDraft().css,undefined);assert.equal(studio.dirty(),false);
+  studio.chooseTheme('viking');studio.destroy();const next=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,draftKey:'space-draft',draftStorage:storage});await next.ready;assert.equal(next.getDraft().packageId,'viking');next.discard();assert.equal(next.getDraft().mode,'inherit');
+});
+
+test('Space customizer accessibility wins and theme selection resets previous scope decorations',async()=>{
+  const env=harness(),previews=[],studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,previewRoot:env.previewRoot,preferences:{highContrast:true,reducedMotion:true},onPreview:value=>previews.push(value)});await studio.ready;
+  studio.chooseTheme('viking');studio.setPreset('surfaces','glass');studio.setPreset('messages','bubbles');assert.equal(previews.at(-1).motion,'none');assert.equal(previews.at(-1).tokens.text,'#ffffff');
+  studio.chooseTheme('cyberpunk');assert.deepEqual(JSON.parse(JSON.stringify(studio.getDraft().overrides)),{});studio.setViewport('narrow');assert.equal(env.previewRoot.attributes['data-community-preview-width'],'narrow');studio.destroy();assert.equal(env.previewRoot.attributes['data-community-preview-width'],undefined);
+});
+
+test('Space color controls replace theme gradients so selected colors are visible',async()=>{
+  const env=harness(),previews=[],studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,onPreview:value=>previews.push(value)});await studio.ready;
+  studio.chooseTheme('aurora');studio.setToken('surface','#222222');studio.setToken('surfaceRaised','#333333');
+  assert.equal(previews.at(-1).components.surface.backgroundImage,'none');assert.equal(previews.at(-1).components.card.backgroundImage,'none');
+  assert.equal(previews.at(-1).tokens.surface,'#222222');assert.equal(previews.at(-1).tokens.surfaceRaised,'#333333');
+});
+
+test('Space message presets preserve independent corners and spacing when changed or reset',async()=>{
+  const env=harness(),studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount});await studio.ready;
+  studio.setPreset('corners','round');studio.setPreset('spacing','airy');studio.setPreset('messages','bubbles');
+  assert.equal(studio.getDraft().overrides.components.message.borderRadius,'24px');assert.equal(studio.getDraft().overrides.components.message.padding,'16px 20px');
+  studio.setPreset('messages','');assert.equal(studio.getDraft().overrides.components.message.borderRadius,'24px');assert.equal(studio.getDraft().overrides.components.message.padding,'16px 20px');
+});
+
+test('Space typography selectors contain the font values used by every curated builtin',async()=>{
+  const env=harness(),studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount});await studio.ready;
+  for(const [key,label]of [['fontBody','Body typography'],['fontHeading','Heading typography']]){const select=descendants(env.mount).find(n=>n.attributes['aria-label']===label),options=select.children.map(n=>n.value);for(const pkg of env.VumiroCommunityThemes.builtins)assert.ok(options.includes(pkg.tokens[key]),pkg.id+' '+key);}
+});
+
+test('Space typography selectors retain approved marketplace package font stacks',async()=>{
+  const env=harness(),pkg=JSON.parse(JSON.stringify(env.VumiroCommunityThemes.builtins[0]));pkg.id='reviewed-type';pkg.tokens.fontBody='system-ui';pkg.tokens.fontHeading='monospace';
+  const studio=env.VumiroCommunityStudio.createCustomizer({mount:env.mount,packages:[pkg],binding:{mode:'package',packageId:pkg.id,version:pkg.version}});await studio.ready;
+  for(const [label,value]of [['Body typography','system-ui'],['Heading typography','monospace']]){const select=descendants(env.mount).find(n=>n.attributes['aria-label']===label);assert.ok(select.children.some(n=>n.value===value));assert.equal(select.value,value);}
+});
 test('Studio groups controls in named disclosures and keeps one primary save action',async()=>{const env=harness(),studio=env.VumiroCommunityStudio.create({mount:env.mount});await studio.ready;const nodes=descendants(env.mount),sections=nodes.filter(node=>node.tagName==='details');assert.deepEqual(sections.map(node=>node.children[0].textContent),['Theme selection','Colors','Typography & layout','Components','Artwork','Advanced & export']);assert.ok(sections.every(node=>node.children[0].tagName==='summary'));assert.equal(sections.filter(node=>node.open).length,2);const save=nodes.find(node=>node.tagName==='button'&&node.textContent==='Save');assert.equal(save.dataset.variant,'primary');assert.equal(save.parent.className,'community-studio-actions');assert.equal(nodes.filter(node=>node.tagName==='button'&&node.dataset.variant==='primary').length,1);assert.equal(nodes.find(node=>node.textContent==='Uninstall selected version').dataset.variant,'danger');assert.ok(sections.find(node=>node.children[0].textContent==='Advanced & export').children.some(node=>descendants(node).some(child=>child.attributes['aria-label']==='Advanced CSS')));});
 test('Studio save feedback names the supplied scope and leaves local storage feedback separate',async()=>{const env=harness(),studio=env.VumiroCommunityStudio.create({mount:env.mount,contextLabel:'Oak hall',onSave:async()=>{}});await studio.ready;studio.setToken('accent','#123456');await studio.save();const status=descendants(env.mount).find(node=>node.attributes.role==='status');assert.equal(status.textContent,'Appearance saved in Oak hall.');assert.ok(!status.textContent.includes('locally'));});
 test('Studio local saves explicitly report local persistence',async()=>{const env=harness(),studio=env.VumiroCommunityStudio.create({mount:env.mount});await studio.ready;await studio.save();assert.equal(descendants(env.mount).find(node=>node.attributes.role==='status').textContent,'Appearance saved locally.');});

@@ -4,6 +4,7 @@ import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';
 import { handleAccountRequest, runAccountMaintenance } from './accounts.js';
 import { handleCommunityRequest } from './community-hub.js';
 export { CommunityHub } from './community-hub.js';
+import { marketplaceGateway } from './marketplace-gateway.js';
 export { FriendDirectory };
 export { DirectConversation } from './direct-messages.js';
 
@@ -258,6 +259,7 @@ export default {
   async fetch(request,env) {
     const url=new URL(request.url);
     if(url.pathname.startsWith('/api/community/')) return handleCommunityRequest(request,env);
+    const marketplace=await marketplaceGateway(request,env);if(marketplace)return marketplace;
     if(url.pathname==='/api/link-preview')return (await import('./link-preview.js')).handleLinkPreview(request,env);
     if(url.pathname.startsWith('/api/v1/account/')) return handleAccountRequest(request,env);
     const shortInvite=/^\/r\/([A-Za-z0-9_-]{12})$/.exec(url.pathname);
@@ -283,7 +285,7 @@ export default {
     }
     if(url.pathname==='/' || url.pathname==='/friends' || url.pathname==='/friends/') url.pathname='/friends.html';
     if(url.pathname==='/call' || url.pathname==='/call/') url.pathname='/call.html';
-    if(!['/call.html','/call-client.js','/stream-mosaic.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/ui-controls.js', '/controller-art.js', '/gaming-view.js', '/gaming-lab.js', '/controller-mapping.js','/gaming-directory.js','/gaming-session.js','/gaming-client.js','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/chat-storage.js','/direct-messages.js','/direct-chat.js','/server-workspace.js','/community-ui.js','/community-model.js','/community-themes.js','/community-studio.js','/community-theme-sharing.js','/community-live.js','/community-voice.js','/community-workspace.js','/incoming-call.js','/app-extras.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
+    if(!['/call.html','/call-client.js','/stream-mosaic.js','/chat-pane.js','/chat-scrollbar.js','/friends.html','/auth.html','/ui-controls.js', '/controller-art.js', '/gaming-view.js', '/gaming-lab.js', '/controller-mapping.js','/gaming-directory.js','/gaming-session.js','/gaming-client.js','/friends-client.js','/local-profile.js','/profile-cover.js','/profile-crop.js','/cover-editor.js','/cover-transfer.js','/settings-drafts.js','/motion.js','/i18n.js','/chat-storage.js','/direct-messages.js','/direct-chat.js','/server-workspace.js','/community-ui.js','/community-model.js','/community-themes.js','/profile-cosmetics.js','/community-studio.js','/marketplace-studio-entry.js','/marketplace-model.js','/marketplace-external.js','/marketplace-client.js','/marketplace-entry.js','/community-theme-sharing.js','/community-live.js','/community-voice.js','/community-workspace.js','/incoming-call.js','/app-extras.js','/notification-center.js','/nudge.js','/friend-nudges.js','/peer-profile.js','/account-client.js','/identity-recovery.js'].includes(url.pathname)) return new Response('Not found.',{status:404});
     const response=await env.ASSETS.fetch(new Request(url,request));
     const headers=new Headers(response.headers);headers.set('Cache-Control','no-cache');headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');
     // Embedded hosts use the same source files through a trusted WebView2 virtual host.

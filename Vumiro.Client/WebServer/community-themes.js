@@ -2,7 +2,11 @@
 (() => {
   'use strict';
   const SCHEMA_VERSION=1, ENGINE_VERSION=1, MAX_PACKAGE=2*1024*1024, MAX_ASSET=512*1024;
-  const slots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
+  const personalSlots={'profile-card':['profile-card','profile-banner','profile-badge'],'avatar-frame':['avatar-frame'],'profile-effect':['profile-effect']};
+  const personalKinds=Object.keys(personalSlots),motionPresets=['none','ember','scan','orbit','shimmer','pulse'];
+  const kindScopes=kind=>kind==='profile-card'?['profile-card']:kind==='avatar-frame'?['avatar']:kind==='profile-effect'?['profile']:['hub','space','text','voice'];
+  const communitySlots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
+  const slots=[...communitySlots,...Object.values(personalSlots).flat()];
   const layouts={home:['compact','banner','split'],room:['standard','compact']};
   const defaults={surface:'#2b2c33',surfaceRaised:'#34363f',text:'#f0eff3',muted:'#aaa9b4',accent:'#ef7b76',accentText:'#251415',border:'#474951',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
   const colorTokens=new Set(['surface','surfaceRaised','text','muted','accent','accentText','border','success','warning','danger']);
@@ -77,9 +81,13 @@
       if(typeof input==='string'){if(input.length>MAX_PACKAGE||input.startsWith('PK'))throw Error('Only bounded JSON .vumirotheme packages are supported; archives are rejected');pkg=JSON.parse(input);}
       else pkg=copy(input);
       if(!object(pkg)||JSON.stringify(pkg).length>MAX_PACKAGE)throw Error('Invalid or oversized theme package');
-      const allowed=new Set(['format','schemaVersion','id','name','version','author','description','license','compatibility','tokens','components','layouts','css','assets','previews','motion']);
+      const allowed=new Set(['format','schemaVersion','kind','id','name','version','author','description','license','compatibility','tokens','components','layouts','css','assets','previews','motion']);
       for(const key of Object.keys(pkg))if(!allowed.has(key))errors.push(`Unsupported package field: ${key}`);
       if(pkg.format!=='vumirotheme'||pkg.schemaVersion!==SCHEMA_VERSION)errors.push('Unsupported theme format/schemaVersion');
+      if(pkg.kind!==undefined&&!['theme','decorative-pack',...personalKinds].includes(pkg.kind))errors.push('Unsupported package kind');
+      if((pkg.kind==='decorative-pack'||personalKinds.includes(pkg.kind))&&(Object.keys(pkg.tokens||{}).length||Object.keys(pkg.layouts||{}).length))errors.push('Decorative packages may style documented component slots only; tokens and layouts must be empty');
+      if(personalKinds.includes(pkg.kind)&&Object.keys(pkg.components||{}).some(slot=>!personalSlots[pkg.kind].includes(slot)))errors.push('Personal cosmetic contains a component outside its target');
+      if(!personalKinds.includes(pkg.kind)&&Object.keys(pkg.components||{}).some(slot=>!communitySlots.includes(slot)))errors.push('Community themes cannot target personal profile slots');
       if(!slug(pkg.id)||!plain(pkg.name)||!plain(pkg.author))errors.push('Package id, name and author are required plain metadata');
       if(typeof pkg.version!=='string'||!/^\d+\.\d+\.\d+$/.test(pkg.version))errors.push('Package version must be major.minor.patch');
       if(!object(pkg.compatibility)||pkg.compatibility.engine!==ENGINE_VERSION||Object.keys(pkg.compatibility).some(key=>key!=='engine'))errors.push('Unsupported engine compatibility');
@@ -95,8 +103,10 @@
       checkTokens(pkg.tokens,errors);checkComponents(pkg.components,ids,errors);
       if(!object(pkg.layouts)||Object.keys(pkg.layouts).some(key=>!Object.hasOwn(layouts,key)))errors.push('Invalid layouts');
       else for(const [kind,values] of Object.entries(pkg.layouts))if(!Array.isArray(values)||!values.length||values.some(value=>!layouts[kind].includes(value)))errors.push(`Unsupported ${kind} layout`);
-      if(pkg.motion!==undefined&&!['none','ember','scan'].includes(pkg.motion))errors.push('Unsupported motion preset');
-      parseCss(pkg.css,ids,errors);
+      if(pkg.motion!==undefined&&!motionPresets.includes(pkg.motion))errors.push('Unsupported motion preset');
+      const cssRules=parseCss(pkg.css,ids,errors);
+      if(personalKinds.includes(pkg.kind)&&cssRules.some(rule=>!personalSlots[pkg.kind].some(slot=>rule.selector.startsWith(`[data-community-slot="${slot}"]`))))errors.push('Personal cosmetic CSS must target its documented personal slots');
+      if(!personalKinds.includes(pkg.kind)&&cssRules.some(rule=>!communitySlots.some(slot=>rule.selector.startsWith(`[data-community-slot="${slot}"]`))))errors.push('Community CSS cannot target personal profile slots');
     }catch(error){errors.push(error.message||'Invalid package');}
     return {valid:errors.length===0,errors,package:errors.length?null:pkg};
   }
@@ -107,11 +117,58 @@
     showcase('viking','Ember & Oak',{surface:'#191b17',surfaceRaised:'#27291f',text:'#f1ead8',muted:'#c1b99f',accent:'#dfb575',accentText:'#241b10',border:'#62513c',fontHeading:'Georgia, serif',radius:'6px',shadow:'0 8px 24px #00000055'},{card:{borderWidth:'2px',borderStyle:'double',borderColor:'#827055',backgroundImage:'linear-gradient(135deg, #292b20, #1d211b)'},banner:{backgroundImage:'radial-gradient(#695537, #242a20)',borderColor:'#af8e56'},heading:{letterSpacing:'1px'}},'[data-community-slot="badge"] {border-color:#bfa572; border-radius:4px}', 'ember'),
     showcase('cyberpunk','Signal / Neon',{surface:'#111322',surfaceRaised:'#1b1d33',text:'#e4f1ff',muted:'#a7b9d3',accent:'#6ff5e5',accentText:'#082827',border:'#4b4a79',fontHeading:'Consolas, monospace',radius:'2px',shadow:'0 8px 24px #090d2455'},{card:{borderWidth:'1px',borderStyle:'solid',borderColor:'#7460bb',backgroundImage:'linear-gradient(135deg, #25243c, #171e31)'},banner:{backgroundImage:'linear-gradient(135deg, #442751, #163c44)'},heading:{letterSpacing:'2px'}},'[data-community-slot="badge"] {color:#ffb8ef; border-color:#a967cb; border-radius:2px}', 'scan')
   ];
+  builtins.push(
+    {...showcase('aurora','Aurora Grove',{surface:'#102523',surfaceRaised:'#1b3433',text:'#e9fbf2',muted:'#b5d2c7',accent:'#9ce4c1',accentText:'#14332a',border:'#456d61',fontHeading:'"Trebuchet MS", sans-serif',radius:'18px',shadow:'0 8px 28px #071d1b55'},{surface:{backgroundImage:'linear-gradient(135deg, #102523, #183c37, #142c3c)'},card:{backgroundImage:'linear-gradient(135deg, #24483f, #1b3433)',borderColor:'#527b69',borderWidth:'1px',boxShadow:'0 8px 24px #071d1b44'},banner:{backgroundImage:'linear-gradient(135deg, #315b4b, #264e58, #3a3958)',borderColor:'#8bbfa8',borderWidth:'2px'},message:{backgroundImage:'linear-gradient(135deg, #1c3933, #193031)',borderRadius:'14px'},heading:{letterSpacing:'1px'}},'','ember'),layouts:{home:['banner','split','compact'],room:['standard','compact']}},
+    {...showcase('paper','Paper Atelier',{surface:'#f3efe6',surfaceRaised:'#fffdf7',text:'#28271f',muted:'#554e44',accent:'#725035',accentText:'#fffdf7',border:'#b5a58e',success:'#256b42',warning:'#78510b',danger:'#a72d39',fontHeading:'Georgia, serif',radius:'4px',shadow:'0 4px 16px #65543b18'},{surface:{backgroundImage:'linear-gradient(135deg, #f3efe6, #ece5d8)'},card:{backgroundImage:'linear-gradient(135deg, #fffdf7, #f7f0e4)',borderColor:'#bcad96',borderWidth:'1px',borderRadius:'4px',boxShadow:'0 4px 16px #65543b18'},banner:{backgroundImage:'linear-gradient(135deg, #ede0c9, #ded6c6)',borderColor:'#b09a79',borderStyle:'double',borderWidth:'3px'},message:{backgroundImage:'linear-gradient(135deg, #fffdf7, #f9f4eb)',borderColor:'#d5c9b5',borderWidth:'1px',borderStyle:'dashed',borderRadius:'4px'},heading:{fontWeight:'600',letterSpacing:'1px'}},''),layouts:{home:['split','compact','banner'],room:['standard','compact']}},
+    {...showcase('midnight','Midnight Observatory',{surface:'#101626',surfaceRaised:'#1a243b',text:'#eef2ff',muted:'#b4c2e1',accent:'#adbaff',accentText:'#18213f',border:'#465575',fontBody:'Tahoma, sans-serif',fontHeading:'Consolas, monospace',radius:'8px',shadow:'0 8px 32px #060a1955'},{surface:{backgroundImage:'linear-gradient(135deg, #101626, #17213b)'},card:{backgroundImage:'linear-gradient(135deg, #202d4b, #182239)',borderColor:'#53638c',borderWidth:'1px'},banner:{backgroundImage:'radial-gradient(#38456e, #1b2847, #111c32)',borderColor:'#7788bd',borderWidth:'2px'},message:{backgroundImage:'linear-gradient(135deg, #1d2a45, #17213a)',borderColor:'#405378',borderWidth:'1px',borderRadius:'8px'},heading:{letterSpacing:'2px',fontWeight:'600'}},'','scan'),layouts:{home:['split','banner','compact'],room:['compact','standard']}},
+    {...showcase('rose','Rose Salon',{surface:'#2a1d28',surfaceRaised:'#3d2b39',text:'#fff0f3',muted:'#dbb8c5',accent:'#f1adc1',accentText:'#422031',border:'#795364',fontBody:'"Trebuchet MS", sans-serif',fontHeading:'Georgia, serif',radius:'22px',shadow:'0 8px 28px #180e1b44'},{surface:{backgroundImage:'linear-gradient(135deg, #2a1d28, #362333)'},card:{backgroundImage:'linear-gradient(135deg, #4c3342, #3d2b39)',borderColor:'#8e6375',borderWidth:'1px',borderRadius:'22px'},banner:{backgroundImage:'linear-gradient(135deg, #754456, #52354e, #45344f)',borderColor:'#bf8b9e',borderWidth:'2px',borderRadius:'24px'},message:{backgroundImage:'linear-gradient(135deg, #49303e, #382633)',borderRadius:'18px',borderColor:'#82566c',borderWidth:'1px'},heading:{letterSpacing:'1px',fontWeight:'600'}},''),layouts:{home:['banner','compact','split'],room:['standard','compact']}}
+  );
+  // Curated, palette-independent overrides. Clone into editable scope drafts before composition.
+  const freezeContent=value=>{for(const child of Object.values(value))if(child&&typeof child==='object')freezeContent(child);return Object.freeze(value);};
+  const customizations=freezeContent({
+    surfaces:[
+      {id:'plain',name:'Plain surfaces',components:{card:{backgroundImage:'none',boxShadow:'none'},banner:{backgroundImage:'none',boxShadow:'none'}}},
+      {id:'glass',name:'Soft glass',components:{card:{backgroundImage:'linear-gradient(135deg, #ffffff12, #ffffff03)',borderWidth:'1px',borderStyle:'solid',boxShadow:'0 8px 24px #00000018'},banner:{backgroundImage:'linear-gradient(135deg, #ffffff18, #ffffff06)',borderWidth:'1px',borderStyle:'solid'}}},
+      {id:'outlined',name:'Outlined panels',components:{card:{backgroundImage:'none',borderWidth:'2px',borderStyle:'solid',boxShadow:'none'},banner:{backgroundImage:'none',borderWidth:'2px',borderStyle:'double',boxShadow:'none'}}}
+    ],
+    messages:[
+      {id:'clean',name:'Clean conversation',components:{message:{backgroundColor:'#00000000',backgroundImage:'none',borderWidth:'0',boxShadow:'none'}}},
+      {id:'bubbles',name:'Message bubbles',components:{message:{backgroundColor:'#ffffff08',backgroundImage:'linear-gradient(135deg, #ffffff0d, #ffffff03)',borderWidth:'1px',borderStyle:'solid'}}},
+      {id:'ruled',name:'Ruled messages',components:{message:{backgroundColor:'#00000000',backgroundImage:'none',borderWidth:'1px',borderStyle:'dashed'}}}
+    ],
+    corners:[
+      {id:'square',name:'Square corners',tokens:{radius:'0px'},components:{card:{borderRadius:'0'},banner:{borderRadius:'0'},message:{borderRadius:'0'},input:{borderRadius:'0'},button:{borderRadius:'0'}}},
+      {id:'soft',name:'Soft corners',tokens:{radius:'10px'},components:{card:{borderRadius:'10px'},banner:{borderRadius:'10px'},message:{borderRadius:'10px'},input:{borderRadius:'10px'},button:{borderRadius:'10px'}}},
+      {id:'round',name:'Round corners',tokens:{radius:'24px'},components:{card:{borderRadius:'24px'},banner:{borderRadius:'24px'},message:{borderRadius:'24px'},input:{borderRadius:'24px'},button:{borderRadius:'24px'}}}
+    ],
+    spacing:[
+      {id:'compact',name:'Compact spacing',tokens:{spacing:'6px',density:'compact'},components:{card:{padding:'8px',gap:'6px'},banner:{padding:'12px',gap:'6px'},message:{padding:'6px 8px'}}},
+      {id:'balanced',name:'Balanced spacing',tokens:{spacing:'12px',density:'comfortable'},components:{card:{padding:'16px',gap:'12px'},banner:{padding:'20px',gap:'12px'},message:{padding:'10px 12px'}}},
+      {id:'airy',name:'Airy spacing',tokens:{spacing:'20px',density:'comfortable'},components:{card:{padding:'24px',gap:'20px'},banner:{padding:'28px',gap:'20px'},message:{padding:'16px 20px'}}}
+    ]
+  });
+  function personal(id,name,kind,components,motion='none'){return {...showcase(id,name,{},components,'',motion),kind,tokens:{},layouts:{},description:'Original Vumiro cosmetic artwork with app-owned bounded motion and a static reduced-motion presentation.'};}
+  const personalBuiltins=[
+    personal('celestial-orbit','Celestial Orbit','avatar-frame',{'avatar-frame':{borderColor:'#aa9af7',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 14px #a99bff99',backgroundImage:'linear-gradient(135deg, #7eddec, #b58ff4, #ecd99b)'}},'orbit'),
+    personal('ember-crown','Ember Crown','avatar-frame',{'avatar-frame':{borderColor:'#e3ab65',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 16px #ce884466',backgroundImage:'linear-gradient(135deg, #e9c28a, #965a3b, #eccb93)'}},'pulse'),
+    personal('neon-circuit','Neon Circuit','avatar-frame',{'avatar-frame':{borderColor:'#61e1d3',borderWidth:'2px',borderStyle:'solid',boxShadow:'0 0 12px #39cfbf66',backgroundImage:'linear-gradient(135deg, #64efdc, #7994f8, #e0a6ef)'}},'shimmer'),
+    personal('gilded-portrait','Gilded Portrait','profile-card',{'profile-card':{borderColor:'#ceb47d',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 18px #b7945533'},'profile-banner':{backgroundImage:'linear-gradient(135deg, #32271f, #665335)',borderColor:'#9c8058'},'profile-badge':{color:'#e2cba4',borderColor:'#b99a65'}},'shimmer'),
+    personal('prismatic-card','Prismatic Card','profile-card',{'profile-card':{borderColor:'#9982c7',borderWidth:'2px',borderStyle:'solid',boxShadow:'0 0 20px #8266c344'},'profile-banner':{backgroundImage:'linear-gradient(135deg, #352a4c, #1d4149)'}},'none'),
+    personal('aurora-drift','Aurora Drift','profile-effect',{'profile-effect':{backgroundImage:'linear-gradient(135deg, #397f83, #6d5191, #2b6c68)',borderColor:'#6bcbbf',boxShadow:'0 0 24px #75c7b933'}},'pulse')
+  ];
   function resolve({bindings=[],packages=builtins,preferences={}}={}){
     const warnings=[],available=[...builtins,...packages].reverse();let selected=copy(builtins[0]),tokens={...defaults},components={},css='',assets=[],motion='none',layout={home:'compact',room:'standard'};
     function select(pkg){selected=copy(pkg);tokens={...defaults,...pkg.tokens};components=copy(pkg.components);css=pkg.css;assets=copy(pkg.assets);motion=pkg.motion||'none';layout={home:pkg.layouts.home?.[0]||'compact',room:pkg.layouts.room?.[0]||'standard'};}
+    function decorate(pkg){
+      const decoration=copy(pkg),ids=new Set(assets.map(asset=>asset.id)),renames=new Map();let index=0;
+      for(const asset of decoration.assets){let id=asset.id;if(ids.has(id)){do{id='decoration-'+(++index);}while(ids.has(id));renames.set(asset.id,id);asset.id=id;}ids.add(id);}
+      const rewrite=value=>typeof value==='string'?value.replace(/asset\(([a-z][a-z0-9-]{0,63})\)/g,(_,id)=>`asset(${renames.get(id)||id})`):value;
+      for(const styles of Object.values(decoration.components))for(const key of Object.keys(styles))styles[key]=rewrite(styles[key]);
+      for(const [slot,styles] of Object.entries(decoration.components))components[slot]={...components[slot],...styles};
+      css+=' '+rewrite(decoration.css);assets.push(...decoration.assets);if(decoration.motion&&decoration.motion!=='none')motion=decoration.motion;
+    }
     for(const binding of bindings.filter(Boolean)){
-      if(binding.mode!=='inherit'&&binding.packageId){const pkg=available.find(entry=>entry.id===binding.packageId&&entry.version===(binding.version||'1.0.0'));const result=pkg&&validate(pkg);if(!result?.valid){warnings.push(`Theme unavailable: ${binding.packageId}@${binding.version||'1.0.0'}`);select(builtins[0]);}else select(result.package);}
+      if(binding.mode!=='inherit'&&binding.packageId){const pkg=available.find(entry=>entry.id===binding.packageId&&entry.version===(binding.version||'1.0.0'));const result=pkg&&validate(pkg);if(!result?.valid){warnings.push(`Theme unavailable: ${binding.packageId}@${binding.version||'1.0.0'}`);select(builtins[0]);}else if(pkg.kind==='decorative-pack')decorate(result.package);else select(result.package);}
       const overrides=binding.overrides;if(!overrides)continue;
       const errors=[],ids=new Set(assets.map(asset=>asset.id));
       if(!object(overrides)||Object.keys(overrides).some(key=>!['tokens','components','layout'].includes(key))){warnings.push('Unsupported scope override');continue;}
@@ -122,10 +179,10 @@
       Object.assign(tokens,overrides.tokens);for(const [slot,styles] of Object.entries(overrides.components||{}))components[slot]={...components[slot],...styles};Object.assign(layout,overrides.layout);
     }
     if(preferences.simplified){tokens={...tokens,fontBody:defaults.fontBody,fontHeading:defaults.fontHeading,shadow:'none',radius:defaults.radius};components={};css='';assets=[];motion='none';}
-    if(preferences.reducedMotion)motion='none';
+    if(preferences.reducedMotion){motion='none';if(personalKinds.includes(selected.kind)){for(const styles of Object.values(components))if(styles.backgroundImage?.startsWith('asset('))styles.backgroundImage='none';css=css.replace(/asset\([a-z][a-z0-9-]{0,63}\)/g,'none');assets=[];}}
     if(preferences.highContrast){tokens={...tokens,surface:'#080c10',surfaceRaised:'#2b2c33',text:'#ffffff',muted:'#d5e0eb',border:'#b8c9da',accent:'#96f5e8',accentText:'#061a17'};components={};css='';}
     if(preferences.fontScale&&Number.isFinite(preferences.fontScale))tokens.fontSize=Math.max(12,Math.min(28,parseFloat(tokens.fontSize)*Math.max(1,Math.min(1.5,preferences.fontScale))))+'px';
-    return {packageId:selected.id,version:selected.version,tokens,components,css,assets,motion,layout,warnings};
+    return {packageId:selected.id,version:selected.version,kind:selected.kind||'theme',tokens,components,css,assets,motion,layout,warnings};
   }
   function createMemoryAdapter(){const records=new Map();return {persistent:false,async put(key,value){records.set(key,copy(value));},async get(key){return records.has(key)?copy(records.get(key)):null;},async remove(key){records.delete(key);}};}
   function createIndexedDBAdapter({indexedDB=window.indexedDB,name='vumiro-community-theme-assets'}={}){
@@ -181,7 +238,7 @@
     let css=`${selector}{color:var(--community-text);background:var(--community-surface);font-family:var(--community-font-body);font-size:var(--community-font-size)}\n${selector} [data-community-slot="heading"]{font-family:var(--community-font-heading)}\n`;
     const rootSlot=slotSelector=>`${selector}${slotSelector},${selector} ${slotSelector}`;
     // Reset decoration, preserving the app's heading hierarchy, control sizing and layout.
-    for(const slot of slots){
+    for(const slot of personalKinds.includes(resolved.kind)?personalSlots[resolved.kind]:communitySlots){
       const base={color:resolved.tokens.text,backgroundColor:slot==='heading'?'#00000000':['surface','message'].includes(slot)?resolved.tokens.surface:resolved.tokens.surfaceRaised,backgroundImage:'none',borderColor:resolved.tokens.border,borderWidth:['surface','heading','navigation','message','call-controls'].includes(slot)?'0':'1px',borderStyle:'solid',borderRadius:resolved.tokens.radius,boxShadow:slot==='card'?resolved.tokens.shadow:'none',fontFamily:slot==='heading'?resolved.tokens.fontHeading:resolved.tokens.fontBody,letterSpacing:'0'};
       css+=`${rootSlot(`[data-community-slot="${slot}"]`)}{${declarations({...base,...resolved.components[slot]})}}\n`;
     }
@@ -205,5 +262,5 @@
     style.textContent=css;root.append(style);let active=true;
     const cleanup=()=>{if(!active)return;active=false;style.remove();for(const url of assetUrls.values())if(url.startsWith('blob:'))URL.revokeObjectURL?.(url);for(const key of keys)root.style.removeProperty(key);root.removeAttribute('data-community-theme-root');root.removeAttribute('data-community-motion');applications.delete(root);};applications.set(root,cleanup);return cleanup;
   }
-  window.VumiroCommunityThemes={SCHEMA_VERSION,ENGINE_VERSION,MAX_PACKAGE,MAX_ASSET,slots:copy(slots),layouts:copy(layouts),tokenDefaults:copy(defaults),builtins,validate,resolve,applyToRoot,createMemoryAdapter,createIndexedDBAdapter,createManager};
+  (typeof window==='undefined'?globalThis:window).VumiroCommunityThemes={SCHEMA_VERSION,ENGINE_VERSION,MAX_PACKAGE,MAX_ASSET,slots:copy(slots),communitySlots:copy(communitySlots),layouts:copy(layouts),tokenDefaults:copy(defaults),builtins,customizations,personalBuiltins,personalKinds:copy(personalKinds),personalSlots:copy(personalSlots),motionPresets:copy(motionPresets),kindScopes,validate,resolve,applyToRoot,createMemoryAdapter,createIndexedDBAdapter,createManager};
 })();

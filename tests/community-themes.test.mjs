@@ -9,7 +9,7 @@ import {fileURLToPath} from 'node:url';
 export function themesHarness(extra={}){const scope={window:null,console,Map,Set,JSON,URL,Blob,atob,btoa,TextEncoder,...extra};scope.window=scope;vm.createContext(scope);vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-themes.js',import.meta.url),'utf8'),scope);return scope.VumiroCommunityThemes;}
 const copy=value=>JSON.parse(JSON.stringify(value));
 function fixture(api){return {...copy(api.builtins[0]),id:'creator-test',name:'Creator test'};}
-test('showcases are portable packages accepted by the shared validator',()=>{const api=themesHarness();assert.deepEqual(Array.from(api.builtins,p=>p.id),['baseline','viking','cyberpunk']);for(const pkg of api.builtins)assert.equal(api.validate(pkg).valid,true,api.validate(pkg).errors.join('; '));});
+test('showcases are portable packages accepted by the shared validator',()=>{const api=themesHarness();assert.deepEqual(Array.from(api.builtins.slice(0,3),p=>p.id),['baseline','viking','cyberpunk']);for(const pkg of api.builtins)assert.equal(api.validate(pkg).valid,true,api.validate(pkg).errors.join('; '));});
 test('validator rejects archives, incompatible versions, private data, HTML, and script fields',()=>{const api=themesHarness();for(const patch of [{schemaVersion:99},{version:'next'},{compatibility:{engine:99}},{communityId:'secret'},{html:'<button>bad</button>'},{script:'alert(1)'},{name:'<img onerror=x>'}])assert.equal(api.validate({...fixture(api),...patch}).valid,false,JSON.stringify(patch));assert.equal(api.validate('PK\u0003\u0004archive').valid,false);});
 test('scoped CSS rejects escapes, global selectors, fetches, control overlays and hidden controls',()=>{const api=themesHarness();for(const css of ['body {color:red}','[data-community-slot="card"] {position:fixed;inset:0}','[data-community-slot="navigation"] {display:none}','[data-community-slot="button"] {opacity:0}','@import "https://bad.test";','[data-community-slot="card"] {background-image:url(https://bad.test/a)}','[data-community-slot="card"] {color:var(--injected)}','[data-community-slot="card"] {c\\6flor:red}'])assert.equal(api.validate({...fixture(api),css}).valid,false,css);assert.equal(api.validate({...fixture(api),css:'[data-community-slot="card"] {border-color:#ffbb66; border-radius:12px}'}).valid,true);});
 test('assets allow bounded raster images only, reject missing references and traversal',()=>{const api=themesHarness(),pkg=fixture(api);pkg.assets=[{id:'grain',mime:'image/png',data:'iVBORw0KGgo='}];pkg.components={card:{backgroundImage:'asset(grain)'}};pkg.previews=['grain'];assert.equal(api.validate(pkg).valid,true);for(const patch of [{assets:[{id:'../grain',mime:'image/png',data:'iVBORw0KGgo='}]},{assets:[{id:'grain',mime:'image/svg+xml',data:btoa('<svg/>')}]},{assets:[]},{previews:['missing']},{assets:[{id:'grain',mime:'image/png',data:btoa('<html>')}] }])assert.equal(api.validate({...pkg,...patch}).valid,false,JSON.stringify(patch));});
@@ -29,3 +29,63 @@ test('apply rejects invalid scope overrides instead of returning an unsafe bindi
 test('baseline slot borders have explicit widths and headings preserve their background',()=>{const api=themesHarness(),nodes=[],root={ownerDocument:{createElement:()=>({textContent:'',remove(){nodes.splice(nodes.indexOf(this),1);}})},style:{setProperty(){},removeProperty(){}},setAttribute(){},removeAttribute(){},append:node=>nodes.push(node)};const styles=slot=>Array.from(nodes[0].textContent.matchAll(new RegExp('\\[data-community-slot="'+slot+'"\\]\\{([^}]*)\\}','g')),match=>match[1]).find(value=>value.includes('border-width:'));api.applyToRoot(root,api.resolve());for(const slot of ['surface','heading','navigation','message','call-controls'])assert.match(styles(slot),/border-width:0 !important/,slot+' must not receive an initial medium border');for(const slot of ['card','input','button','badge','banner'])assert.match(styles(slot),/border-width:1px !important/,slot+' must retain its standard frame');assert.match(styles('heading'),/background-color:#00000000 !important/);api.applyToRoot(root,api.resolve({bindings:[{packageId:'baseline',version:'1.0.0',overrides:{components:{heading:{borderWidth:'2px'}}}}]}));assert.match(styles('heading'),/border-width:2px !important/,'explicit package/scope border widths must win');api.applyToRoot(root,api.resolve());assert.match(styles('heading'),/border-width:0 !important/,'switching to baseline resets a prior border width');});
 test('button variants override package color decoration for both root and descendant controls',()=>{const api=themesHarness(),nodes=[],root={ownerDocument:{createElement:()=>({textContent:'',remove(){}})},style:{setProperty(){},removeProperty(){}},setAttribute(){},removeAttribute(){},append:node=>nodes.push(node)},pkg={...fixture(api),components:{button:{backgroundColor:'#ff0000',color:'#00ff00',backgroundImage:'linear-gradient(#ff0000, #00ff00)'}},css:'[data-community-slot="button"]:hover {background-color:#ff0000}'};assert.equal(api.validate(pkg).valid,true);api.applyToRoot(root,api.resolve({bindings:[{packageId:pkg.id,version:pkg.version}],packages:[pkg]}));const css=nodes[0].textContent,rules=[...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)],variantRules=rules.filter(([,selector])=>selector.includes('data-variant='));assert.ok(variantRules.length>=4);for(const variant of ['primary','quiet','danger']){const rule=variantRules.find(([,selector])=>selector.includes(`[data-variant="${variant}"]`)&&!selector.includes(':not('));assert.ok(rule,variant);const [rootSelector,descendantSelector]=rule[1].split(',');assert.match(rootSelector,/\]\[data-community-slot="button"\]/);assert.match(descendantSelector,/\] \[data-community-slot="button"\]/);assert.match(rule[2],/background-image:none !important/);assert.ok(rule.index>css.indexOf('background-color:#ff0000 !important'));}const fallback=variantRules.find(([,selector])=>selector.includes(':not('));assert.ok(fallback,'omitted or unknown variants need the neutral default');assert.match(fallback[2],/background-color:var\(--community-surface-raised\) !important/);assert.match(variantRules.find(([,selector])=>selector.includes('[data-variant="primary"]')&&!selector.includes(':not('))[2],/background-color:var\(--community-accent\) !important/);assert.ok(!variantRules.some(([, ,body])=>/padding:|min-height:|border-width:/.test(body)),'variant application must preserve control geometry');});
 test('selected controls retain an app-owned non-color indicator after package CSS',()=>{const api=themesHarness(),nodes=[],root={ownerDocument:{createElement:()=>({textContent:'',remove(){}})},style:{setProperty(){},removeProperty(){}},setAttribute(){},removeAttribute(){},append:node=>nodes.push(node)},appearance=api.resolve();appearance.css='[data-community-slot="button"] {box-shadow:none}';api.applyToRoot(root,appearance);const css=nodes[0].textContent;for(const state of ['aria-selected="true"','aria-current="page"','data-selected="true"'])assert.ok(css.includes(`[${state}]`));assert.match(css,/box-shadow:inset 3px 0 0 var\(--community-accent\) !important/);assert.ok(css.lastIndexOf('box-shadow:inset')>css.indexOf('box-shadow:none !important'));});
+
+const contrastRatio=(foreground,background)=>{
+  const luminance=hex=>hex.slice(1).match(/../g).map(part=>parseInt(part,16)/255).map(value=>value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4).reduce((sum,value,index)=>sum+value*[0.2126,0.7152,0.0722][index],0);
+  const values=[luminance(foreground),luminance(background)].sort((a,b)=>b-a);return (values[0]+0.05)/(values[1]+0.05);
+};
+const composeAppearance=(base,presets)=>{
+  const result=copy(base);
+  for(const preset of presets){Object.assign(result.tokens,preset.tokens);for(const [slot,styles] of Object.entries(preset.components||{}))result.components[slot]={...result.components[slot],...styles};}
+  return result;
+};
+
+test('curated themes add distinct original gradient artwork while retaining the existing theme order',()=>{
+  const api=themesHarness();assert.deepEqual(Array.from(api.builtins,p=>p.id),['baseline','viking','cyberpunk','aurora','paper','midnight','rose']);
+  const signatures=new Set();
+  for(const id of ['aurora','paper','midnight','rose']){
+    const pkg=api.builtins.find(entry=>entry.id===id);assert.equal(api.validate(pkg).valid,true,api.validate(pkg).errors.join('; '));
+    for(const slot of ['surface','card','banner','message'])assert.match(pkg.components[slot].backgroundImage,/^(?:linear|radial)-gradient\(/,id+' '+slot+' needs rendered artwork');
+    assert.ok(['banner','split'].includes(pkg.layouts.home[0]));assert.ok(pkg.tokens.fontHeading);assert.equal(pkg.assets.length,0);
+    signatures.add(JSON.stringify({tokens:pkg.tokens,components:pkg.components}));
+    const resolved=api.resolve({bindings:[{packageId:id,version:pkg.version}]});assert.equal(resolved.packageId,id);assert.deepEqual(copy(resolved.components),copy(pkg.components));
+  }
+  assert.equal(signatures.size,4);
+});
+
+test('paper keeps readable text, secondary text and action labels on its light surfaces and artwork',()=>{
+  const api=themesHarness(),paper=api.builtins.find(pkg=>pkg.id==='paper');assert.ok(paper,'a light paper theme is available');
+  const backgrounds=[paper.tokens.surface,paper.tokens.surfaceRaised,...Object.values(paper.components).flatMap(styles=>styles.backgroundImage?.match(/#[0-9a-f]{6}\b/gi)||[])];
+  assert.ok(contrastRatio(paper.tokens.surface,'#000000')>12,'paper uses a light surface');
+  for(const background of backgrounds)for(const token of ['text','muted'])assert.ok(contrastRatio(paper.tokens[token],background)>=4.5,token+' is readable on '+background);
+  assert.ok(contrastRatio(paper.tokens.accentText,paper.tokens.accent)>=4.5);
+});
+
+test('curated appearance presets are immutable, independently valid packages for every theme palette',()=>{
+  const api=themesHarness();assert.ok(api.customizations,'the appearance library is exported');
+  const expected={surfaces:['plain','glass','outlined'],messages:['clean','bubbles','ruled'],corners:['square','soft','round'],spacing:['compact','balanced','airy']};
+  assert.deepEqual(Object.keys(api.customizations),Object.keys(expected));assert.ok(Object.isFrozen(api.customizations));
+  for(const [category,ids] of Object.entries(expected)){
+    const presets=api.customizations[category];assert.deepEqual(Array.from(presets,preset=>preset.id),ids);assert.ok(Object.isFrozen(presets));
+    for(const preset of presets){
+      assert.ok(preset.name);assert.ok(Object.isFrozen(preset));assert.ok(preset.tokens||preset.components);
+      assert.ok(Object.keys(preset).every(key=>['id','name','tokens','components'].includes(key)));
+      if(preset.components){assert.ok(Object.isFrozen(preset.components));for(const styles of Object.values(preset.components))assert.ok(Object.isFrozen(styles));}
+      if(preset.tokens)assert.ok(Object.isFrozen(preset.tokens));
+      for(const base of api.builtins){const pkg=composeAppearance(base,[preset]),result=api.validate(pkg);assert.equal(result.valid,true,base.id+'/'+category+'/'+preset.id+': '+result.errors.join('; '));}
+    }
+  }
+});
+
+test('appearance presets compose through scope overrides with accessibility preferences taking priority',()=>{
+  const api=themesHarness();assert.ok(api.customizations,'composable appearance presets are available');
+  const library=api.customizations,base=api.builtins.find(pkg=>pkg.id==='aurora');assert.ok(base);
+  for(const surface of library.surfaces)for(const message of library.messages)for(const corners of library.corners)for(const spacing of library.spacing){
+    const composed=composeAppearance(base,[surface,message,corners,spacing]);assert.equal(api.validate(composed).valid,true);
+    const binding={packageId:base.id,version:base.version,overrides:{tokens:composed.tokens,components:composed.components}};
+    const resolved=api.resolve({bindings:[binding]});assert.equal(resolved.warnings.length,0);assert.deepEqual(copy(resolved.components),composed.components);
+    const contrast=api.resolve({bindings:[binding],preferences:{highContrast:true,reducedMotion:true}});assert.equal(contrast.motion,'none');assert.equal(contrast.css,'');assert.deepEqual(copy(contrast.components),{});assert.equal(contrast.tokens.text,'#ffffff');
+    const simple=api.resolve({bindings:[binding],preferences:{simplified:true}});assert.deepEqual(copy(simple.components),{});assert.equal(simple.motion,'none');assert.equal(simple.tokens.fontHeading,api.tokenDefaults.fontHeading);
+  }
+  const snapshot=JSON.stringify(library),changed=composeAppearance(base,[library.surfaces[1],library.messages[1],library.corners[2],library.spacing[2]]);changed.components.card.borderWidth='4px';changed.tokens.radius='1px';assert.equal(JSON.stringify(library),snapshot,'composing editable drafts must not mutate shipped presets');
+});

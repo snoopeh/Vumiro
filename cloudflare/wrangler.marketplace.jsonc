@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vumiro-marketplace",
+  "main": "marketplace-worker.js",
+  "compatibility_date": "2026-10-30",
+  "workers_dev": false,
+  "d1_databases": [{
+    "binding": "MARKETPLACE_DB",
+    "database_name": "vumiro-marketplace",
+    "database_id": "REPLACE_WITH_SEPARATE_MARKETPLACE_DATABASE_ID",
+    "migrations_dir": "marketplace-migrations"
+  }],
+  "r2_buckets": [{ "binding": "MARKETPLACE_ASSETS", "bucket_name": "vumiro-marketplace-private" }],
+  "services": [{ "binding": "MARKETPLACE_HUBS", "service": "vumiro-community-marketplace-authority" }],
+  "triggers": { "crons": ["17 * * * *"] },
+  "vars": {
+    "SUPABASE_URL": "https://REPLACE_WITH_EXISTING_ACCOUNT_PROJECT.supabase.co",
+    "MARKETPLACE_ADMIN_ACCOUNTS": ""
+  }
+  // Secrets: MARKETPLACE_INTERNAL_SECRET (shared only with the hub authority),
+  // plus the commerce provider secrets documented in MARKETPLACE-API.md.
+  // Keep the R2 bucket private: no public domain, r2.dev access, or public assets binding.
+}
