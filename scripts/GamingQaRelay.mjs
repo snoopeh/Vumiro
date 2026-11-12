@@ -1,5 +1,5 @@
 import {createRequire} from 'node:module';
-import {readFile,stat,readdir} from 'node:fs/promises';
+import {readFile,stat} from 'node:fs/promises';
 import {resolve,join,sep} from 'node:path';
 import {isIP} from 'node:net';
 const options=Object.fromEntries(process.argv.slice(2).reduce((pairs,value,index,args)=>index%2?pairs:[...pairs,[value,args[index+1]]],[]));
@@ -7,10 +7,13 @@ const root=resolve(options['--root']||'.'),host=options['--host']||'127.0.0.1',p
 if(!isIP(host)||!Number.isInteger(port)||port<1024||port>65535)throw new Error('Choose a literal bind IP and port 1024..65535.');
 const require=createRequire(join(root,'package.json'));
 const {Miniflare,convertV4MiniflareOptions,Response:WorkerResponse}=require('miniflare');
+const {build}=require('esbuild');
 const ResponseType=WorkerResponse||Response;
 const publicRoot=join(root,'public');
-const moduleNames=['worker.js',...(await readdir(root)).filter(name=>name.endsWith('.js')&&name!=='worker.js'&&!name.endsWith('.test.js'))];
-const modules=await Promise.all(moduleNames.map(async name=>({type:'ESModule',path:join(root,name),contents:await readFile(join(root,name),'utf8')})));
+// Follow the Worker's complete import graph, including shared client validators.
+// Keep runtime-provided Cloudflare modules external, as Wrangler does.
+const bundled=await build({entryPoints:[join(root,'worker.js')],bundle:true,format:'esm',platform:'neutral',external:['cloudflare:*'],write:false,logLevel:'silent'});
+const modules=[{type:'ESModule',path:join(root,'worker.js'),contents:bundled.outputFiles[0].text}];
 const relay=new Miniflare(convertV4MiniflareOptions({
     host,port,modules,
     compatibilityDate:'2026-10-30',

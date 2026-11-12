@@ -36,6 +36,9 @@ try {
         & node (Join-Path $worker 'prepare-assets.mjs')
         if ($LASTEXITCODE -ne 0) { throw 'Relay asset preparation failed.' }
         $relay = Join-Path $kit 'relay'; New-Item -ItemType Directory -Path $relay | Out-Null
+        # Preserve the Worker's ../Vumiro.Client/WebServer shared module imports.
+        $sharedModules = Join-Path $kit 'Vumiro.Client'; New-Item -ItemType Directory -Path $sharedModules | Out-Null
+        Copy-Item -LiteralPath (Join-Path $repository 'Vumiro.Client/WebServer') -Destination $sharedModules -Recurse
         foreach ($entry in (Get-ChildItem -LiteralPath $worker -File | Where-Object { $_.Name -match '\.(js|json|jsonc|mjs)$' -and $_.Name -notmatch '\.test\.' })) { Copy-Item -LiteralPath $entry.FullName -Destination $relay }
         foreach ($folder in @('node_modules','public','migrations')) { Copy-Item -LiteralPath (Join-Path $worker $folder) -Destination (Join-Path $relay $folder) -Recurse }
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'GamingQaRelay.mjs') -Destination (Join-Path $relay 'GamingQaRelay.mjs')
