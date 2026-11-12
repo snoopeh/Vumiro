@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {webcrypto} from 'node:crypto';
 
-function harness({defer=false,realModel=false,realThemes=true,realStudio=false,marketplaceModel=false,liveApi,voiceApi}={}) {
+function harness({defer=false,realModel=false,realThemes=true,realStudio=false,marketplaceModel=false,liveApi,voiceApi,picker=false,friends=[],catalog=false}={}) {
   let profile={id:'A'.repeat(43),name:'Owner'},release,blockSave=false;
   const records=new Map(),calls=[],themeManagerCalls=[],studios=[],webRecords=new Map();
   const state={hubs:[{id:'hub',name:'Workshop',description:'Welcome',home:{preset:'compact',welcome:'Make something'},members:[]}],nodes:[{id:'folder',hubId:'hub',parentId:null,kind:'folder',name:'Games',depth:0,hasChildren:true},{id:'text',hubId:'hub',parentId:'folder',kind:'text',name:'Plans',depth:1}],selectedHubId:'hub',selectedNodeId:null,messages:{text:[]},drafts:{text:''},collapsed:[]};
@@ -29,7 +29,8 @@ function harness({defer=false,realModel=false,realThemes=true,realStudio=false,m
   const window={crypto:webcrypto,localStorage:{getItem:key=>webRecords.get(key)??null,setItem:(key,value)=>webRecords.set(key,String(value)),removeItem:key=>webRecords.delete(key)},VumiroCommunityModel:{createStore:async({identity})=>{records.set(identity,true);if(defer)await new Promise(r=>release=r);return model;},createLocalStorageAdapter:()=>({})}};
   if(liveApi)window.VumiroCommunityLive={create:options=>{liveApi.options=options;return liveApi;}};
   if(voiceApi)window.VumiroCommunityVoice={create:()=>voiceApi};
-  const context={window,document,console,structuredClone,Date,TextEncoder,atob,btoa};vm.createContext(context);
+  const context={window,document,console,structuredClone,Date,URL,TextEncoder,atob,btoa};vm.createContext(context);
+  if(catalog){vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-live.js',import.meta.url),'utf8'),context);window.VumiroCommunityLive={...window.VumiroCommunityLive,create:options=>{liveApi.options=options;return liveApi;}};}
   const visualFile=new URL('../Vumiro.Client/WebServer/community-ui.js',import.meta.url);if(fs.existsSync(visualFile))vm.runInContext(fs.readFileSync(visualFile,'utf8'),context);
   const storage={async load(id){return records.get(id)??null;},async save(id,value){if(blockSave){blockSave=false;await new Promise(r=>release=r);}records.set(id,structuredClone(value));}};
   if(realModel)vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-model.js',import.meta.url),'utf8'),context);
@@ -39,11 +40,55 @@ function harness({defer=false,realModel=false,realThemes=true,realStudio=false,m
   const file=new URL('../Vumiro.Client/WebServer/community-workspace.js',import.meta.url);
   if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),context);
   assert.ok(window.VumiroCommunityHub,'community view exists');
-  const view=window.VumiroCommunityHub.create({mount,getProfile:()=>profile,storage:realModel?storage:{},identityProvider:{profile:()=>profile}});
+  const view=window.VumiroCommunityHub.create({mount,getProfile:()=>profile,getFriends:()=>friends,storage:realModel?storage:{},identityProvider:{profile:()=>profile}});
   const all=(node=mount)=>[node,...node.children.flatMap(c=>all(c)),...(node.shadowRoot?all(node.shadowRoot):[])];
+  if(!picker){const open=view.open;view.open=async()=>{const result=await open();const card=all().find(n=>n.dataset.action==='enter-local-'+(realModel?'workshop':'hub'));if(card)await card.dispatch('click');return result;};}
   return {view,mount,all,calls,state,document,window,records,webRecords,themeManagerCalls,studios,find:key=>all().find(n=>n.dataset.action===key),profile:value=>profile=value,release:()=>release(),blockSave:()=>blockSave=true};
 }
 async function settings(h,key){if(!h.find(key))await h.find('scope-settings').dispatch('click');await h.find(key).dispatch('click');}
+
+test('Community Hub opens the community library and returning preserves a channel draft',async()=>{
+  const h=harness({realModel:true,picker:true});await h.view.open();assert.ok(h.find('community-library'));assert.equal(h.find('tree'),undefined);
+  assert.ok(h.find('enter-local-workshop'));await h.find('enter-local-workshop').dispatch('click');await h.find('node-workbench').dispatch('click');h.find('message').value='Remember this';await h.find('message').dispatch('input');
+  await h.find('back-to-communities').dispatch('click');assert.ok(h.find('community-library'));await h.find('enter-local-workshop').dispatch('click');assert.equal(h.find('message').value,'Remember this');
+  h.view.hide();await h.view.open();assert.ok(h.find('community-library'),'each main-navigation entry starts at the library');
+});
+
+test('library creates and filters communities and reports simulated members honestly',async()=>{
+  const h=harness({realModel:true,picker:true});await h.view.open();assert.ok(h.all().some(n=>n.textContent==='Local demo'));
+  assert.equal(h.all().some(n=>n.textContent==='2 friends here'),false);await h.find('library-create').dispatch('click');h.find('library-hub-name').value='Night owls';await h.find('library-create-form').dispatch('submit');
+  assert.ok(h.find('community-library'));assert.ok(h.all().some(n=>n.textContent==='Night owls'));h.find('library-search').value='no matches';await h.find('library-search').dispatch('input');assert.ok(h.all().some(n=>n.textContent==='No matching communities.'));
+});
+
+test('card artwork and frame controls persist without changing the open channel',async()=>{
+  const h=harness({realModel:true,picker:true});await h.view.open();await h.find('enter-local-workshop').dispatch('click');await h.find('node-workbench').dispatch('click');await h.find('hub-settings').dispatch('click');await h.find('page-themes').dispatch('click');
+  h.find('card-banner').value='https://example.test/banner.webp';h.find('card-icon').value='https://example.test/icon.png';h.find('card-frame').value='regal';h.find('card-frame-color').value='#dfb575';await h.find('card-artwork-form').dispatch('submit');
+  const saved=h.records.get('A'.repeat(43));assert.equal(saved.hubs[0].card.frame,'regal');assert.equal(saved.selectedNodeId,'workbench');await h.find('settings-close').dispatch('click');await h.find('back-to-communities').dispatch('click');
+  const card=h.find('card-local-workshop');assert.equal(card.dataset.frame,'regal');assert.ok(h.all().some(n=>n.tagName==='img'&&n.src==='https://example.test/banner.webp'));
+});
+
+test('remembered shared hubs show only saved friends observed inside and reenter from the library',async()=>{
+  const me='A'.repeat(43),snapshot={hubId:'guild',name:'Guild',revision:1,nodes:[{id:'guild',type:'hub',name:'Guild'},{id:'chat',type:'text',name:'Raid plans',parentId:'guild'}],members:[{id:'offline-member',name:'Not inside'}],presence:[{id:me},{id:'friend',channelId:'chat'},{id:'stranger',channelId:'chat'},{id:'friend',channelId:'chat'}]},liveApi={disconnect(){},async connect(){return snapshot;},async snapshot(){return snapshot;}};
+  const h=harness({realModel:true,picker:true,catalog:true,liveApi,friends:[{id:'friend',nickname:'Mira'},{id:'offline-member',nickname:'Offline friend'},{id:me,nickname:'Me'}]});
+  h.window.VumiroCommunityLive.createCatalog({identity:me,storage:h.window.localStorage}).remember(snapshot);await h.view.open();await new Promise(r=>setImmediate(r));
+  assert.ok(h.all().some(n=>n.textContent==='1 friend here'));assert.ok(h.all().some(n=>n.textContent==='Mira'));assert.ok(h.all().some(n=>n.textContent==='Raid plans'));assert.equal(h.all().some(n=>n.textContent==='Offline friend'),false);
+  const details=h.find('friends-shared-guild');assert.equal(details.open,false);await details.dispatch('pointerenter');assert.equal(details.open,true,'hover opens the native details content');await details.dispatch('pointerleave');assert.equal(details.open,false);await details.dispatch('focusin');details.matches=selector=>selector===':focus-within';await details.dispatch('pointerleave');assert.equal(details.open,true,'pointer movement cannot close keyboard-focused details');await h.find('friends-summary-shared-guild').dispatch('click');assert.equal(details.open,true,'click pins friend details for touch and keyboard');await details.dispatch('pointerleave');assert.equal(details.open,true);
+  await h.find('enter-shared-guild').dispatch('click');assert.ok(h.find('live-tree'));await h.find('back-to-communities').dispatch('click');assert.ok(h.find('enter-shared-guild'));await h.find('enter-shared-guild').dispatch('click');assert.ok(h.find('live-tree'));
+});
+
+test('failed presence refresh clears the previous count and a late refresh cannot cross profiles',async()=>{
+  const snapshot={hubId:'guild',name:'Guild',nodes:[{id:'guild',type:'hub',name:'Guild'}],presence:[{id:'friend'}]};let fail=false,finish;
+  const liveApi={disconnect(){},async connect(){if(fail)throw Error('Unavailable');return snapshot;}};
+  const h=harness({realModel:true,picker:true,catalog:true,liveApi,friends:[{id:'friend',name:'Mira'}]});h.window.VumiroCommunityLive.createCatalog({identity:'A'.repeat(43),storage:h.window.localStorage}).remember(snapshot);
+  await h.view.open();await new Promise(r=>setImmediate(r));assert.ok(h.all().some(n=>n.textContent==='1 friend here'));fail=true;await h.find('library-refresh').dispatch('click');assert.equal(h.all().some(n=>n.textContent==='1 friend here'),false);assert.ok(h.all().some(n=>n.textContent==='Unavailable · Try refreshing'));
+  liveApi.connect=()=>new Promise(r=>finish=r);const pending=h.find('library-refresh').dispatch('click');h.profile({id:'B'.repeat(43),name:'Other'});await h.view.open();finish(snapshot);await pending;assert.equal(h.find('enter-shared-guild'),undefined);
+});
+
+test('a failed hub switch cannot leave the old hub attached to a disconnected transport',async()=>{
+  let shouldFail=false,active=null;const connections=[],snapshot=id=>({hubId:id,name:id,nodes:[{id,type:'hub',name:id}],presence:[]}),liveApi={disconnect(){active=null;},async connect(id){connections.push(id);active=id;if(shouldFail&&id==='second')throw Error('Offline');return snapshot(id);},async snapshot(){return snapshot(active);}};
+  const h=harness({realModel:true,picker:true,catalog:true,liveApi});const catalog=h.window.VumiroCommunityLive.createCatalog({identity:'A'.repeat(43),storage:h.window.localStorage});catalog.remember(snapshot('first'));catalog.remember(snapshot('second'));await h.view.open();await new Promise(r=>setImmediate(r));
+  await h.find('enter-shared-first').dispatch('click');await h.find('back-to-communities').dispatch('click');shouldFail=true;await h.find('enter-shared-second').dispatch('click');assert.ok(h.find('community-library'));const before=connections.length;await h.find('enter-shared-first').dispatch('click');assert.equal(connections.length,before+1);assert.equal(active,'first');
+});
 
 test('persistent tree opens a text channel and preserves a draft through home navigation',async()=>{
   const h=harness();await h.view.open();assert.ok(h.mount.shadowRoot,'community styles have a shadow boundary');

@@ -82,6 +82,18 @@
     if (!HOME_PRESETS.includes(preset)) throw Error('Invalid home preset.');
     return {preset,welcome:text(value.welcome??'',2000,'Welcome',false),featuredIds:ids(value.featuredIds),announcements:text(value.announcements??'',2000,'Announcements',false),showActivity:value.showActivity!==false};
   }
+  function normalizeCard(value={}) {
+    if (!value || typeof value!=='object' || Array.isArray(value)) throw Error('Invalid community card.');
+    const image=source=>{
+      if (typeof source!=='string' || source.length>200000 || /[\s\\\u0000-\u001f\u007f]/.test(source)) throw Error('Invalid card image.');
+      if (!source || /^data:image\/(?:png|jpeg|webp|gif);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/i.test(source) && !source.endsWith(',')) return source;
+      try {const url=new URL(source);if (!/^https:\/\//i.test(source) || url.protocol!=='https:' || !url.hostname || url.username || url.password) throw Error();}catch{throw Error('Invalid card image. Use a raster image or HTTPS URL.');}
+      return source;
+    };
+    const frame=own(value,'frame')?value.frame:'none',frameColor=own(value,'frameColor')?value.frameColor:'#8b5cf6';
+    if (!['none','aurora','arcade','regal'].includes(frame) || typeof frameColor!=='string' || !/^#[A-Fa-f0-9]{6}$/.test(frameColor)) throw Error('Invalid card frame or frame color.');
+    return {banner:image(own(value,'banner')?value.banner:''),icon:image(own(value,'icon')?value.icon:''),frame,frameColor,frameImage:image(own(value,'frameImage')?value.frameImage:'')};
+  }
   function binding(value={mode:'inherit'}) {
     const overrides=value.overrides??{};
     if (!overrides || typeof overrides!=='object' || Array.isArray(overrides) || Object.keys(overrides).some(key=>!['tokens','components','layout'].includes(key)) || JSON.stringify(overrides).length>40000) throw Error('Invalid theme overrides.');
@@ -102,7 +114,7 @@
       {id:'demo-noor',name:'Noor Ahmed',status:'offline',activity:'Back later',roleIds:['Member'],role:'Member',demo:true}];
   }
   function hubTemplate(identity, hubId='workshop', name='The Workshop') {
-    return {id:hubId,name,description:'A small place to build something together.',ownerId:identity,roles:defaultRoles(),members:[{id:identity,name:'You',roleIds:['Host'],role:'Host',demo:false},...demoMembers()],access:access(),home:home({welcome:'Welcome to your local Community Hub.'}),themeBinding:binding(),allowEqualAuthorityModeration:false};
+    return {id:hubId,name,description:'A small place to build something together.',ownerId:identity,card:normalizeCard(),roles:defaultRoles(),members:[{id:identity,name:'You',roleIds:['Host'],role:'Host',demo:false},...demoMembers()],access:access(),home:home({welcome:'Welcome to your local Community Hub.'}),themeBinding:binding(),allowEqualAuthorityModeration:false};
   }
   function nodeTemplate(fields) {
     return {id:id(fields.id),hubId:id(fields.hubId),parentId:fields.parentId??null,kind:fields.kind,name:text(fields.name,64,'Node name'),description:text(fields.description??'',280,'Description',false),order:fields.order??0,archived:fields.archived===true,access:access(fields.access),managerIds:ids(fields.managerIds),home:home(fields.home),themeBinding:binding(fields.themeBinding),participantIds:ids(fields.participantIds)};
@@ -184,7 +196,7 @@
       if (roles.length>100||new Set(roles.map(r=>r.id)).size!==roles.length) throw Error('Invalid roles.');
       const members=(h.members??[]).map(m=>({id:id(m.id),name:text(m.name,80,'Member name'),roleIds:ids(m.roleIds??[m.role??'Member']),role:m.role??m.roleIds?.[0]??'Member',status:['online','away','offline'].includes(m.status)?m.status:'offline',activity:text(m.activity??'',280,'Activity',false),demo:m.demo===true}));
       if (members.length>500||new Set(members.map(m=>m.id)).size!==members.length||!members.some(m=>m.id===identity)||members.some(m=>m.roleIds.some(r=>!roles.some(role=>role.id===r))))throw Error('Invalid hub membership.');
-      return {id:h.id,name:text(h.name,64,'Hub name'),description:text(h.description??'',280,'Description',false),ownerId:h.ownerId,roles,members,access:access(h.access),home:home(h.home),themeBinding:binding(h.themeBinding),allowEqualAuthorityModeration:h.allowEqualAuthorityModeration===true};
+      return {id:h.id,name:text(h.name,64,'Hub name'),description:text(h.description??'',280,'Description',false),ownerId:h.ownerId,card:normalizeCard(h.card),roles,members,access:access(h.access),home:home(h.home),themeBinding:binding(h.themeBinding),allowEqualAuthorityModeration:h.allowEqualAuthorityModeration===true};
     });
     const nodes=value.nodes.map(n=>{claim(n.id);if(!['folder','space','text','voice'].includes(n.kind))throw Error('Invalid node kind.');if(!Number.isFinite(n.order))throw Error('Invalid node order.');return nodeTemplate(n);});
     const out={version:2,mode:'local-demo',identity,hubs,nodes,selectedHubId:value.selectedHubId,selectedNodeId:value.selectedNodeId??null,collapsed:ids(value.collapsed),messages:emptyMap(),drafts:emptyMap(),unread:emptyMap()};
@@ -277,9 +289,9 @@
       async setDraft(targetId,value,options){requirePermission(targetId,'post',options);if(node(targetId).kind!=='text')throw Error('A text channel is required.');if(typeof value!=='string'||value.length>LIMITS.draft)throw Error('Draft is too long.');return change(()=>{state.drafts[targetId]=value;});},
       async postMessage(targetId,value,author='You',options){requirePermission(targetId,'post',options);if(node(targetId).kind!=='text')throw Error('A text channel is required.');const message={id:freshId('local'),authorId:identity,author:text(author,80,'Author'),text:text(value,LIMITS.message,'Message'),at:now(),demo:false};return change(()=>{state.messages[targetId]=[...(state.messages[targetId]??[]),message].slice(-LIMITS.messages);state.drafts[targetId]='';return message;});},
       async setUnread(targetId,value){node(targetId);return change(()=>{state.unread[targetId]=value;});},
-      async createHub(fields={}){return change(()=>{const hub=hubTemplate(identity,freshId('hub'),text(fields.name??'New community',64,'Hub name'));if(fields.description!==undefined)hub.description=text(fields.description,280,'Description',false);state.hubs.push(hub);state.selectedHubId=hub.id;state.selectedNodeId=null;return hub;});},
+      async createHub(fields={}){return change(()=>{const hub=hubTemplate(identity,freshId('hub'),text(fields.name??'New community',64,'Hub name'));if(fields.description!==undefined)hub.description=text(fields.description,280,'Description',false);if(own(fields,'card'))hub.card=normalizeCard(fields.card);state.hubs.push(hub);state.selectedHubId=hub.id;state.selectedNodeId=null;return hub;});},
       async createNode(fields,options){const hubId=fields.hubId??state.selectedHubId,parentId=fields.parentId??null;destination(parentId,hubId,options);if(fields.managerIds?.length||fields.access!==undefined)requirePermission(parentId??hubId,'roles',options);if(fields.themeBinding!==undefined)requirePermission(parentId??hubId,'themes',options);return change(()=>{const target=nodeTemplate({...fields,id:freshId('node'),hubId,parentId,order:children(hubId,parentId).length});state.nodes.push(target);return target;});},
-      async updateHub(hubId,patch,options){requirePermission(hubId,'structure',options);if(patch.allowEqualAuthorityModeration!==undefined)requirePermission(hubId,'roles',options);return change(()=>{const hub=state.hubs.find(h=>h.id===hubId);for(const key of ['name','description','allowEqualAuthorityModeration'])if(own(patch,key))hub[key]=patch[key];});},
+      async updateHub(hubId,patch,options){requirePermission(hubId,'structure',options);if(patch.allowEqualAuthorityModeration!==undefined)requirePermission(hubId,'roles',options);return change(()=>{const hub=state.hubs.find(h=>h.id===hubId);if(own(patch,'card')){normalizeCard(patch.card);hub.card=normalizeCard({...hub.card,...patch.card});}for(const key of ['name','description','allowEqualAuthorityModeration'])if(own(patch,key))hub[key]=patch[key];});},
       async updateNode(targetId,patch,options){requirePermission(targetId,'structure',options);if(patch.managerIds!==undefined)requirePermission(targetId,'roles',options);return change(()=>{const target=node(targetId);for(const key of ['name','description','managerIds'])if(own(patch,key))target[key]=patch[key];});},
       async renameNode(targetId,name,options){return store.updateNode(targetId,{name},options);},
       async moveNode(targetId,parentId=null,options={}){const target=requirePermission(targetId,'structure',options),hubId=options.hubId??(parentId?node(parentId).hubId:target.hubId);if(!target.hubId)throw Error('A node is required.');requirePermission(target.parentId??target.hubId,'structure',options);destination(parentId,hubId,options);if(ancestry(state,parentId??hubId).some(n=>n.id===targetId))throw Error('Tree cycle is not allowed.');return change(()=>{place(node(targetId),parentId,hubId,options.index);});},
@@ -303,5 +315,5 @@
     store.selectChannel=store.selectNode;
     return store;
   }
-  window.VumiroCommunityModel={createStore,createLocalStorageAdapter,validateState,evaluateAccess,sharedAccess,canModerate,DIMENSIONS,HOME_PRESETS,ACCESS_MODES,LIMITS};
+  window.VumiroCommunityModel={createStore,createLocalStorageAdapter,normalizeCard,validateState,evaluateAccess,sharedAccess,canModerate,DIMENSIONS,HOME_PRESETS,ACCESS_MODES,LIMITS};
 })();

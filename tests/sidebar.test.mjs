@@ -299,7 +299,7 @@ test('compact navigation retains explicit names for destinations and nested room
 test('in-place profile identity replacement destroys the visible server workspace without dismissing settings',async()=>{
   const h=workspaceHarness(),records=new Map();h.context.profile={id:'A'.repeat(43),name:'Person A'};
   class Element{
-    constructor(tag){this.tagName=tag;this.children=[];this.dataset={};this.attributes={};this.handlers={};this.value='';this.textContent='';this.style={};}
+    constructor(tag){this.tagName=tag;this.children=[];this.dataset={};this.attributes={};this.handlers={};this.value='';this.textContent='';this.style={setProperty(key,value){this[key]=value;}};}
     attachShadow(){this.shadowRoot=new Element('shadow');return this.shadowRoot;}
     append(...nodes){this.children.push(...nodes);}replaceChildren(...nodes){this.children=[];this.append(...nodes);}
     setAttribute(key,value){this.attributes[key]=value;}addEventListener(key,fn){(this.handlers[key]??=[]).push(fn);}removeEventListener(key,fn){this.handlers[key]=(this.handlers[key]||[]).filter(item=>item!==fn);}focus(){}
@@ -310,12 +310,12 @@ test('in-place profile identity replacement destroys the visible server workspac
   for(const name of ['community-ui.js','community-model.js','community-workspace.js'])vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/'+name,import.meta.url),'utf8'),h.context);
   await h.context.showServerWorkspace();
   const all=(node=mount.shadowRoot)=>[node,...node.children.flatMap(child=>all(child))],find=action=>all().find(node=>node.dataset.action===action);
-  await find('node-welcome').dispatch('click');find('message').value='private A draft';await find('message').dispatch('input');
+  assert.ok(find('community-library'));await find('enter-local-workshop').dispatch('click');await find('node-welcome').dispatch('click');find('message').value='private A draft';await find('message').dispatch('input');
   let settingsOpen=true,exits=0;h.context.document.querySelectorAll=selector=>selector==='dialog[open]'&&settingsOpen?[{classList:{contains:()=>true}}]:[];
   h.context.window.VumiroSettingsExit={async requestClose(){exits++;return false;}};
   Object.assign(h.context,{lobbyInitialized:true,local:{profile:()=>({id:'B'.repeat(43),name:'Person B'})},renderOwnProfile(){},clearNotificationSession(){},clearPending(){},connect(){}});
   const start=source.indexOf('async function shareOwnProfile()'),end=source.indexOf("addEventListener('vumiro-profile-changed'",start);
   vm.runInContext(source.slice(start,end),h.context);await h.context.shareOwnProfile();
   assert.equal(mount.hidden,true);assert.equal(mount.shadowRoot.children.length,0,'previous identity content is removed immediately');assert.equal(h.context.workspaceView,'friends');assert.equal(exits,0);assert.equal(settingsOpen,true);
-  settingsOpen=false;await h.context.showServerWorkspace();await find('node-welcome').dispatch('click');assert.equal(find('message').value,'');
+  settingsOpen=false;await h.context.showServerWorkspace();assert.ok(find('community-library'));await find('enter-local-workshop').dispatch('click');await find('node-welcome').dispatch('click');assert.equal(find('message').value,'');
 });

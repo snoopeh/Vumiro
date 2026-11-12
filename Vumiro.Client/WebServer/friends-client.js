@@ -603,7 +603,7 @@ async function showServerWorkspace(){
   if(!await allowWorkspaceNavigation())return false;
   if(!profile?.id)return false;
   if(!window.VumiroCommunityHub){status('Community Hub is unavailable. Restart Vumiro and try again.');return false;}
-  serverWorkspaceController??=window.VumiroCommunityHub.create({getServiceUrl:()=>serviceUrl,identityProvider:local,mount:$('serverWorkspace'),getProfile:()=>profile,t:key=>globalThis.VumiroI18n?.t(key)||key,onExit:()=>{void showFriendsOverview();}});
+  serverWorkspaceController??=window.VumiroCommunityHub.create({getServiceUrl:()=>serviceUrl,identityProvider:local,mount:$('serverWorkspace'),getProfile:()=>profile,getFriends:()=>friends.filter(friend=>!blocked.includes(friend.id)),t:key=>globalThis.VumiroI18n?.t(key)||key,onExit:()=>{void showFriendsOverview();}});
   hideDirectMessages();activateWorkspace('servers');await serverWorkspaceController.open();return true;
 }
 async function prepareExternalWorkspace(view='gaming'){

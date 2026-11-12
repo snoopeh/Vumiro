@@ -92,11 +92,37 @@ test('creating a child cannot bypass separate role and theme management permissi
  const h=s.snapshot().hubs[0];await s.setRoles(h.id,[...h.roles,{id:'Builder',name:'Builder',authority:10,permissions:{view:true,structure:true}}]);await s.setRole('demo-noor','Builder');
  await assert.rejects(()=>s.createNode({hubId:h.id,parentId:null,kind:'text',name:'Unauthorized theme',themeBinding:{packageId:'viking',version:'1.0.0'}},{actor:'demo-noor'}),/permission/i);
 });
-function api(){const context={window:{},console};vm.createContext(context);if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),context);assert.ok(context.window.VumiroCommunityModel,'Community model API exists');return context.window.VumiroCommunityModel;}
+function api(){const context={window:{},console,URL};vm.createContext(context);if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),context);assert.ok(context.window.VumiroCommunityModel,'Community model API exists');return context.window.VumiroCommunityModel;}
 function memory(){const records=new Map();return {records,async load(id){return records.has(id)?structuredClone(records.get(id)):null;},async save(id,state){records.set(id,structuredClone(state));}};}
 function local(){const values=new Map();return {values,getItem:k=>values.get(k)??null,setItem(k,v){values.set(k,v);},removeItem(k){values.delete(k);}};}
 async function store(storage=memory(),id=identity){return api().createStore({identity:id,storage,now:()=>1000});}
 function legacy(){return {version:1,mode:'local-demo',name:'Old workshop',description:'Kept',selectedChannel:'original',channels:[{id:'original',kind:'text',name:'Original',category:'Old category',description:'History'}],messages:{original:[{id:'old-message',authorId:identity,author:'Me',text:'Do not lose me',at:100,demo:false}]},drafts:{original:'unsent words'},members:[]};}
+
+test('hub card art persists independently per hub and partial edits preserve existing art',async()=>{
+ const storage=memory(),s=await store(storage),first=s.snapshot().selectedHubId;
+ const card={banner:'https://images.example/banner.webp',icon:'data:image/png;base64,AAAA',frame:'aurora',frameColor:'#12ABef',frameImage:'https://images.example/frame.png'};
+ await s.updateHub(first,{card});const next=await s.createHub({name:'Second',card:{icon:'https://images.example/second.png'}});
+ await s.updateHub(first,{card:{frame:'regal'}});const reload=(await store(storage)).snapshot();
+ assert.deepEqual(JSON.parse(JSON.stringify(reload.hubs.find(h=>h.id===first).card??null)),{...card,frame:'regal'});
+ assert.equal(reload.hubs.find(h=>h.id===next.id).card.icon,'https://images.example/second.png');assert.equal(reload.hubs.find(h=>h.id===next.id).card.banner,'');
+});
+
+test('legacy hubs receive card defaults and normalizeCard accepts only bounded raster or HTTPS art',async()=>{
+ const model=api(),old=(await store()).snapshot();delete old.hubs[0].card;
+ assert.deepEqual(JSON.parse(JSON.stringify(model.validateState(old,identity).hubs[0].card??null)),{banner:'',icon:'',frame:'none',frameColor:'#8b5cf6',frameImage:''});
+ for(const type of ['png','jpeg','webp','gif'])assert.equal(model.normalizeCard({banner:'data:image/'+type+';base64,AAAA'}).banner,'data:image/'+type+';base64,AAAA');
+ const bounded='data:image/png;base64,'+'A'.repeat(199976);assert.equal(model.normalizeCard({banner:bounded}).banner,bounded);
+ for(const source of ['javascript:alert(1)','http://example.com/a.png','data:image/svg+xml;base64,AAAA','https://user:secret@example.com/a.png','https://example.com/\\evil','https://example.com/\nimage','data:image/png;base64,%%%%','https://example.com/'+ 'a'.repeat(200000)])assert.throws(()=>model.normalizeCard({banner:source}),/card|image/i,source.slice(0,70));
+ for(const card of [null,[],{frame:'custom'},{frameColor:'red'},{frameColor:'#abc'},{icon:3},{frameImage:'file:///C:/a.png'}])assert.throws(()=>model.normalizeCard(card),/card|image|frame/i);
+ const large={...old,hubs:old.hubs.map(h=>({...h,card:{banner:bounded,icon:bounded,frameImage:bounded}}))};while(large.hubs.length<3)large.hubs.push({...large.hubs[0],id:'extra-'+large.hubs.length});assert.throws(()=>model.validateState(large,identity),/too large/i);
+});
+
+test('invalid card edits roll back all hub changes and retain existing structure permissions',async()=>{
+ const storage=memory(),s=await store(storage),hubId=s.snapshot().selectedHubId;await s.updateHub(hubId,{card:{banner:'https://example.com/kept.png'}});const before=JSON.stringify(s.snapshot()),saved=JSON.stringify(storage.records.get(identity));
+ await assert.rejects(()=>s.updateHub(hubId,{name:'Lost',card:{icon:'data:image/svg+xml;base64,AAAA'}}),/card|image/i);
+ assert.equal(JSON.stringify(s.snapshot()),before);assert.equal(JSON.stringify(storage.records.get(identity)),saved);
+ await assert.rejects(()=>s.updateHub(hubId,{card:{frame:'arcade'}},{actor:'demo-luca'}),/permission/i);
+});
 
 test('v2 seed has stable channels, multiple node kinds, original demo messages and isolated identities',async()=>{
  const storage=memory(),a=await store(storage),s=a.snapshot();assert.equal(s.version,2);assert.equal(s.mode,'local-demo');assert.ok(s.nodes.some(n=>n.kind==='space'));assert.ok(s.nodes.some(n=>n.id==='welcome'));assert.match(s.messages.welcome[0].text,/Workshop/);await a.updateHub(s.selectedHubId,{name:'Private hub'});const b=await store(storage,other);assert.notEqual(b.snapshot().name,'Private hub');assert.equal((await store(storage)).snapshot().name,'Private hub');s.nodes[0].name='tampered';assert.notEqual(a.snapshot().nodes[0].name,'tampered');await assert.rejects(()=>store(storage,'bad'),/identity/i);
