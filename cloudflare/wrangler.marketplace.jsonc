@@ -17,7 +17,8 @@
     "SUPABASE_URL": "https://REPLACE_WITH_EXISTING_ACCOUNT_PROJECT.supabase.co",
     "MARKETPLACE_ADMIN_ACCOUNTS": ""
   }
-  // Secrets: MARKETPLACE_INTERNAL_SECRET (shared only with the hub authority),
+  // Secrets: MARKETPLACE_INTERNAL_SECRET (shared with the hub authority and the
+  // screentask-rooms CommunityHub owner for reviewed free package resolution),
   // plus the commerce provider secrets documented in MARKETPLACE-API.md.
   // Keep the R2 bucket private: no public domain, r2.dev access, or public assets binding.
 }

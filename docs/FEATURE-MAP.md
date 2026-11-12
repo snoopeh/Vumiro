@@ -13,7 +13,7 @@ The default `node scripts/Check-Client.mjs` keeps the complete client/backend su
 | Group | Scope | Backend | Native checks |
 | --- | --- | --- | --- |
 | `gaming` | Built-in gaming, signed friend sessions, virtual LAN, WebRTC game sharing and mapped/physical controller input | Yes | Services, controller, dependency, LAN and host |
-| `marketplace` | Shared theme and personal cosmetic packages, animated avatar/card frames, marketplace preview/library/creator UI, account equipment, licensing, free distribution, sandbox commerce and private service gateway | Yes | Hosted payment links |
+| `marketplace` | Private app/Space authoring, embedded image/WOFF2 packages, avatar/card equipment, marketplace preview/library/creator UI, reviewed community resolution, licensing, free distribution, sandbox commerce and private service gateway | Yes | Hosted payment links |
 | `accounts` | Account entry, authentication, identity recovery, account profile data | Yes | OAuth callbacks, local service isolation |
 | `friends` | Directory, tags, invitations, notifications, nudges, sidebar | Yes | Notification payloads, window/nudge/resize |
 | `chat` | Direct conversations, Community Hub, chat pane, scrolling, room messages, media, emoji | Yes | None |

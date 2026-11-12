@@ -259,3 +259,16 @@ test('remote decorative catalog capabilities derive from immutable validated pac
   const revision=await f.request(`/items/${id}/revisions`,'POST',{title:'Badge details',description:'Original decorative badge and banner artwork',priceMinor:0,currency:'BRL',aesthetic:'minimal'});assert.equal(revision.status,201);
   assert.equal((await f.request('/catalog')).body.items.find(value=>value.id===id).aesthetic,'organic');await f.request(`/admin/revisions/${revision.body.revision.id}`,'POST',{action:'approve',reason:'Aesthetic label reviewed'},admin);assert.equal((await f.request('/catalog')).body.items.find(value=>value.id===id).aesthetic,'minimal');
 });
+
+
+test('internal Community Hub package resolver requires secret and exact reviewed free version',async t=>{
+ const f=await fixture(t),resolve=(payload={itemId:item,versionId:version},internal=true)=>f.request('/internal/community-package','POST',payload,account,internal);assert.equal((await resolve(undefined,false)).status,401);const ok=await resolve();assert.equal(ok.status,200);assert.equal(ok.body.itemId,item);assert.equal(ok.body.versionId,version);assert.equal(ok.body.digest,await digestPackage(ok.body.package));
+ for(const extra of [{approved:true},{package:ok.body.package},{scopeId:'scope'}])assert.equal((await resolve({itemId:item,versionId:version,...extra})).status,400);assert.equal((await resolve({itemId:'other-item',versionId:version})).status,404);
+});
+
+test('internal Community Hub package resolver rejects pending hidden paid personal or tampered versions',async t=>{
+ const f=await fixture(t),resolve=()=>f.request('/internal/community-package','POST',{itemId:item,versionId:version},account,true);
+ f.db.prepare("UPDATE marketplace_versions SET status='submitted' WHERE id=?").bind(version).run();assert.equal((await resolve()).status,403);f.db.prepare("UPDATE marketplace_versions SET status='approved' WHERE id=?").bind(version).run();f.db.prepare("UPDATE marketplace_listings SET status='delisted' WHERE id=?").bind(item).run();assert.equal((await resolve()).status,403);f.db.prepare("UPDATE marketplace_listings SET status='published',price_minor=100 WHERE id=?").bind(item).run();assert.equal((await resolve()).status,403);f.db.prepare('UPDATE marketplace_listings SET price_minor=0 WHERE id=?').bind(item).run();const personal=await personalItem(f,'avatar-frame');assert.equal((await f.request('/internal/community-package','POST',{itemId:personal.itemId,versionId:personal.versionId},account,true)).status,403);const changed=structuredClone(globalThis.VumiroCommunityThemes.builtins[0]);changed.tokens.accent='#123abc';await f.env.MARKETPLACE_ASSETS.put('private/package',JSON.stringify(changed));assert.equal((await resolve()).status,503);
+});
+
+test('internal Community Hub package resolution rechecks review after awaited object storage',async t=>{const f=await fixture(t),get=f.env.MARKETPLACE_ASSETS.get;f.env.MARKETPLACE_ASSETS.get=async key=>{f.db.prepare("UPDATE marketplace_versions SET status='rejected' WHERE id=?").bind(version).run();return get(key);};assert.equal((await f.request('/internal/community-package','POST',{itemId:item,versionId:version},account,true)).status,403);});

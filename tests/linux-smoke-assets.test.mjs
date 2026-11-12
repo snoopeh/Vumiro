@@ -9,6 +9,11 @@ const require=createRequire(import.meta.url),driver=require('../scripts/linux-sm
 const root=new URL('../',import.meta.url),pages=['/auth.html','/friends.html','/call.html'];
 const html=page=>fs.readFileSync(new URL('Vumiro.Client/WebServer'+page,root),'utf8');
 
+test('Linux content policy allows owned embedded font blobs without allowing remote font sources',()=>{
+  const main=fs.readFileSync(new URL('Vumiro.Linux/main.cjs',root),'utf8'),policy=vm.runInNewContext(main.slice(main.indexOf('const CSP ='),main.indexOf('protocol.registerSchemesAsPrivileged'))+';CSP'),directives=new Map(policy.split('; ').map(rule=>{const [name,...sources]=rule.split(' ');return [name,sources];}));
+  assert.deepEqual(Array.from(directives.get('font-src')),['\'self\'','data:','blob:'],'managed font/woff2 Blob URLs must be usable by the Linux renderer');assert.deepEqual(Array.from(directives.get('script-src')),['\'self\'']);assert.deepEqual(Array.from(directives.get('object-src')),['\'none\'']);assert.ok(!directives.get('font-src').some(source=>source==='https:'||source==='*'),'packages cannot load fonts from external sites');
+});
+
 test('Linux trusted asset routes cover every bundled HTML script and prepared asset',()=>{
   const main=fs.readFileSync(new URL('Vumiro.Linux/main.cjs',root),'utf8');
   const routes=vm.runInNewContext(main.slice(main.indexOf('const ASSET_PATHS'),main.indexOf('const CSP'))+';Array.from(ASSET_PATHS.keys())');

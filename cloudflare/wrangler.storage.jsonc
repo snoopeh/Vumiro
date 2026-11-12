@@ -7,6 +7,8 @@
   "workers_dev": false,
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true, "html_handling": "none" },
   "r2_buckets": [{ "binding": "COMMUNITY_ASSETS", "bucket_name": "vumiro-community-assets" }],
+  // Store MARKETPLACE_INTERNAL_SECRET as a secret on this DO owner and the marketplace worker.
+  "services": [{ "binding": "MARKETPLACE_SERVICE", "service": "vumiro-marketplace" }],
   "durable_objects": { "bindings": [{ "name": "CALL_ROOMS", "class_name": "CallRoom" }, { "name": "FRIEND_DIRECTORY", "class_name": "FriendDirectory" }, { "name": "DIRECT_CONVERSATIONS", "class_name": "DirectConversation" }, { "name": "COMMUNITY_HUBS", "class_name": "CommunityHub" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CallRoom"] }, { "tag": "v2", "new_sqlite_classes": ["FriendDirectory"] }, { "tag": "v3", "new_sqlite_classes": ["DirectConversation"] }, { "tag": "v4-community-hubs", "new_sqlite_classes": ["CommunityHub"] }]
 }

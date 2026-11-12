@@ -112,7 +112,7 @@
   const peers = new Map();
   const local = window.VumiroLocalProfile;
   let identity = null, roomNonce = '', roomFriendsRevision = 0;
-  const identityReady = local.initialize().then(value => { identity = value; return value; });
+  const identityReady = local.initialize().then(value => { identity = value; void window.VumiroLocalAppearance?.refresh(); return value; });
   let selfId = '', socket = null, joined = false, reconnectTimer = 0, retry = 0, generation = 0;
   let profileRequestId='', profileRequestTimer=0, profileAddBusy=false,profileViewingId='',profileViewingLocal=false;
   let screen = null, microphone = null, localTile = null, joining = false;

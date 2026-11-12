@@ -3,6 +3,12 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Private app theme": "Private app theme",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.",
+    "Open Theme Studio": "Open Theme Studio",
+    "Reset app theme": "Reset app theme",
+    "Default app appearance.": "Default app appearance.",
+    "Private theme applied on this device.": "Private theme applied on this device.",
     "Marketplace": "Marketplace",
     "Gaming": "Gaming",
     "LAN tunneling": "LAN tunneling",
@@ -1945,6 +1951,12 @@
     "Search this hub": "Search this hub"
   },
   "es": {
+    "Private app theme": "Tema privado de la aplicación",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "Crea tus propios fondos, fuentes y estilos. Los temas locales se guardan en este dispositivo; publicarlos en una comunidad requiere una revisión del Mercado.",
+    "Open Theme Studio": "Abrir Estudio de temas",
+    "Reset app theme": "Restablecer tema de la aplicación",
+    "Default app appearance.": "Apariencia predeterminada de la aplicación.",
+    "Private theme applied on this device.": "Tema privado aplicado en este dispositivo.",
     "Marketplace": "Mercado",
     "Gaming": "Juegos",
     "LAN tunneling": "LAN virtual",
@@ -3887,6 +3899,12 @@
     "Search this hub": "Buscar en esta comunidad"
   },
   "pt-BR": {
+    "Private app theme": "Tema privado do aplicativo",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "Crie seus próprios fundos, fontes e estilos. Os temas locais ficam neste dispositivo; a publicação em uma comunidade exige análise pelo Mercado.",
+    "Open Theme Studio": "Abrir Estúdio de temas",
+    "Reset app theme": "Redefinir tema do aplicativo",
+    "Default app appearance.": "Aparência padrão do aplicativo.",
+    "Private theme applied on this device.": "Tema privado aplicado neste dispositivo.",
     "Marketplace": "Mercado",
     "Gaming": "Jogos",
     "LAN tunneling": "Rede LAN virtual",
@@ -5829,6 +5847,12 @@
     "Search this hub": "Pesquisar nesta comunidade"
   },
   "ja": {
+    "Private app theme": "自分専用のアプリテーマ",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "背景、フォント、スタイルを自由に作成できます。ローカルテーマはこのデバイスにのみ保存されます。コミュニティで公開するには、マーケットプレイスの審査が必要です。",
+    "Open Theme Studio": "テーマスタジオを開く",
+    "Reset app theme": "アプリテーマをリセット",
+    "Default app appearance.": "アプリの標準の外観です。",
+    "Private theme applied on this device.": "このデバイスに自分専用のテーマを適用しました。",
     "Marketplace": "マーケットプレイス",
     "Gaming": "ゲーム",
     "LAN tunneling": "仮想LAN",
@@ -7771,6 +7795,12 @@
     "Search this hub": "ハブ内を検索"
   },
   "zh-CN": {
+    "Private app theme": "个人专用应用主题",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "创建自己的背景、字体和样式。本地主题仅保存在此设备上；在社区发布前需要经过主题市场审核。",
+    "Open Theme Studio": "打开主题工作室",
+    "Reset app theme": "重置应用主题",
+    "Default app appearance.": "应用的默认外观。",
+    "Private theme applied on this device.": "已在此设备上应用个人专用主题。",
     "Marketplace": "主题市场",
     "Gaming": "游戏",
     "LAN tunneling": "虚拟局域网",
@@ -9713,6 +9743,12 @@
     "Search this hub": "搜索此社区"
   },
   "ru": {
+    "Private app theme": "Личная тема приложения",
+    "Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.": "Создавайте собственные фоны, шрифты и стили. Локальные темы остаются на этом устройстве; для публикации в сообществе нужна проверка в Магазине.",
+    "Open Theme Studio": "Открыть Студию тем",
+    "Reset app theme": "Сбросить тему приложения",
+    "Default app appearance.": "Стандартный вид приложения.",
+    "Private theme applied on this device.": "Личная тема применена на этом устройстве.",
     "Marketplace": "Магазин",
     "Gaming": "Игры",
     "LAN tunneling": "Виртуальная LAN",

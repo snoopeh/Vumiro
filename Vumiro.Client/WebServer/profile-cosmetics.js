@@ -1,15 +1,18 @@
-/* Personal cosmetics are decorative overlays. Public service responses, never peer claims,
-   authorize live appearance. Preview packages cannot alter ownership or profile data. */
+/* Personal cosmetics are decorative overlays. Public service responses authorize peer
+   appearance. Private local choices decorate only this signing identity on this device. */
 (() => {
   'use strict';
   const TTL=30000,MAX_CACHE=128,MAX_TARGETS=256,PEER=/^[A-Za-z0-9_-]{43}$/;
   const personalKinds=['profile-card','avatar-frame','profile-effect'];
   const previews=new WeakMap(),targets=new Map(),cache=new Map(),pending=new Map(),documents=new WeakSet();
-  let preferences=()=>({}),generation=0,identityStamp='',linked='',linking=null,timer=0,refreshing=null;
+  let preferences=()=>({}),generation=0,identityStamp='',linked='',linking=null,timer=0,refreshing=null,localPackages={};
   const state=()=>window.VumiroAccount?.getState?.()||{};
   const identity=()=>window.VumiroLocalProfile?.profile?.()||{};
   const stamp=()=>{const account=state(),person=identity();return JSON.stringify([account.accountId||'',!!account.signedIn,account.marketplaceEnabled===true,person.id||'',person.key||'']);};
   const enabled=()=>state().marketplaceEnabled===true&&typeof window.VumiroAccount?.publicMarketplaceRequest==='function';
+  function localKey(){const person=identity(),account=state();if(!PEER.test(person.id||'')||!person.key)return '';return 'vumiro.profile-cosmetics.local.v1.'+encodeURIComponent(JSON.stringify([person.id,person.key,account.signedIn?account.accountId||'':'']));}
+  function localPackage(pkg,kind){if(!personalKinds.includes(kind))throw Error('Unsupported personal cosmetic kind');const clean=validate(pkg,kind==='avatar-frame'?'avatar':'card');if(clean.kind!==kind)throw Error('Personal cosmetic kind does not match');return clean;}
+  function readLocal(){const result={},key=localKey();if(!key)return result;try{const raw=window.localStorage?.getItem(key);if(!raw||raw.length>3*(window.VumiroCommunityThemes?.MAX_PACKAGE||2097152))return result;const saved=JSON.parse(raw);for(const kind of personalKinds)if(saved[kind])try{result[kind]=localPackage(saved[kind],kind);}catch{}}catch{}return result;}
   function appPreferences(options={}){
     let value={};try{value=preferences()||{};}catch{}
     return {...value,...options.preferences,reducedMotion:!!(value.reducedMotion||options.preferences?.reducedMotion||window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches),highContrast:!!(value.highContrast||options.preferences?.highContrast||window.matchMedia?.('(forced-colors: active)')?.matches)};
@@ -67,7 +70,7 @@
   function prune(){for(const [element,record]of targets)if(element.isConnected===false){clearRecord(record);targets.delete(element);}while(targets.size>MAX_TARGETS){const [element,record]=targets.entries().next().value;clearRecord(record);targets.delete(element);}}
   function arm(){if(timer||!targets.size)return;timer=setTimeout(()=>{timer=0;void refreshOwn();},TTL);}
   function invalidate(){generation++;cache.clear();pending.clear();clearAll();if(timer){clearTimeout(timer);timer=0;}}
-  function syncIdentity(){const next=stamp();if(next!==identityStamp){identityStamp=next;linked='';linking=null;invalidate();}return next;}
+  function syncIdentity(){const next=stamp();if(next!==identityStamp){identityStamp=next;linked='';linking=null;invalidate();localPackages=readLocal();}return next;}
   async function appearance(id){
     if(!enabled()||!PEER.test(id))return null;
     const saved=cache.get(id);if(saved&&saved.expires>Date.now())return saved.value;
@@ -79,13 +82,19 @@
       return version===generation?value:null;
     })();pending.set(id,work);try{return await work;}finally{if(pending.get(id)===work)pending.delete(id);}
   }
-  async function applyRecord(record,version=generation){
-    const value=await appearance(record.id);
-    if(version!==generation||targets.get(record.element)!==record)return;
-    const kinds=record.surface==='avatar'?['avatar-frame']:['profile-card','profile-effect'],releases=[];
-    try{for(const kind of kinds){const entry=value?.[kind];if(entry?.kind!==kind||entry.package?.kind!==kind)continue;const pkg=validate(entry.package,record.surface);releases.push(paint(record.element,pkg,record.surface));}}
-    catch{for(const release of releases)release();return;}
-    record.cleanup=()=>{for(const release of releases.reverse())release();};arm();
+  async function applyRecord(record,version=generation,cachedPublic=false){
+    const token=Symbol();record.renderToken=token;
+    const kinds=record.surface==='avatar'?['avatar-frame']:['profile-card','profile-effect'],releases=[],captured=stamp(),own=record.id===identity().id,local=own?localPackages:{};
+    const current=()=>version===generation&&stamp()===captured&&targets.get(record.element)===record&&record.renderToken===token;
+    const cleanup=()=>{for(const release of releases.splice(0).reverse())release();};record.cleanup=cleanup;
+    try{
+      for(const kind of kinds)if(local[kind])releases.push(paint(record.element,local[kind],record.surface));
+      const publicKinds=kinds.filter(kind=>!local[kind]);
+      const saved=cache.get(record.id),value=!publicKinds.length?null:cachedPublic?(saved?.expires>Date.now()?saved.value:null):await appearance(record.id);
+      if(!current()){cleanup();return;}
+      for(const kind of publicKinds){const entry=value?.[kind];if(entry?.kind!==kind||entry.package?.kind!==kind)continue;const pkg=validate(entry.package,record.surface);releases.push(paint(record.element,pkg,record.surface));}
+    }catch{cleanup();return;}
+    arm();
   }
   async function decorate(element,person,surface){
     syncIdentity();previews.get(element)?.();previews.delete(element);const previous=targets.get(element);if(previous)clearRecord(previous);
@@ -112,6 +121,8 @@
     const promise=(async()=>{
       invalidate();const version=generation,account=state(),person=identity();prune();
       const current=()=>version===generation&&stamp()===captured;
+      // Private choices remain visible even if linking the public account is offline.
+      for(const record of targets.values())if(record.id===person.id&&Object.keys(localPackages).length)void applyRecord(record,version,true);
       if(enabled()&&account.signedIn&&account.accountId&&PEER.test(person.id||'')&&person.key){
         // A private proof failure must not prevent authoritative public reads
         // for this identity or unrelated peers, or stop their expiry timer.
@@ -119,13 +130,25 @@
         await appearance(person.id);if(!current())return false;
       }
       if(!current())return false;
-      await Promise.all([...targets.values()].map(record=>applyRecord(record,version)));if(!current())return false;
+      await Promise.all([...targets.values()].map(record=>{clearRecord(record);return applyRecord(record,version);}));if(!current())return false;
       window.dispatchEvent(new CustomEvent('vumiro-profile-cosmetics-updated',{detail:{peerId:person.id||''}}));arm();return true;
     })();refreshing={stamp:captured,promise};try{return await promise;}finally{if(refreshing?.promise===promise)refreshing=null;}
   }
   function configure(options={}){if(typeof options.preferences==='function')preferences=options.preferences;return refreshOwn();}
+  async function applyLocal(kind,pkg){
+    const captured=syncIdentity(),key=localKey();if(!key)throw Error('A local signing identity is required for personal appearance');
+    if(!personalKinds.includes(kind))throw Error('Unsupported personal cosmetic kind');
+    const next={...localPackages};if(pkg===null)delete next[kind];else next[kind]=localPackage(pkg,kind);
+    if(typeof window.localStorage?.setItem!=='function')throw Error('Local profile appearance storage is unavailable');
+    try{window.localStorage.setItem(key,JSON.stringify(next));}catch{throw Error('Local profile appearance could not be saved');}
+    if(stamp()!==captured)throw Error('Identity changed; local appearance was not applied');
+    localPackages=next;prune();const version=generation;
+    await Promise.all([...targets.values()].filter(record=>record.id===identity().id).map(record=>{clearRecord(record);return applyRecord(record,version,true);}));
+    if(version!==generation||stamp()!==captured)return false;
+    window.dispatchEvent(new CustomEvent('vumiro-profile-cosmetics-updated',{detail:{peerId:identity().id,local:true}}));arm();return true;
+  }
   function dispose(){invalidate();for(const record of targets.values())clearRecord(record);targets.clear();linked='';}
-  window.VumiroProfileCosmetics=Object.freeze({previewAvatar:(element,pkg,options)=>preview(element,pkg,'avatar',options),previewCard:(element,pkg,options)=>preview(element,pkg,'card',options),decorateAvatar:(element,person)=>decorate(element,person,'avatar'),decorateCard:(element,person)=>decorate(element,person,'card'),refreshOwn,configure,dispose});
+  window.VumiroProfileCosmetics=Object.freeze({previewAvatar:(element,pkg,options)=>preview(element,pkg,'avatar',options),previewCard:(element,pkg,options)=>preview(element,pkg,'card',options),decorateAvatar:(element,person)=>decorate(element,person,'avatar'),decorateCard:(element,person)=>decorate(element,person,'card'),applyLocal,refreshOwn,configure,dispose});
   for(const event of ['vumiro-account-state-changed','vumiro-personal-appearance-changed','focus','online'])window.addEventListener(event,()=>{void refreshOwn();});
   window.addEventListener('vumiro-profile-changed',()=>{if(stamp()!==identityStamp)void refreshOwn();});
   for(const query of ['(prefers-reduced-motion: reduce)','(forced-colors: active)'])window.matchMedia?.(query)?.addEventListener?.('change',()=>{void refreshOwn();});
