@@ -227,6 +227,32 @@ test('opening a room hides the server workspace and conversation pane without di
   assert.equal(h.node('serverWorkspace').hidden,true);assert.equal(h.context.window.VumiroDirectChatController.visible,false);assert.equal(h.node('directChatPane').hidden,true);assert.equal(h.context.selected,'friend');
 });
 
+test('Marketplace uses the shared navigation gate and closes when a room opens',async()=>{
+  const h=workspaceHarness(),listeners=new Map();let click,hidden=0;
+  h.context.document.getElementById=h.node;
+  h.node('marketplaceNav').addEventListener=(_,fn)=>click=fn;
+  h.context.addEventListener=(type,fn)=>listeners.set(type,fn);
+  h.context.dispatchEvent=event=>{h.events.push(event);listeners.get(event.type)?.(event);};
+  h.context.window.VumiroMarketplace={init:()=>({show:async()=>{},hide:()=>hidden++})};
+  vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/marketplace-entry.js',import.meta.url),'utf8'),h.context);
+  h.context.document.querySelectorAll=()=>[{classList:{contains:()=>true}}];
+  h.context.window.VumiroSettingsExit={requestClose:async()=>false};
+  await click();assert.equal(h.context.workspaceView,'friends');assert.equal(hidden,0);
+  h.context.document.querySelectorAll=()=>[];await click();
+  assert.equal(h.context.workspaceView,'marketplace');assert.equal(h.node('marketplaceWorkspace').hidden,false);
+  h.context.window.VumiroWorkspace.suspendForRoom();
+  assert.equal(h.node('marketplaceWorkspace').hidden,true);assert.equal(hidden,1);
+});
+
+test('Marketplace entry preserves Community Hub scripts and loads its shared cosmetic engine once',()=>{
+  const html=fs.readFileSync(new URL('../Vumiro.Client/WebServer/friends.html',import.meta.url),'utf8');
+  for(const id of ['serversNav','gamingNav','marketplaceNav','marketplaceWorkspace'])assert.equal(html.split(`id="${id}"`).length-1,1,id);
+  for(const name of ['community-ui.js','community-model.js','community-themes.js','profile-cosmetics.js','community-studio.js','community-workspace.js','marketplace-studio-entry.js','marketplace-model.js','marketplace-external.js','marketplace-client.js','marketplace-entry.js']){
+    const marker=`src="/${name}"`;assert.equal(html.split(marker).length-1,1,name);assert.ok(html.indexOf(marker)<html.indexOf('src="/friends-client.js"'),name);
+  }
+  assert.ok(html.includes('aria-label="Community Hub"'));
+});
+
 test('initializing direct messages prepares unread transport without replacing the Friends overview',()=>{
   const start=source.indexOf('function startDirectMessages(){'),end=source.indexOf('/* Workspace destinations. */',start);let opens=0;
   const context={profile:{id:'owner'},local:{},send(){},friendById(){},friends:[],blocked:[],blocking:new Set(),status(){},renderFriends(){},runtimeNow(){},notifySocial(){},selected:''};

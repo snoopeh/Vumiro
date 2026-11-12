@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('vumiroDesktop', Object.freeze({
     async set(value) { return ipcRenderer.invoke('vumiro:secure-store', { action: 'set', value }); },
     async delete() { return ipcRenderer.invoke('vumiro:secure-store', { action: 'delete' }); }
   }),
+  marketplace: Object.freeze({
+    async openExternal(url) { return ipcRenderer.invoke('vumiro:marketplace-external', { url }); }
+  }),
   oauth: Object.freeze({
     async signIn(request) {
       return ipcRenderer.invoke('vumiro:oauth', { authUrl: request?.authUrl, provider: request?.provider, codeChallenge: request?.codeChallenge });

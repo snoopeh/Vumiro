@@ -223,3 +223,8 @@ test('server conversation and channel search controls are localized in every lan
       assert.notEqual(api.t(key),key,code+' translates '+key);
   }
 });
+
+test('marketplace sidebar entry is translated in every supported language',()=>{
+  const {api}=load('pt-BR');assert.equal(api.t('Marketplace'),'Mercado');
+  for(const code of ['es','pt-BR','ja','zh-CN','ru']){api.setLocale(code);assert.notEqual(api.t('Marketplace'),'Marketplace',code);}
+});

@@ -382,7 +382,8 @@ test('short links redirect with only the opaque token, remove extra URL data and
     .replace("import { handleCommunityRequest } from './community-hub.js';",'')
     .replace("export { CommunityHub } from './community-hub.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
-    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
+    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'')
+    .replace("from './marketplace-gateway.js'",`from '${new URL('./marketplace-gateway.js',import.meta.url).href}'`);
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
   const request=new Request('https://vumiro.example/r/Abc_456-xy12?password=secret&grant=stuff');
   const response=await worker.fetch(request,{});
@@ -400,7 +401,8 @@ test('Worker serves every script referenced by current client HTML while rejecti
     .replace("import { handleCommunityRequest } from './community-hub.js';",'')
     .replace("export { CommunityHub } from './community-hub.js';",'')
     .replace("import { FriendDirectory, FRIEND_ID_PATTERN } from './friend-directory.js';",'class FriendDirectory {}; const FRIEND_ID_PATTERN=/^[A-Za-z0-9_-]{43}$/;')
-    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'');
+    .replace("import { handleAccountRequest, runAccountMaintenance } from './accounts.js';",'')
+    .replace("from './marketplace-gateway.js'",`from '${new URL('./marketplace-gateway.js',import.meta.url).href}'`);
   const {default:worker}=await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`);
   const scripts=new Set(['/server-workspace.js']);
   for(const page of ['auth','friends','call']) {

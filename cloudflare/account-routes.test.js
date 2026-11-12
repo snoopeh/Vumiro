@@ -98,6 +98,15 @@ async function fixture(t) {
   return { db, env, accountId, deviceId, provider, signedToken, request, enroll, token };
 }
 
+test('account config advertises marketplace only with an enabled private service binding',async t=>{
+  const app=await fixture(t);
+  let response=await app.request('/config');assert.equal(response.body.marketplaceEnabled,false);
+  app.env.MARKETPLACE_SERVICE_ENABLED='true';
+  response=await app.request('/config');assert.equal(response.body.marketplaceEnabled,false);
+  app.env.MARKETPLACE_SERVICE={fetch(){}};
+  response=await app.request('/config');assert.equal(response.body.marketplaceEnabled,true);
+});
+
 function snapshot(name = 'Owner') {
   return {
     version: 1,

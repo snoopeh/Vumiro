@@ -40,6 +40,7 @@
   }
   const NOTICE_VERSION = '2026-11-03';
   let authConfig, session = null, active = false, accountService = '', pendingSignup = null, pendingEmail = '', syncTimer = 0, restoring = false, reauthAction = null, accountRevision = 0;
+  let sessionGeneration=0;
   let deviceId = '', deviceToken = '', deviceAccountId = '';
   let identityRecovery = null, identityRecoveryCode = '', identityUnlock = null, identityRewrapPending = false;
   let operationTail = Promise.resolve();
@@ -237,7 +238,7 @@
       const fresh=await providerSession(provider);
       if(fresh.user?.id!==currentAccountId)throw Error('Sign in with the same account to confirm this change.');
       if(!fresh.access_token||!fresh.refresh_token)throw Error('The provider did not return a valid confirmation.');
-      session={accessToken:fresh.access_token,refreshToken:fresh.refresh_token,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user};await persistCredentials();
+      sessionGeneration++;session={accessToken:fresh.access_token,refreshToken:fresh.refresh_token,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user};await persistCredentials();
       const action=reauthAction;reauthAction=null;$('accountReauthForm').hidden=true;await action(fresh.access_token,'');
     }catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}
     finally{oauthInFlight=false;}
@@ -304,7 +305,7 @@
     if(identityRecoveryAccountId!==nextAccountId){identityRecoveryCode='';identityRecoveryAccountId='';identityRecovery=null;identityRewrapPending=false;$('accountRecoveryPanel').hidden=true;$('accountRecoveryCode').value='';}
     if(deviceId&&deviceToken&&(!deviceAccountId||!nextAccountId||deviceAccountId!==nextAccountId)){deviceId='';deviceToken='';}
     deviceAccountId=nextAccountId;
-    session={accessToken:value.access_token,refreshToken:value.refresh_token,expiresAt:Date.now()+Math.max(30,Number(value.expires_in)||3600)*1000,user:value.user||{}};
+    sessionGeneration++;session={accessToken:value.access_token,refreshToken:value.refresh_token,expiresAt:Date.now()+Math.max(30,Number(value.expires_in)||3600)*1000,user:value.user||{}};
     if(pendingSignup?.acceptedAt&&pendingSignup.email?.trim().toLowerCase()===value.user?.email?.trim().toLowerCase()&&accountId())writeNoticeAck(pendingSignup.acceptedAt,pendingSignup.noticeVersion||NOTICE_VERSION);
     pendingSignup=null;pendingEmail='';
     if(!deviceId)deviceId=crypto.randomUUID();
@@ -323,10 +324,15 @@
   }
   async function accessToken() {
     if(!session)throw Error('Sign in to your Vumiro account first.');
-    if(session.expiresAt>Date.now()+60000)return session.accessToken;
-    const data=await auth('/token?grant_type=refresh_token',{refresh_token:session.refreshToken});
-    session={accessToken:data.access_token,refreshToken:data.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||session.user};
-    await persistCredentials();return session.accessToken;
+    const original=session,generation=sessionGeneration;
+    if(original.expiresAt>Date.now()+60000)return original.accessToken;
+    const data=await auth('/token?grant_type=refresh_token',{refresh_token:original.refreshToken});
+    if(generation!==sessionGeneration||session!==original)throw Error('Account session changed during token refresh.');
+    const refreshed={accessToken:data.access_token,refreshToken:data.refresh_token||original.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||original.user};
+    if((refreshed.user?.id||refreshed.user?.email||'')!==(original.user?.id||original.user?.email||''))throw Error('Account session changed during token refresh.');
+    session=refreshed;await persistCredentials();
+    if(generation!==sessionGeneration||session!==refreshed)throw Error('Account session changed during token refresh.');
+    return refreshed.accessToken;
   }
   async function enrollDevice(token) {
     if(deviceToken)return;
@@ -338,7 +344,20 @@
     const token=tokenOverride||await accessToken();
     if(!deviceToken)await enrollDevice(token);
     try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1',...(authConfig?.profileMediaEnabled===true?{'X-Vumiro-Profile-Media':'1'}:{})}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
-    catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(!authPage)navigate('auth.html',false,'signin');if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
+    catch(error){if(error.status===401||error.status===403){sessionGeneration++;session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(!authPage)navigate('auth.html',false,'signin');if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
+  }
+  async function marketplaceRequest(path,{method='GET',body}={}) {
+    if(typeof path!=='string'||path.length>2048||!/^\/[a-zA-Z0-9/_-]*(?:\?[a-zA-Z0-9_%=&+.,-]*)?$/.test(path)||path.startsWith('//'))throw Error('Invalid marketplace path.');
+    if(!['GET','POST','PUT','DELETE'].includes(method))throw Error('Unsupported marketplace method.');
+    if(authConfig?.marketplaceEnabled!==true)throw Error('The marketplace service is not enabled.');
+    const generation=sessionGeneration,requestAccount=accountId(),token=await accessToken();
+    if(generation!==sessionGeneration||accountId()!==requestAccount)throw Error('Account changed; marketplace request cancelled.');
+    return callJson(`${accountService}/api/v1/marketplace${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  }
+  async function publicMarketplaceRequest(path){
+    if(typeof path!=='string'||!/^\/profiles\/[A-Za-z0-9_-]{43}\/appearance$/.test(path))throw Error('Invalid public marketplace path.');
+    if(authConfig?.marketplaceEnabled!==true)throw Error('The marketplace service is not enabled.');
+    return callJson(`${accountService}/api/v1/marketplace${path}`,{method:'GET',headers:{Accept:'application/json'}});
   }
   async function coverRequest(method, manifest, blob) {
     if(authConfig?.profileMediaEnabled!==true)throw Error('Private high-resolution cover backup is not enabled on this service yet.');
@@ -357,7 +376,7 @@
     const bounded=promise=>Promise.race([promise,deadline]);
     try {
       const response=await bounded(fetch(`${accountService}/api/v1/account/cover${method==='GET'?'/'+manifest.revision:''}`,{method,headers,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error',...(blob?{body:blob}:{})}));
-      if(!response.ok){let data={};try{data=await bounded(response.json());}catch(error){if(timedOut)throw error;}const error=Error(authError(data));error.status=response.status;if(response.status===401||response.status===403){session=null;deviceToken='';active=false;await secureStore?.delete?.();render();}throw error;}
+      if(!response.ok){let data={};try{data=await bounded(response.json());}catch(error){if(timedOut)throw error;}const error=Error(authError(data));error.status=response.status;if(response.status===401||response.status===403){sessionGeneration++;session=null;deviceToken='';active=false;await secureStore?.delete?.();render();}throw error;}
       if(method==='POST')return await bounded(response.json());
       if(Number(response.headers.get('Content-Length'))>tools.MAX_BYTES)throw Error('The downloaded cover exceeds its size limit.');
       reader=response.body?.getReader();let result;
@@ -578,7 +597,7 @@
     field.value=identityRecoveryCode;panel.hidden=false;const securityDetails=$('accountSecurityDetails');if(securityDetails)securityDetails.open=true;
   }
   function requestReauth(action) { reauthAction=action;$('accountConfirmPassword').value='';$('accountReauthForm').hidden=false;for(const provider of ['google','azure'])if($(`accountReauth${provider}`))$(`accountReauth${provider}`).hidden=!session?.user?.app_metadata?.providers?.includes(provider)||!authConfig?.oauthProviders?.includes(provider);$('accountConfirmPassword').focus(); }
-  function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||''}); }
+  function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||'',accountId:session?.user?.id||'',marketplaceEnabled:authConfig?.marketplaceEnabled===true}); }
   function signOutLocally() {
     const wasActive=active;active=false;clearTimeout(syncTimer);
     return enqueue(async()=>{try{if(wasActive&&session&&await differsFromAcknowledged(await snapshot()))await upload(false);}catch(error){status('Your latest changes remain on this device and could not sync. '+(globalThis.VumiroI18n?.error(error)||error.message),true);}finally{await signOut(false);}});
@@ -589,7 +608,7 @@
     if(session&&!providerToken)try{providerToken=await accessToken();}catch{providerToken=session?.accessToken||'';}
     if(everywhere&&providerToken)await accountRequest('POST',{},providerToken,'/api/v1/account/devices/revoke-all');
     if(session)try{await auth(`/logout?scope=${everywhere?'global':'local'}`,{},providerToken||session.accessToken);}catch{}
-    session=null;active=false;clearTimeout(syncTimer);
+    sessionGeneration++;session=null;active=false;clearTimeout(syncTimer);
     if(everywhere){deviceId='';deviceToken='';deviceAccountId='';}
     try{await persistCredentials();}finally{render();}
     status(everywhere?'Signed out on every device. Other devices must sign in again.':'Signed out of your account. Your local profile and contacts stay on this device.');
@@ -631,7 +650,7 @@
   }
   async function deleteAccount() {
     if(!confirmLocalized('Delete your Vumiro account and synced data? This cannot be undone.'))return;
-    requestReauth(async token=>{const result=await accountRequest('DELETE',undefined,token);session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status(result.ok===true?'Account and synced account data were deleted. Your local device profile remains on this device.':'Synced account data was deleted. Account identity deletion is pending and Vumiro will retry automatically. Your local device profile remains on this device.');navigate('auth.html',false,'signin');});
+    requestReauth(async token=>{const result=await accountRequest('DELETE',undefined,token);sessionGeneration++;session=null;active=false;deviceId='';deviceToken='';deviceAccountId='';await secureStore?.delete?.();render();status(result.ok===true?'Account and synced account data were deleted. Your local device profile remains on this device.':'Synced account data was deleted. Account identity deletion is pending and Vumiro will retry automatically. Your local device profile remains on this device.');navigate('auth.html',false,'signin');});
   }
   $('accountReauthForm').onsubmit=async event=>{
     event.preventDefault();if(!reauthAction)return;
@@ -639,7 +658,7 @@
     try {
       const fresh=await auth('/token?grant_type=password',{email:session?.user?.email||$('accountEmail').value.trim(),password:$('accountConfirmPassword').value});
       const password=$('accountConfirmPassword').value;
-      const token=fresh.access_token;session={accessToken:token,refreshToken:fresh.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user||session.user};await persistCredentials();
+      const token=fresh.access_token;sessionGeneration++;session={accessToken:token,refreshToken:fresh.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user||session.user};await persistCredentials();
       const action=reauthAction;reauthAction=null;$('accountReauthForm').hidden=true;$('accountConfirmPassword').value='';await action(token,password);
     } catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);} finally{$('accountConfirmAction').disabled=false;}
   };
@@ -727,7 +746,7 @@
         nextRecovery=await window.VumiroIdentityRecovery.rewrapPassword(identityRecovery,recoveryCode,newPassword);
       }
       await auth('/user',{password:newPassword},fresh.access_token,'PUT');
-      session={accessToken:fresh.access_token,refreshToken:fresh.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user||session.user};await persistCredentials();
+      sessionGeneration++;session={accessToken:fresh.access_token,refreshToken:fresh.refresh_token||session.refreshToken,expiresAt:Date.now()+Math.max(30,Number(fresh.expires_in)||3600)*1000,user:fresh.user||session.user};await persistCredentials();
       if(nextRecovery!==identityRecovery){const previous=identityRecovery;identityRecovery=nextRecovery;try{await enqueue(()=>upload(true));}catch(error){identityRecovery=previous;throw Error('The password changed, but the encrypted identity backup could not be updated. Keep your recovery code and try Back up again. '+(globalThis.VumiroI18n?.error(error)||error.message));}}
       if(recoveryCode){identityRecoveryCode=recoveryCode;identityRecoveryAccountId=accountId();await persistCredentials();}
       $('accountCurrentPassword').value='';$('accountChangedPassword').value='';if($('accountChangeRecoveryCode'))$('accountChangeRecoveryCode').value='';status('Your password was changed.');
@@ -777,14 +796,14 @@
             if(hasDevice){deviceId=saved.deviceId;deviceToken=saved.deviceToken;deviceAccountId=typeof saved.deviceAccountId==='string'?saved.deviceAccountId:'';}
             if(typeof saved.refreshToken==='string'&&saved.refreshToken){
               if(!hasDevice){await secureStore.delete();pendingSignup=null;throw Error('This saved session needs a fresh sign in to link this device securely.');}
-              const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
+              const data=await auth('/token?grant_type=refresh_token',{refresh_token:saved.refreshToken});sessionGeneration++;session={accessToken:data.access_token,refreshToken:data.refresh_token||saved.refreshToken,expiresAt:Date.now()+Math.max(30,Number(data.expires_in)||3600)*1000,user:data.user||{}};deviceAccountId=data.user?.id||data.user?.email||deviceAccountId;if(identityRecoveryAccountId!==deviceAccountId){identityRecoveryCode='';identityRecoveryAccountId='';}await persistCredentials();await enqueue(syncInitial);
             }
           }
         }
         if(!authPage&&(!session||accountScreen==='unlock')){navigate('auth.html');return;}
         await loadAccountAvailability();startupSucceeded=true;
       } catch(error) {
-        if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});session=null;deviceId='';deviceToken='';deviceAccountId='';}
+        if(error.status===400||error.status===401){await secureStore?.delete?.().catch(()=>{});sessionGeneration++;session=null;deviceId='';deviceToken='';deviceAccountId='';}
         else {status((globalThis.VumiroI18n?.error(error)||error.message),true);$('accountError').textContent='';$('accountSignIn').disabled=$('accountSignUp').disabled=true;$('accountRetry').hidden=false;}
       }
       render();
@@ -792,5 +811,5 @@
       if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&startupSucceeded)completeAuthentication();}
     } finally {resolveStartup(!authPage&&startupSucceeded&&!!session&&accountScreen!=='unlock'&&!!window.VumiroLocalProfile?.profile());}
   });
-  window.VumiroAccount=Object.freeze({ready:()=>startupReady,setSettingsNavigation:callback=>{settingsNavigation=typeof callback==='function'?callback:null;},prepare:()=>{render();return $('accountDialog');},open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
+  window.VumiroAccount=Object.freeze({ready:()=>startupReady,marketplaceRequest,publicMarketplaceRequest,setSettingsNavigation:callback=>{settingsNavigation=typeof callback==='function'?callback:null;},prepare:()=>{render();return $('accountDialog');},open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
 })();
