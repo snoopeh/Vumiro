@@ -3,13 +3,15 @@
   'use strict';
   let active;
   function close(){active?.releasePreview?.();active?.studio.destroy();active?.dialog.close();active?.dialog.remove();active=null;}
-  async function open(){
-    const account=window.VumiroAccount?.getState();
-    if(!account?.signedIn||!account.accountId)throw Error('Sign in to keep Theme Studio drafts in your account workspace.');
+  const ownerId=()=>window.VumiroLocalProfile?.profile?.()?.id||(window.VumiroAccount?.getState()?.signedIn?window.VumiroAccount.getState().accountId:'');
+  async function open({scopeId='',scopeLabel='',manager:scopeManager,binding:scopeBinding,onApplyLocal}={}){
+    const owner=ownerId();
+    if(!owner)throw Error('Create a local profile or sign in before opening Theme Studio.');
     if(!window.VumiroCommunityStudio||!window.VumiroCommunityThemes)throw Error('Theme Studio is unavailable. Reload Vumiro.');
-    close();const owner=account.accountId,namespace=encodeURIComponent(owner),document=window.document;
+    close();const namespace=encodeURIComponent(owner)+(scopeId?'.'+encodeURIComponent(scopeId):''),document=window.document;
     const element=(tag,text)=>{const node=document.createElement(tag);if(text)node.textContent=text;return node;};
-    const dialog=element('dialog'),heading=element('h2','Theme Studio'),notice=element('p','Create, customize, import and export packages for free. Drafts stay on this device. Marketplace publication is a separate reviewed step.');
+    const dialog=element('dialog'),heading=element('h2',scopeLabel?'Theme Studio · '+scopeLabel:'Theme Studio'),notice=element('p','Create your own backgrounds, fonts and styles. Apply locally for your private view. To use your creation in a shared community, export and submit it for marketplace review first.');
+    dialog.setAttribute('data-private-editor','true');
     dialog.setAttribute('aria-label','Theme Studio');dialog.style.cssText='width:min(1100px,94vw);max-height:90vh;overflow:auto;padding:24px;background:#181c22;color:#f0ece5;border:1px solid #56616e;border-radius:12px';
     const style=element('style');style.textContent='.marketplace-studio .community-studio-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.marketplace-studio label{display:flex;flex-direction:column;gap:5px}.marketplace-studio .community-studio-actions{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.marketplace-studio input,.marketplace-studio select,.marketplace-studio textarea{max-width:100%}.marketplace-studio-preview{padding:20px;margin:20px 0;border:1px solid var(--community-border);background:var(--community-surface)}';
     const controls=element('section'),preview=element('section');controls.className='marketplace-studio';preview.className='marketplace-studio-preview';preview.setAttribute('aria-label','Theme Studio sample preview');
@@ -18,12 +20,13 @@
     const dismiss=element('button','Close Studio');dismiss.type='button';dismiss.addEventListener('click',close);dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
     dialog.append(style,heading,notice,dismiss,preview,controls);document.body.append(dialog);
     const themes=window.VumiroCommunityThemes,storage=window.localStorage,key='vumiro.marketplace.studio-binding.'+namespace;
-    let binding={mode:'inherit'};try{binding=JSON.parse(storage.getItem(key))||binding;}catch{}
-    const manager=themes.createManager({adapter:themes.createIndexedDBAdapter({name:'vumiro-marketplace-studio-assets-'+namespace}),metadataStorage:storage,storageKey:'vumiro.marketplace.studio-packages.'+namespace});
-    const studio=window.VumiroCommunityStudio.create({mount:controls,previewRoot:preview,manager,binding,draftKey:'vumiro.marketplace.studio-draft.'+namespace,draftStorage:storage,onPreview:(_appearance,_binding,pkg)=>{releasePreview?.();releasePreview=null;const personal=['avatar-frame','profile-card','profile-effect'].includes(pkg.kind);communitySample.hidden=personal;personalSample.hidden=!personal;if(personal){const renderer=window.VumiroProfileCosmetics;releasePreview=pkg.kind==='avatar-frame'?renderer?.previewAvatar(sampleAvatar,pkg):renderer?.previewCard(personalSample,pkg);}},onSave:async next=>{if(window.VumiroAccount?.getState().accountId!==owner)throw Error('The active account changed. Reopen Theme Studio.');storage.setItem(key,JSON.stringify(next));return true;}});
-    active={dialog,studio,releasePreview:()=>releasePreview?.()};dialog.showModal();await studio.ready;return studio;
+    let binding=scopeBinding||{mode:'inherit'};if(!scopeBinding)try{binding=JSON.parse(storage.getItem(key))||binding;}catch{}
+    const manager=scopeManager||themes.createManager({adapter:typeof themes.createMemoryAdapter==='function'&&!window.indexedDB?themes.createMemoryAdapter():themes.createIndexedDBAdapter({name:'vumiro-marketplace-studio-assets-'+namespace}),metadataStorage:storage,storageKey:'vumiro.marketplace.studio-packages.'+namespace});
+    const studio=window.VumiroCommunityStudio.create({mount:controls,previewRoot:preview,manager,binding,draftKey:'vumiro.marketplace.studio-draft.'+namespace,draftStorage:storage,onPreview:(_appearance,_binding,pkg)=>{releasePreview?.();releasePreview=null;const personal=['avatar-frame','profile-card','profile-effect'].includes(pkg.kind);communitySample.hidden=personal;personalSample.hidden=!personal;if(personal){const renderer=window.VumiroProfileCosmetics;releasePreview=pkg.kind==='avatar-frame'?renderer?.previewAvatar(sampleAvatar,pkg):renderer?.previewCard(personalSample,pkg);}},onApplyLocal:async pkg=>{if(ownerId()!==owner)throw Error('The active identity changed. Reopen Theme Studio.');if(onApplyLocal)return onApplyLocal(pkg);if(['avatar-frame','profile-card','profile-effect'].includes(pkg.kind)){if(!window.VumiroProfileCosmetics?.applyLocal)throw Error('Local profile appearance is unavailable.');return window.VumiroProfileCosmetics.applyLocal(pkg.kind,pkg);}if(!window.VumiroLocalAppearance?.applyPackage)throw Error('Local app appearance is unavailable.');return window.VumiroLocalAppearance.applyPackage(pkg);},onSave:async next=>{if(ownerId()!==owner)throw Error('The active identity changed. Reopen Theme Studio.');storage.setItem(key,JSON.stringify(next));return true;}});
+    active={owner,dialog,studio,releasePreview:()=>releasePreview?.()};dialog.showModal();await studio.ready;return studio;
   }
   window.addEventListener?.('vumiro-account-state-changed',close);
+  window.addEventListener?.('vumiro-profile-changed',()=>{if(active&&active.owner!==ownerId())close();});
   window.addEventListener?.('vumiro-theme-studio-open',()=>{void open().catch(error=>console.error(error.message));});
   window.VumiroMarketplaceStudio=Object.freeze({open,close});
 })();

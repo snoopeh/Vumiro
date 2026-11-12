@@ -54,3 +54,31 @@ test('an old account store remains cancelled after switching back to the same ac
  const h=harness({mode:'remote',personalApply:async()=>{},request:async(path,options={})=>{if(options.method&&options.method!=='GET')writes.push(path);if(path.endsWith('/catalog'))return {items:[{...personalItem,versionId:'v-ring'}]};if(path.endsWith('/library'))return {entitlements:[],grants:[]};if(path.endsWith('/profile/appearance'))return {appearance:{},configuration:{}};if(path.endsWith('/claim'))return {};if(path.endsWith('/preview'))return {previewOnly:true,package:personalPackage};if(path.endsWith('/download')){if(++downloads===2){started();return result;}return personalPackage;}if(path.includes('/profile/appearance/avatar-frame'))return {appearance:{},configuration:{}};throw Error(path);}});
  await h.view.show();await h.find('detail-ring').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');const operation=h.find('apply').dispatch('click');await paused;for(const accountId of ['stable-B','stable-A']){active=accountId;h.account({signedIn:true,accountId});await h.view.show();}const count=writes.length;release(personalPackage);await operation;assert.equal(writes.length,count);
 });
+
+
+test('an explicitly empty workspace target list never creates fallback demo hubs',async()=>{
+ const h=harness({getTargets:()=>[]});await h.view.show();await h.find('detail-sample-oak').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');assert.equal(h.find('apply').disabled,true);assert.equal(h.find('apply-target').children.length,1);
+});
+
+test('local community application supplies the installed package and mode to its authority adapter',async()=>{
+ let installed;const applied=[],manager={async install(pkg){installed=pkg;return pkg;},async get(id,version){assert.equal(id,installed.id);assert.equal(version,installed.version);return installed;}};
+ const h=harness({manager,getTargets:()=>[{id:'real-local-hub',rootHubId:'real-local-hub',scope:'hub',name:'Workspace local hub',canManage:true,member:true,slots:['banner','badge']}],applyBinding:async(...args)=>applied.push(args)});
+ await h.view.show();await h.find('detail-sample-oak').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');await h.find('sponsor').dispatch('click');await h.find('apply').dispatch('click');assert.equal(applied.length,1);assert.equal(applied[0][2]?.mode,'local-demo');assert.deepEqual(applied[0][2]?.package,installed);
+});
+
+
+test('local undo forwards a trusted community composition absent from the marketplace install cache',async()=>{
+ let installed,current={mode:'inherit'},compositions=0;const seen=[],manager={async install(pkg){installed=pkg;return pkg;},async get(id){if(id===installed?.id)return installed;throw Error('Theme unavailable in marketplace cache');}},h=harness({manager,getTargets:()=>[{id:'local-hub',rootHubId:'local-hub',scope:'hub',name:'Local hub',canManage:true,member:true,slots:['banner'],binding:current}],applyBinding:async(_target,binding,provenance)=>{seen.push({binding,provenance});current=binding.packageId===installed.id?{mode:'package',packageId:'curated-'+String(++compositions).repeat(40),version:'1.0.0'}:binding;return current;}});
+ await h.view.show();await h.find('detail-sample-oak').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');await h.find('sponsor').dispatch('click');await h.find('apply').dispatch('click');await h.find('apply').dispatch('click');await h.find('undo').dispatch('click');assert.equal(current.packageId,'curated-'+'1'.repeat(40));assert.equal(seen.at(-1).provenance.package,undefined);assert.ok(h.all().some(n=>n.textContent.includes('Previous appearance restored')));
+});
+
+test('personal installation stays separate from equip and a missing profile adapter cannot claim success',async()=>{
+ const h=harness({catalog:[personalItem]});await h.view.show();await h.find('detail-ring').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');assert.equal(h.find('apply').textContent,'Equip on my profile');assert.ok(h.all().some(n=>n.textContent.includes('Installed')&&n.textContent.includes('Equip')));await h.find('apply').dispatch('click');assert.ok(h.all().some(n=>n.textContent.includes('profile appearance adapter')));assert.equal(h.all().some(n=>n.textContent.includes('Appearance applied')),false);await h.find('nav-library').dispatch('click');assert.equal(h.all().some(n=>n.textContent.includes('Ember ring · Equipped')),false);
+});
+
+test('personal local equipment and undo belong to the current signing identity',async()=>{
+ let person={id:'A'.repeat(43),key:'key-A'};const calls=[];
+ const h=harness({catalog:[personalItem],personalApply:async(t,b)=>{calls.push([t,b]);}});h.window.VumiroLocalProfile={profile:()=>person};await h.view.show();await h.find('detail-ring').dispatch('click');await h.find('acquire').dispatch('click');await h.find('install').dispatch('click');await h.find('apply').dispatch('click');await h.find('nav-library').dispatch('click');assert.ok(h.find('reset-avatar-frame'));
+ person={id:'B'.repeat(43),key:'key-B'};await h.view.show();await h.find('nav-library').dispatch('click');assert.equal(!!h.find('reset-avatar-frame'),false,'A new signing identity must not inherit equipped state');assert.equal(!!h.find('undo-avatar-frame'),false);
+ person={id:'A'.repeat(43),key:'key-A'};await h.view.show();await h.find('nav-library').dispatch('click');assert.ok(h.find('reset-avatar-frame'));
+});

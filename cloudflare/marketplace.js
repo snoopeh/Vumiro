@@ -130,6 +130,10 @@ export async function handleMarketplaceRequest(request,env) {
     const db=env.MARKETPLACE_DB;if(!db)fail(503,'marketplace-unavailable');
     const path=url.pathname.slice(PREFIX.length)||'/',method=request.method,now=Date.now();
     if(path==='/internal/events'&&method==='POST')return await membershipEvent(request,env,db,now);
+    if(path==='/internal/community-package'){
+      if(method!=='POST')fail(405,'method-not-allowed');if(!await internal(request,env))fail(401,'internal-auth-required');const p=await body(request);if(Object.keys(p).length!==2||Object.keys(p).some(key=>!['itemId','versionId'].includes(key))||!ID.test(p.itemId||'')||!ID.test(p.versionId||''))fail(400,'invalid-community-package-reference');
+      const exact=()=>first(db,'SELECT v.*,l.status AS listing_status,l.price_minor FROM marketplace_versions v JOIN marketplace_listings l ON l.id=v.item_id WHERE v.id=? AND l.id=?',p.versionId,p.itemId),version=await exact();if(!version)fail(404,'version-not-found');const approved=row=>row?.status==='approved'&&row.listing_status==='published'&&row.price_minor===0;if(!approved(version))fail(403,'reviewed-free-community-package-required');const pkg=await storedPackage(env,version);if(!['theme','decorative-pack'].includes(pkg.kind||'theme'))fail(403,'community-package-kind-required');const current=await exact();if(!approved(current)||current.digest!==version.digest||current.asset_key!==version.asset_key)fail(403,'reviewed-free-community-package-required');return json({itemId:p.itemId,versionId:p.versionId,digest:version.digest,package:pkg});
+    }
     if(path.startsWith('/profiles/'))return await handleMarketplacePersonalRequest(request,env,{path,method,now,body,storedPackage});
     const user=await authenticate(request,env);if(!user)fail(401,'account-auth-required');const accountId=user.id;
     if(path.startsWith('/profile/')){const personal=await handleMarketplacePersonalRequest(request,env,{path,method,accountId,now,body,storedPackage});if(personal)return personal;}

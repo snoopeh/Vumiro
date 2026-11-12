@@ -1,0 +1,26 @@
+# Private theme authoring and reviewed community publication
+
+This supersedes the earlier curated-only local restriction. Private local creation, import, editing, saving and application need no marketplace account, enrollment or review. Community/public distribution remains a separate review gate. Private application never establishes a public profile entitlement or a paid community license.
+
+## Implemented source paths
+
+- `community-themes.js` remains the shared validator/resolver/installer for browser, CLI and server package validation. It accepts embedded raster images and WOFF2 fonts, `font(asset-id)` references, bounded background fit/position/repeat/blending and typography controls. Limits remain 2 MiB per package, 16 assets and 512 KiB per decoded image/font. Executable content, external resource fetches and destructive geometry remain unavailable. Generated image/font URLs and font-face styles belong to the rendering root's cleanup.
+- `community-studio.js` provides image/font upload, background controls, font selection, component styling, bounded CSS, undo/redo, drafts and import/export. **Save** preserves the editor's binding through its host; **Apply locally** passes the flattened validated package to an explicit private destination. Neither action submits content for marketplace review.
+- `local-appearance.js` supplies `VumiroLocalAppearance.applyPackage`, `refresh`, `reset` and `snapshot`. It persists private app appearance by signing identity, restores it on startup and applies through app-owned shell/navigation/friend/card/dialog/message/input/call slots. The app entry opens Theme Studio without marketplace enrollment. Essential controls and accessibility remain app-owned.
+- `community-workspace.js` offers **Open full private editor** for local hubs, Spaces and channels and **Edit my private view** for connected communities. It uses the identity's private library. Connected private overlays persist by identity/community/scope and never send a shared mutation. Local hub publication blocks unreviewed private bindings with a marketplace submission instruction instead of silently stripping them.
+- `marketplace-studio-entry.js` routes full app packages to `VumiroLocalAppearance.applyPackage`, personal avatar/card/effect kinds to `VumiroProfileCosmetics.applyLocal`, and scoped editor packages to the selected private scope. Identity/workspace changes fence pending callbacks; account/signing identity changes close stale editor hosts.
+- `profile-cosmetics.js`, `marketplace-entry.js` and `marketplace-client.js` separate **Install package** from **Equip on my profile**. Local equipment paints the current user's actual registered avatar/card, persists by signing identity/public key/account scope, and supports reset/undo/reload without affecting peers or public profile payloads. Peers continue to use public service appearance. Missing adapters and failed storage do not claim a successful equip.
+
+## Community review boundary
+
+Builtin themes, inheritance and bounded safe overrides remain available. Nonbuiltin shared bindings require `{marketplace:{itemId,versionId}}` identifying an exact reviewed version. The CommunityHub backend resolves that reference through `POST /api/v1/marketplace/internal/community-package`; raw packages, manifests/assets/fonts, local approval flags and client digests cannot authorize publication. Readers use signed `theme-package` with a stored `scopeId`, then verify exact identifiers and digest before rendering. Review status, immutable content and current community access are checked around asynchronous work.
+
+The resolver currently supports approved versions of published, free theme/decorative listings. Paid content still requires the separate licensing/authority integration and fails closed through this free resolver. Generic community appearance asset upload/read and legacy raw manifests are not publication paths.
+
+`wrangler.storage.jsonc`, which owns the CommunityHub Durable Object, declares `MARKETPLACE_SERVICE` for the marketplace worker. Operators must provision the same `MARKETPLACE_INTERNAL_SECRET` of at least 32 characters on that owner and the marketplace worker. Missing binding/secret/review infrastructure returns an unavailable result instead of accepting private content. Source changes do not configure secrets, deploy services, publish releases or enable production payments. See [the marketplace API contract](../../MARKETPLACE-API.md#reviewed-packages-in-shared-community-hubs).
+
+## Verification and handoff
+
+Executable regressions cover local equipment's original no-op, install/equip separation, actual renderer application, reset/undo/reload, account/signing identity isolation, image/font validation and cleanup, private app/Space application, reviewed-reference resolution and direct shared-publication bypass attempts. Run focused marketplace/chat/profile checks during integration, then the real native LOCAL QA launcher for the final handoff.
+
+Inspect app/Space backgrounds, uploaded WOFF2 typography, sidebar/avatar/card equipment, desktop/narrow layouts, readable controls, reduced motion/high contrast, reload and identity transitions. Automated checks establish code readiness; actual Windows/WebView2 startup and human visual acceptance remain separate. No release or acceptance is implied by this implementation record.

@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
 
-function harness({defer=false,realModel=false,realThemes=false,liveApi,voiceApi}={}) {
+function harness({defer=false,realModel=false,realThemes=true,realStudio=false,marketplaceModel=false,liveApi,voiceApi}={}) {
   let profile={id:'A'.repeat(43),name:'Owner'},release,blockSave=false;
-  const records=new Map(),calls=[],themeManagerCalls=[];
+  const records=new Map(),calls=[],themeManagerCalls=[],studios=[],webRecords=new Map();
   const state={hubs:[{id:'hub',name:'Workshop',description:'Welcome',home:{preset:'compact',welcome:'Make something'},members:[]}],nodes:[{id:'folder',hubId:'hub',parentId:null,kind:'folder',name:'Games',depth:0,hasChildren:true},{id:'text',hubId:'hub',parentId:'folder',kind:'text',name:'Plans',depth:1}],selectedHubId:'hub',selectedNodeId:null,messages:{text:[]},drafts:{text:''},collapsed:[]};
   class Element {
     constructor(tag){this.tagName=tag;this.children=[];this.dataset={};this.attributes={};this.handlers={};this.style={setProperty(k,v){this[k]=v;},removeProperty(k){delete this[k];}};this.value='';this.hidden=false;this.textContent='';}
@@ -25,20 +26,22 @@ function harness({defer=false,realModel=false,realThemes=false,liveApi,voiceApi}
   const document={createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag)},mount=new Element('section');
   const model={snapshot:()=>structuredClone(state),status:()=>({saved:true}),tree:(_,opts)=>state.nodes.filter(n=>!opts.query||n.name.includes(opts.query)||n.id==='folder'),breadcrumbs:()=>[state.nodes[0],state.nodes[1]],visibleActivity:()=>[],unreadTotal:()=>0,
     async selectNode(id){calls.push(['select',id]);state.selectedNodeId=id;},async selectHub(id){state.selectedHubId=id;state.selectedNodeId=null;},async setCollapsed(id,value){state.collapsed=value?[id]:[];},async setDraft(id,value){state.drafts[id]=value;},async postMessage(id,value){calls.push(['post',id,value]);state.messages[id].push({id:'m',author:'Owner',text:value,at:0});state.drafts[id]='';}};
-  const window={VumiroCommunityModel:{createStore:async({identity})=>{records.set(identity,true);if(defer)await new Promise(r=>release=r);return model;},createLocalStorageAdapter:()=>({})}};
+  const window={crypto:webcrypto,localStorage:{getItem:key=>webRecords.get(key)??null,setItem:(key,value)=>webRecords.set(key,String(value)),removeItem:key=>webRecords.delete(key)},VumiroCommunityModel:{createStore:async({identity})=>{records.set(identity,true);if(defer)await new Promise(r=>release=r);return model;},createLocalStorageAdapter:()=>({})}};
   if(liveApi)window.VumiroCommunityLive={create:options=>{liveApi.options=options;return liveApi;}};
   if(voiceApi)window.VumiroCommunityVoice={create:()=>voiceApi};
-  const context={window,document,console,structuredClone,Date};vm.createContext(context);
+  const context={window,document,console,structuredClone,Date,TextEncoder,atob,btoa};vm.createContext(context);
   const visualFile=new URL('../Vumiro.Client/WebServer/community-ui.js',import.meta.url);if(fs.existsSync(visualFile))vm.runInContext(fs.readFileSync(visualFile,'utf8'),context);
   const storage={async load(id){return records.get(id)??null;},async save(id,value){if(blockSave){blockSave=false;await new Promise(r=>release=r);}records.set(id,structuredClone(value));}};
   if(realModel)vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-model.js',import.meta.url),'utf8'),context);
   if(realThemes){vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-themes.js',import.meta.url),'utf8'),context);const original=window.VumiroCommunityThemes.createManager;window.VumiroCommunityThemes.createManager=options=>{themeManagerCalls.push(options);return original(options);};}
+  if(realStudio){vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/community-studio.js',import.meta.url),'utf8'),context);const original=window.VumiroCommunityStudio.createCustomizer;window.VumiroCommunityStudio.createCustomizer=options=>{const studio=original(options);studios.push(studio);return studio;};}
+  if(marketplaceModel)vm.runInContext(fs.readFileSync(new URL('../Vumiro.Client/WebServer/marketplace-model.js',import.meta.url),'utf8'),context);
   const file=new URL('../Vumiro.Client/WebServer/community-workspace.js',import.meta.url);
   if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),context);
   assert.ok(window.VumiroCommunityHub,'community view exists');
   const view=window.VumiroCommunityHub.create({mount,getProfile:()=>profile,storage:realModel?storage:{},identityProvider:{profile:()=>profile}});
   const all=(node=mount)=>[node,...node.children.flatMap(c=>all(c)),...(node.shadowRoot?all(node.shadowRoot):[])];
-  return {view,mount,all,calls,state,document,window,records,themeManagerCalls,find:key=>all().find(n=>n.dataset.action===key),profile:value=>profile=value,release:()=>release(),blockSave:()=>blockSave=true};
+  return {view,mount,all,calls,state,document,window,records,webRecords,themeManagerCalls,studios,find:key=>all().find(n=>n.dataset.action===key),profile:value=>profile=value,release:()=>release(),blockSave:()=>blockSave=true};
 }
 async function settings(h,key){if(!h.find(key))await h.find('scope-settings').dispatch('click');await h.find(key).dispatch('click');}
 
@@ -270,10 +273,178 @@ test('shared themes cannot collide with or fall back to an unrelated personal pa
   const h=harness({realModel:true,realThemes:true,liveApi}),api=h.window.VumiroCommunityThemes,local=structuredClone(api.builtins[0]);local.id='custom';local.tokens.accent='#ff0000';
   const original=api.createManager;api.createManager=options=>{const manager=original(options);if(options?.storageKey)return {...manager,async list(){return [local];},async get(){return local;}};return manager;};
   h.window.VumiroCommunityThemeSharing={create:({manager})=>({async hydrate(){assert.equal((await manager.list()).some(p=>p.id==='custom'),false,'receiving cache starts without personal packages');throw Error('Shared artwork unavailable');}})};
-  await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');assert.ok(h.find('live-tree'),'shared tree remains usable with a neutral fallback');const content=h.all().find(n=>n.className==='ch-content');assert.notEqual(content.style['--community-accent'],'#ff0000');assert.ok(h.all().some(n=>n.textContent==='Shared artwork unavailable'));
+  await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');assert.ok(h.find('live-tree'),'shared tree remains usable with a neutral fallback');const content=h.all().find(n=>n.className==='ch-content');assert.notEqual(content.style['--community-accent'],'#ff0000');assert.ok(h.all().some(n=>/curated|built-in|builtin/i.test(n.textContent)));
 });
 
 test('a delegated Space manager can moderate through inherited permissions',async()=>{
   const me='A'.repeat(43),snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'space',type:'space',name:'Space',parentId:'live',managers:[me]},{id:'chat',type:'text',name:'Chat',parentId:'space'}],members:[{id:me,roles:['Leader']},{id:'C'.repeat(43),roles:['Member']}],roles:[{id:'Leader',authority:50,permissions:['view']},{id:'Member',authority:10,permissions:['view']}]},liveApi={disconnect(){},async publish(){return {hubId:'live'};},async connect(){return snapshot;},async history(){return {messages:[{id:'m',authorId:'C'.repeat(43),sequence:2,text:'Message'}]};}};
   const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');await h.find('live-node-chat').dispatch('click');assert.ok(h.find('live-remove-2'));
+});
+
+
+test('appearance settings invoke the curated customizer and offer marketplace browsing',async()=>{
+  const h=harness({realModel:true,realThemes:true}),opened=[];let browsed=0;
+  h.document.getElementById=id=>id==='marketplaceNav'?{click(){browsed++;}}:null;
+  h.window.VumiroCommunityStudio={create(){assert.fail('Consumer must not open the raw creator');},createCustomizer(options){opened.push(options);return {destroy(){}};}};
+  await h.view.open();await settings(h,'page-themes');assert.equal(opened.length,1);assert.equal(opened[0].manager,undefined);assert.equal(opened[0].packages.length,0);const preview=opened[0].previewRoot;for(const slot of ['banner','heading','card','navigation','message','input','button'])assert.ok(h.all(preview).some(n=>n.dataset.communitySlot===slot),'preview includes '+slot);opened[0].onBrowse();assert.equal(browsed,1);
+});
+
+test('marketplace adapter applies curated packages to local targets while hidden and isolates identities',async()=>{
+  const h=harness({realModel:true,realThemes:true});assert.equal(typeof h.window.VumiroCommunityMarketplace?.targets,'function');assert.equal(h.window.VumiroCommunityMarketplace.targets().length,0);
+  await h.view.open();const adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.scope==='hub'),pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='curated-market';pkg.tokens.accent='#125abc';
+  h.view.hide();await adapter.apply(target,{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});await h.view.open();assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#125abc');
+  h.profile({id:'B'.repeat(43),name:'Other'});assert.equal(adapter.targets().length,0);await assert.rejects(adapter.apply(target,{mode:'inherit'},{mode:'local-demo'}),/identity|account|session/i);await h.view.open();assert.notEqual(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#125abc');
+  h.profile({id:'A'.repeat(43),name:'Owner'});await h.view.open();assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#125abc');await assert.rejects(adapter.apply(target,{mode:'inherit'},{mode:'local-demo'}),/identity|account|session/i);
+});
+
+test('private Spaces accept local imports but detect substituted bytes of a recorded marketplace version',async()=>{
+  const h=harness({realModel:true,realThemes:true}),api=h.window.VumiroCommunityThemes;let malicious=structuredClone(api.builtins[0]);malicious.id='legacy-import';malicious.tokens.accent='#ff0011';const original=api.createManager;
+  api.createManager=options=>{const manager=original(options);return {...manager,list:async()=>[...await manager.list(),malicious],get:async(id,version)=>id===malicious.id?structuredClone(malicious):manager.get(id,version)};};
+  await h.view.open();const adapter=h.window.VumiroCommunityMarketplace,target=adapter?.targets().find(t=>t.scope==='hub');assert.ok(target,'local marketplace target exists');
+  await adapter.apply(target,{mode:'package',packageId:malicious.id,version:malicious.version},{mode:'local-demo'});assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#ff0011');
+  const builtin=structuredClone(api.builtins[0]);builtin.id='curated-good';builtin.tokens.accent='#123abc';await adapter.apply(target,{mode:'package',packageId:builtin.id,version:builtin.version},{package:builtin,mode:'local-demo'});
+  malicious={...builtin,tokens:{...builtin.tokens,accent:'#ff0011'}};h.view.hide();await h.view.open();assert.notEqual(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#ff0011');
+});
+
+test('shared context never hydrates raw themes or exposes local marketplace targets after hiding',async()=>{
+  const binding={mode:'package',packageId:'raw-shared',version:'1.0.0',sharedPackage:{assets:[],css:'bad'}},snapshot={hubId:'live',id:'live',name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null,themeBinding:binding}],members:[]};let hydrates=0;
+  const h=harness({realModel:true,realThemes:true,liveApi:{disconnect(){},async connect(){return snapshot;}}});h.window.VumiroCommunityThemeSharing={create(){return {async hydrate(){hydrates++;return [];}};}};
+  await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');assert.equal(hydrates,0);assert.deepEqual(Array.from(h.window.VumiroCommunityMarketplace.targets()),[]);h.view.hide();assert.deepEqual(Array.from(h.window.VumiroCommunityMarketplace.targets()),[]);await h.view.open();assert.ok(h.window.VumiroCommunityMarketplace.targets().length,'explicitly reopening the local Hub restores local destinations');
+});
+
+test('marketplace apply fences async installation before writing a new identity binding',async()=>{
+  const h=harness({realModel:true,realThemes:true}),api=h.window.VumiroCommunityThemes,original=api.createManager;let release,started;const paused=new Promise(resolve=>started=resolve);
+  api.createManager=options=>{const manager=original(options);return {...manager,install:async pkg=>{started();await new Promise(resolve=>release=resolve);return manager.install(pkg);}};};
+  await h.view.open();const adapter=h.window.VumiroCommunityMarketplace;assert.ok(adapter);const target=adapter.targets().find(t=>t.scope==='hub'),pkg=structuredClone(api.builtins[0]);pkg.id='delayed-market';h.view.hide();const operation=adapter.apply(target,{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});await paused;h.profile({id:'B'.repeat(43),name:'Other'});await h.view.open();release();await assert.rejects(operation,/identity|account|session/i);assert.equal(h.records.has('B'.repeat(43)),false);
+});
+
+
+test('retained customizer saves cannot target a later identity',async()=>{
+ const h=harness({realModel:true,realThemes:true}),opened=[];h.window.VumiroCommunityStudio={createCustomizer:options=>{opened.push(options);return {destroy(){}};}};
+ await h.view.open();await settings(h,'page-themes');const save=opened[0].onSave;h.profile({id:'B'.repeat(43),name:'Other'});await h.view.open();assert.equal(await save({mode:'package',packageId:'cyberpunk',version:'1.0.0'}),false);assert.equal(h.records.has('B'.repeat(43)),false);
+});
+
+test('blocked publication keeps a private marketplace appearance intact without sending artwork',async()=>{
+ const published=[],h=harness({realModel:true,realThemes:true,liveApi:{disconnect(){},async publish(value){published.push(value);throw Error('not expected');}}});await h.view.open();const adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.scope==='hub'),pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='private-marketplace-appearance';await adapter.apply(target,{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');assert.equal(published.length,0);assert.equal(adapter.targets().find(t=>t.id===target.id).binding.packageId,pkg.id);assert.ok(h.all().some(n=>/review/i.test(n.textContent)));
+});
+
+
+test('a curated decorative pack preserves the same scope theme and explicit layout',async()=>{
+ const h=harness({realModel:true,realThemes:true,realStudio:true});await h.view.open();await h.find('node-valheim').dispatch('click');await settings(h,'page-themes');h.studios.at(-1).setLayout('home','split');await h.studios.at(-1).save();const api=h.window.VumiroCommunityThemes,adapter=h.window.VumiroCommunityMarketplace,space=adapter.targets().find(t=>t.id==='valheim'),pkg=structuredClone(api.builtins[0]);pkg.id='local-curated-decoration';pkg.kind='decorative-pack';pkg.tokens={};pkg.layouts={};pkg.css='';pkg.components={banner:{borderColor:'#135ace',borderWidth:'2px',borderStyle:'solid'}};
+ await adapter.apply(space,{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});await h.find('node-valheim').dispatch('click');const content=h.all().find(n=>n.className==='ch-content');assert.equal(content.style['--community-accent'],api.builtins.find(pkg=>pkg.id==='viking').tokens.accent);assert.ok(h.all(content).some(n=>n.className==='ch-split'));assert.ok(h.all(content).some(n=>n.dataset.communitySlot==='banner')); assert.ok(h.all(content).some(n=>n.tagName==='style'&&n.textContent.includes('#135ace')));
+});
+
+
+test('child package home layout resets an ancestor split override while unthemed home keeps its placement',async()=>{
+ const h=harness({realModel:true,realThemes:true,realStudio:true});await h.view.open();const localAdapter=h.window.VumiroCommunityMarketplace;await localAdapter.apply(localAdapter.targets().find(t=>t.id==='valheim'),{mode:'inherit'},{mode:'local-demo'});await h.find('node-valheim').dispatch('click');assert.ok(h.all().some(n=>n.className==='ch-banner'),'legacy home placement applies before any explicit theme selection');
+ await h.find('home').dispatch('click');await settings(h,'page-themes');h.studios.at(-1).setLayout('home','split');await h.studios.at(-1).save();const adapter=h.window.VumiroCommunityMarketplace,space=adapter.targets().find(t=>t.id==='valheim');await adapter.apply(space,{mode:'package',packageId:'aurora',version:'1.0.0'},{mode:'local-demo'});await h.find('node-valheim').dispatch('click');assert.ok(h.all().some(n=>n.className==='ch-banner'),'Aurora starts a fresh banner layout');assert.equal(h.all().some(n=>n.className==='ch-split'),false,'ancestor split does not leak past the child package reset');
+});
+
+test('shared package home layout resets inherited overrides and wins over saved home placement',async()=>{
+ const snapshot={hubId:'live',id:'live',name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null,themeBinding:{mode:'inherit',overrides:{layout:{home:'split'}}}},{id:'space',type:'space',name:'Aurora Space',parentId:'live',home:{preset:'compact'},themeBinding:{mode:'package',packageId:'aurora',version:'1.0.0'}}],members:[]},h=harness({realModel:true,realThemes:true,liveApi:{disconnect(){},async connect(){return snapshot;}}});
+ await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('live-node-space').dispatch('click');assert.ok(h.all().some(n=>n.className==='ch-banner'));assert.equal(h.all().some(n=>n.className==='ch-split'),false);
+});
+
+test('customizer home and room layout changes update the miniature Space regions immediately',async()=>{
+ const h=harness({realModel:true,realThemes:true,realStudio:true});await h.view.open();await settings(h,'page-themes');const studio=h.studios.at(-1),preview=h.all().find(n=>n.className==='ch-theme-preview'),activity=()=>h.all(preview).find(n=>n.className==='ch-theme-preview-activity'),hero=()=>h.all(preview).find(n=>n.className.includes('ch-theme-preview-hero'));
+ studio.setLayout('home','split');assert.equal(preview.attributes['data-home-layout'],'split');assert.equal(activity().hidden,false);assert.ok(!hero().className.includes('ch-banner'));
+ studio.setLayout('home','banner');assert.equal(preview.attributes['data-home-layout'],'banner');assert.equal(activity().hidden,true);assert.ok(hero().className.includes('ch-banner'));
+ studio.setLayout('home','compact');studio.setLayout('room','compact');assert.equal(preview.attributes['data-home-layout'],'compact');assert.equal(preview.attributes['data-room-layout'],'compact');assert.equal(activity().hidden,true);assert.ok(!hero().className.includes('ch-banner'));
+});
+
+
+test('oversized decoration composition leaves the current scoped appearance intact',async()=>{
+ const h=harness({realModel:true,realThemes:true});await h.view.open();const api=h.window.VumiroCommunityThemes,adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.id==='valheim'),base=structuredClone(api.builtins[0]),asset=id=>({id,mime:'image/png',data:'iVBORw0KGgo='});base.id='bounded-curated-base';base.assets=[asset('base-art')];await adapter.apply(target,{mode:'package',packageId:base.id,version:base.version},{package:base,mode:'local-demo'});
+ const pack={...structuredClone(base),id:'maximum-decoration',kind:'decorative-pack',tokens:{},components:{},layouts:{},assets:Array.from({length:16},(_,i)=>asset('decoration-'+i))};await assert.rejects(adapter.apply(target,{mode:'package',packageId:pack.id,version:pack.version},{package:pack,mode:'local-demo'}),/16|asset|compos|oversized/i);assert.equal(adapter.targets().find(t=>t.id===target.id).binding.packageId,base.id);
+});
+
+test('decoration preserves saved home placement when the scope inherits its appearance',async()=>{
+  for(const preset of ['banner','split']){
+    const h=harness({realModel:true,realThemes:true});await h.view.open();const api=h.window.VumiroCommunityThemes,adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.id==='valheim');
+    await adapter.apply(target,{mode:'inherit'},{mode:'local-demo'});await h.find('node-valheim').dispatch('click');await settings(h,'page-manage');const placement=h.find('home-preset');placement.value=preset;await placement.parentNode.parentNode.dispatch('submit');await h.find('settings-close').dispatch('click');
+    const expected=preset==='banner'?'ch-banner':'ch-split';assert.ok(h.all().some(n=>n.className===expected),'saved placement applies before decoration');
+    const pkg={...structuredClone(api.builtins[0]),id:'inherited-placement-decoration',kind:'decorative-pack',tokens:{},layouts:{},components:{badge:{borderWidth:'2px'}},css:'',motion:'none'};
+    await adapter.apply(adapter.targets().find(t=>t.id==='valheim'),{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});assert.ok(h.all().some(n=>n.className===expected),preset+' placement survives decoration');
+  }
+});
+
+test('local Spaces open the full private editor and apply unreviewed artwork packages on this device',async()=>{
+ const h=harness({realModel:true,realThemes:true});let editor;h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};await h.view.open();await h.find('node-valheim').dispatch('click');await settings(h,'page-themes');assert.ok(h.find('private-theme-editor'));await h.find('private-theme-editor').dispatch('click');assert.equal(typeof editor.onApplyLocal,'function');
+ const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='my-unreviewed-private-space';pkg.tokens.accent='#ab1245';await editor.onApplyLocal(pkg);await h.find('settings-close').dispatch('click');assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#ab1245');
+});
+
+test('private shared-Space styling never mutates the community',async()=>{
+ const snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[{id:'A'.repeat(43),roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let editor,mutations=0;const h=harness({realModel:true,realThemes:true,liveApi:{disconnect(){},async connect(){return snapshot;},async mutate(){mutations++;return snapshot;}}});h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};
+ await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await settings(h,'live-page-themes');assert.ok(h.find('private-theme-editor'));await h.find('private-theme-editor').dispatch('click');const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='private-shared-view';pkg.tokens.accent='#123abc';await editor.onApplyLocal(pkg);assert.equal(mutations,0);assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#123abc');
+});
+
+test('publishing a private unreviewed appearance requires review before any network publication',async()=>{
+ let publications=0;const h=harness({realModel:true,realThemes:true,liveApi:{async publish(){publications++;throw Error('should not publish');},disconnect(){}}});await h.view.open();const adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.scope==='hub'),pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='private-not-reviewed';await adapter.apply(target,{mode:'package',packageId:pkg.id,version:pkg.version},{package:pkg,mode:'local-demo'});await settings(h,'page-connections');await h.find('publish-hub').dispatch('click');assert.equal(publications,0);assert.ok(h.all().some(n=>/review/i.test(n.textContent)));
+});
+
+
+test('Marketplace repeated decoration and undo restore the exact prior scoped composition',async()=>{
+ const h=harness({realModel:true,realThemes:true,realStudio:true,marketplaceModel:true});await h.view.open();await h.find('node-valheim').dispatch('click');await settings(h,'page-themes');h.studios.at(-1).setLayout('home','split');await h.studios.at(-1).save();const engine=h.window.VumiroCommunityThemes,adapter=h.window.VumiroCommunityMarketplace,target=adapter.targets().find(t=>t.id==='valheim'),pack=(id,components)=>({...structuredClone(engine.builtins[0]),id,kind:'decorative-pack',tokens:{},layouts:{},css:'',components}),first=pack('first-decoration',{banner:{borderColor:'#125abc',borderWidth:'2px',borderStyle:'solid'}}),second=pack('second-decoration',{message:{borderColor:'#de45ac',borderWidth:'2px',borderStyle:'solid'}}),catalog=[first,second].map(pkg=>({id:pkg.id,title:pkg.name,creatorId:'maker',creatorName:'Maker',kind:pkg.kind,priceCents:0,scopes:['space'],slots:Object.keys(pkg.components),package:pkg,status:'approved'})),library=engine.createManager({adapter:engine.createMemoryAdapter(),metadataStorage:h.window.localStorage,storageKey:'marketplace-install-test'}),model=h.window.VumiroMarketplaceModel.createStore({accountId:'local-account',storage:h.window.localStorage,engine,catalog}),apply=async(t,b)=>{let pkg;try{pkg=await library.get(b.packageId,b.version);}catch{}return adapter.apply(t,b,{package:pkg,mode:'local-demo'});};
+ for(const pkg of [first,second]){const destination=adapter.targets().find(t=>t.id===target.id);await model.acquire(pkg.id);await model.install(pkg.id,library);await model.sponsor(pkg.id,destination);await model.apply(pkg.id,destination,apply);}const previous=model.snapshot().previousBindings[target.id];assert.match(previous.packageId,/^curated-/);await model.undo(target,apply);assert.equal(adapter.targets().find(t=>t.id===target.id).binding.packageId,previous.packageId);const content=h.all().find(n=>n.className==='ch-content'),css=h.all(content).filter(n=>n.tagName==='style').map(n=>n.textContent).join(' ');assert.equal(content.style['--community-accent'],engine.builtins.find(pkg=>pkg.id==='viking').tokens.accent);assert.ok(h.all(content).some(n=>n.className==='ch-split'));assert.ok(css.includes('#125abc'));assert.equal(css.includes('#de45ac'),false);
+});
+
+
+test('reviewed shared packages resist private-library collisions and invalid refreshes fall back safely',async()=>{
+ const snapshot={hubId:'live',id:'live',name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[]};let response;
+ const liveApi={disconnect(){},async connect(){return snapshot;},async snapshot(){return snapshot;},async themePackage(){return response;}};
+ const h=harness({realModel:true,liveApi});await h.view.open();const api=h.window.VumiroCommunityThemes,pkg=structuredClone(api.builtins[0]);pkg.id='reviewed-exact-theme';pkg.tokens.accent='#123abc';const checked=api.validate(pkg).package,digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(checked)))).toString('hex');
+ const local={...structuredClone(pkg),tokens:{...pkg.tokens,accent:'#ff1234'}},adapter=h.window.VumiroCommunityMarketplace;await adapter.apply(adapter.targets().find(t=>t.scope==='hub'),{mode:'package',packageId:local.id,version:local.version},{package:local,mode:'local-demo'});
+ snapshot.nodes[0].themeBinding={mode:'package',packageId:pkg.id,version:pkg.version,marketplace:{itemId:'item-1',versionId:'version-1',digest}};response={itemId:'item-1',versionId:'version-1',digest,package:checked};
+ await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#123abc');
+ response={...response,digest:'0'.repeat(64)};await liveApi.options.onEvent({type:'community-changed'});await new Promise(r=>setImmediate(r));assert.notEqual(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#123abc');assert.ok(h.all().some(n=>/could not be verified/.test(n.textContent)));
+});
+
+test('private shared appearance can be reset without a community mutation',async()=>{
+ const snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[{id:'A'.repeat(43),roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let editor,mutations=0;const h=harness({realModel:true,liveApi:{disconnect(){},async connect(){return snapshot;},async mutate(){mutations++;return snapshot;}}});h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};
+ await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await settings(h,'live-page-themes');await h.find('private-theme-editor').dispatch('click');const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.tokens.accent='#123abc';await editor.onApplyLocal(pkg);await h.find('private-theme-reset').dispatch('click');assert.equal(mutations,0);assert.notEqual(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#123abc');
+});
+
+
+test('shared theme chooser sends an exact reviewed reference while the server supplies the digest',async()=>{
+ const snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null}],members:[{id:'A'.repeat(43),roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let request;const h=harness({realModel:true,realStudio:true,liveApi:{disconnect(){},async connect(){return snapshot;},async mutate(ops){request=ops[0];return snapshot;}}});const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='published-theme';h.window.VumiroAccount={async marketplaceRequest(path){if(path==='/catalog')return {items:[{id:'listed',title:'Reviewed artwork',price_minor:0,latest_version_id:'version-2',summary:{kind:'theme'}}]};assert.equal(path,'/versions/version-2/preview');return {previewOnly:true,package:pkg};}};
+ await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await settings(h,'live-page-themes');await h.find('load-reviewed-themes').dispatch('click');h.find('reviewed-theme').value='listed';await h.find('apply-reviewed-theme').dispatch('click');assert.equal(request.type,'theme');assert.equal(request.binding.packageId,pkg.id);assert.equal(request.binding.marketplace.itemId,'listed');assert.equal(request.binding.marketplace.versionId,'version-2');assert.equal(request.binding.marketplace.digest,undefined);
+});
+
+
+test('private app themes reach community navigation without replacing scoped community appearance',async()=>{
+ const h=harness({realModel:true});const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='private-app-navigation';pkg.tokens.accent='#ab1245';h.window.VumiroLocalAppearance={snapshot:()=>({identity:'A'.repeat(43),binding:{mode:'package',packageId:pkg.id,version:pkg.version},packages:[pkg]})};await h.view.open();assert.equal(h.find('community-root').style['--ch-accent'],'var(--community-accent)');assert.equal(h.find('community-root').style['--community-accent'],'#ab1245');await h.find('node-valheim').dispatch('click');assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],h.window.VumiroCommunityThemes.builtins.find(pkg=>pkg.id==='viking').tokens.accent);
+});
+
+
+test('offline reviewed artwork falls back while channel navigation and incoming messages stay consistent',async()=>{
+ const snapshot={hubId:'live',id:'live',name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'first',type:'text',name:'First',parentId:'live'},{id:'second',type:'text',name:'Second',parentId:'live',themeBinding:{mode:'package',packageId:'reviewed-offline',version:'1.0.0',marketplace:{itemId:'item',versionId:'version',digest:'a'.repeat(64)}}}],members:[]},liveApi={disconnect(){},async connect(){return snapshot;},async history(){return {messages:[]};},async themePackage(){throw Error('Artwork temporarily offline');}};const h=harness({realModel:true,liveApi});await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('live-node-first').dispatch('click');const firstLog=h.find('live-log');await h.find('live-node-second').dispatch('click');assert.notEqual(h.find('live-log'),firstLog);assert.ok(h.all().some(n=>n.tagName==='h1'&&n.textContent==='Second'));liveApi.options.onEvent({type:'community-message',message:{id:'m',channelId:'second',sequence:1,text:'Second channel message'}});assert.ok(h.all(h.find('live-log')).some(n=>n.textContent==='Second channel message'));assert.equal(h.all(firstLog).some(n=>n.textContent==='Second channel message'),false);
+});
+
+
+test('private decorative editor application preserves the same-scope theme and layout',async()=>{
+ const h=harness({realModel:true});let editor;h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};await h.view.open();await h.find('node-valheim').dispatch('click');const before=h.all().find(n=>n.className==='ch-content').style['--community-accent'];await settings(h,'page-themes');await h.find('private-theme-editor').dispatch('click');const pkg={...structuredClone(h.window.VumiroCommunityThemes.builtins[0]),id:'private-decoration',kind:'decorative-pack',tokens:{},layouts:{},css:'',components:{banner:{borderColor:'#125abc',borderWidth:'2px',borderStyle:'solid'}}};await editor.onApplyLocal(pkg);assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],before);assert.ok(h.all().some(n=>n.tagName==='style'&&n.textContent.includes('#125abc')));
+});
+
+
+test('appearance settings hydrate their edited Space while preserving the viewed scope',async()=>{
+ const snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'other',type:'space',name:'Other',parentId:'live'}],members:[{id:'A'.repeat(43),roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let response,reads=0;const h=harness({realModel:true,realStudio:true,liveApi:{disconnect(){},async connect(){return snapshot;},async themePackage(scope){assert.equal(scope,'other');reads++;return response;}}});const api=h.window.VumiroCommunityThemes,pkg={...structuredClone(api.builtins[0]),id:'reviewed-other'},checked=api.validate(pkg).package,digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(checked)))).toString('hex');snapshot.nodes[1].themeBinding={mode:'package',packageId:pkg.id,version:pkg.version,marketplace:{itemId:'item',versionId:'version',digest}};response={itemId:'item',versionId:'version',digest,package:checked};await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('edit-other').dispatch('click');await h.find('live-page-themes').dispatch('click');assert.equal(reads,1);assert.equal(h.studios.at(-1).getDraft().packageId,pkg.id);
+});
+
+
+test('unavailable reviewed appearance keeps the stored selection and exposes retry instead of inherited Save',async()=>{
+ const binding={mode:'package',packageId:'reviewed-other',version:'1.0.0',marketplace:{itemId:'item',versionId:'version',digest:'a'.repeat(64)}},snapshot={hubId:'live',id:'live',ownerId:'A'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'other',type:'space',name:'Other',parentId:'live',themeBinding:binding}],members:[{id:'A'.repeat(43),roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let mutations=0;const h=harness({realModel:true,realStudio:true,liveApi:{disconnect(){},async connect(){return snapshot;},async themePackage(){throw Error('Offline');},async mutate(){mutations++;return snapshot;}}});await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('edit-other').dispatch('click');await h.find('live-page-themes').dispatch('click');assert.ok(h.find('retry-reviewed-theme'));assert.equal(h.studios.length,0);assert.equal(mutations,0);assert.equal(snapshot.nodes[1].themeBinding,binding);
+});
+
+
+test('private decoration retains hub appearance both on the hub and inheriting descendants',async()=>{
+ for(const descendant of [false,true]){const h=harness({realModel:true});let editor;h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};await h.view.open();const adapter=h.window.VumiroCommunityMarketplace;await adapter.apply(adapter.targets().find(t=>t.scope==='hub'),{mode:'package',packageId:'viking',version:'1.0.0'},{mode:'local-demo'});if(descendant){await adapter.apply(adapter.targets().find(t=>t.id==='valheim'),{mode:'inherit'},{mode:'local-demo'});await h.find('node-valheim').dispatch('click');}await settings(h,'page-themes');await h.find('private-theme-editor').dispatch('click');const pkg={...structuredClone(h.window.VumiroCommunityThemes.builtins[0]),id:'root-inheriting-decoration',kind:'decorative-pack',tokens:{},layouts:{},css:'',components:{banner:{borderColor:'#125abc',borderWidth:'2px',borderStyle:'solid'}}};await editor.onApplyLocal(pkg);assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],h.window.VumiroCommunityThemes.builtins.find(pkg=>pkg.id==='viking').tokens.accent);}
+});
+
+
+test('shared members can open private appearance from menus without community mutation controls',async()=>{
+ const me='A'.repeat(43),snapshot={hubId:'live',id:'live',ownerId:'B'.repeat(43),name:'Guild',revision:1,nodes:[{id:'live',type:'hub',name:'Guild',parentId:null},{id:'space',type:'space',name:'Workshop',parentId:'live'}],members:[{id:me,roles:['Member']}],roles:[{id:'Member',permissions:['view']}]};let editor,mutations=0;
+ const h=harness({realModel:true,realStudio:true,liveApi:{disconnect(){},async connect(){return snapshot;},async mutate(){mutations++;return snapshot;}}});h.window.VumiroMarketplaceStudio={async open(options){editor=options;}};
+ await h.view.open();await settings(h,'page-connections');h.find('live-hub-id').value='live';await h.find('invite-code').parentNode.parentNode.dispatch('submit');await h.find('more-space').dispatch('click');
+ assert.ok(h.find('menu-appearance'),'private appearance is available to members');assert.equal(h.find('menu-edit'),undefined);await h.find('menu-appearance').dispatch('click');assert.ok(h.find('private-theme-editor'));assert.equal(h.find('apply-reviewed-theme'),undefined);assert.equal(h.find('load-reviewed-themes'),undefined);assert.equal(h.studios.length,0);
+ await h.find('private-theme-editor').dispatch('click');const pkg=structuredClone(h.window.VumiroCommunityThemes.builtins[0]);pkg.id='member-private-view';pkg.tokens.accent='#123abc';await editor.onApplyLocal(pkg);await h.find('settings-close').dispatch('click');await h.find('live-node-space').dispatch('click');assert.equal(h.all().find(n=>n.className==='ch-content').style['--community-accent'],'#123abc');assert.equal(mutations,0);
 });

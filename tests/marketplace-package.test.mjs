@@ -5,6 +5,9 @@ import vm from 'node:vm';
 
 const file=new URL('../Vumiro.Client/WebServer/community-themes.js',import.meta.url);
 function engine(){const context={window:{},atob,console};vm.createContext(context);if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),context);assert.ok(context.window.VumiroCommunityThemes,'shared Community Hub theme engine exists');return context.window.VumiroCommunityThemes;}
+test('backend accepts portable embedded fonts and presentation controls with typed override references',async()=>{
+  const {validateMarketplacePackage,validateMarketplaceOverrides,digestPackage}=await import('../cloudflare/marketplace-package.js'),pkg=JSON.parse(JSON.stringify(engine().builtins[0]));pkg.assets=[{id:'typeface',mime:'font/woff2',data:btoa('wOF2local-font')},{id:'art',mime:'image/png',data:'iVBORw0KGgo='}];pkg.tokens.fontHeading='font(typeface)';pkg.components={surface:{backgroundImage:'asset(art)',backgroundSize:'cover',backgroundPosition:'center',backgroundRepeat:'no-repeat'},heading:{fontFamily:'font(typeface)',lineHeight:'1.4'}};assert.equal(validateMarketplacePackage(pkg).valid,true);assert.equal(validateMarketplaceOverrides(pkg,{tokens:{fontBody:'font(typeface)'},components:{heading:{fontFamily:'font(typeface)'}}}).valid,true);assert.equal(validateMarketplaceOverrides(pkg,{tokens:{fontBody:'font(art)'}}).valid,false);assert.equal(validateMarketplaceOverrides(pkg,{components:{surface:{backgroundImage:'asset(typeface)'}}}).valid,false);assert.equal(validateMarketplacePackage({...pkg,previews:['typeface']}).valid,false);assert.match(await digestPackage(pkg),/^[a-f0-9]{64}$/);
+});
 test('marketplace kinds use the same portable validator and reject unbounded decorative scope',()=>{
   const api=engine(),theme=JSON.parse(JSON.stringify(api.builtins[1]));
   theme.kind='theme';assert.equal(api.validate(theme).valid,true);

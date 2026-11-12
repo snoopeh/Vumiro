@@ -255,3 +255,10 @@ test('marketplace sidebar entry is translated in every supported language',()=>{
   const {api}=load('pt-BR');assert.equal(api.t('Marketplace'),'Mercado');
   for(const code of ['es','pt-BR','ja','zh-CN','ru']){api.setLocale(code);assert.notEqual(api.t('Marketplace'),'Marketplace',code);}
 });
+
+test('private app theme controls and application status explain device-only use in every locale',()=>{
+ const {api}=load(),keys=['Private app theme','Create your own backgrounds, fonts and styles. Local themes stay on this device; community publication requires marketplace review.','Open Theme Studio','Reset app theme','Default app appearance.','Private theme applied on this device.'];
+ for(const {code}of api.locales)for(const key of keys){assert.equal(Object.hasOwn(api.catalogs[code],key),true,`${code}: ${key}`);if(code!=='en')assert.notEqual(api.catalogs[code][key],key,`${code}: ${key}`);}
+ assert.equal(api.catalogs['pt-BR']['Private app theme'],'Tema privado do aplicativo');
+ assert.equal(api.catalogs['pt-BR']['Private theme applied on this device.'],'Tema privado aplicado neste dispositivo.');
+});
