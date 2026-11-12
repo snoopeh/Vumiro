@@ -23,7 +23,7 @@ const expectedAssets = [
   'cover-transfer.js',
   'settings-drafts.js',
   'motion.js',
-  'i18n.js', 'chat-storage.js','direct-messages.js','direct-chat.js','server-workspace.js','community-themes.js','community-studio.js','marketplace-studio-entry.js','marketplace-model.js','marketplace-external.js','marketplace-client.js','marketplace-entry.js','incoming-call.js','app-extras.js','notification-center.js', 'nudge.js', 'friend-nudges.js',
+  'i18n.js', 'chat-storage.js','direct-messages.js','direct-chat.js','server-workspace.js','community-themes.js','profile-cosmetics.js','community-studio.js','marketplace-studio-entry.js','marketplace-model.js','marketplace-external.js','marketplace-client.js','marketplace-entry.js','incoming-call.js','app-extras.js','notification-center.js', 'nudge.js', 'friend-nudges.js',
   'peer-profile.js',
   'account-client.js',
   'identity-recovery.js'

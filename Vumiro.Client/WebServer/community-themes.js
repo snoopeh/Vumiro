@@ -2,7 +2,11 @@
 (() => {
   'use strict';
   const SCHEMA_VERSION=1, ENGINE_VERSION=1, MAX_PACKAGE=2*1024*1024, MAX_ASSET=512*1024;
-  const slots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
+  const personalSlots={'profile-card':['profile-card','profile-banner','profile-badge'],'avatar-frame':['avatar-frame'],'profile-effect':['profile-effect']};
+  const personalKinds=Object.keys(personalSlots),motionPresets=['none','ember','scan','orbit','shimmer','pulse'];
+  const kindScopes=kind=>kind==='profile-card'?['profile-card']:kind==='avatar-frame'?['avatar']:kind==='profile-effect'?['profile']:['hub','space','text','voice'];
+  const communitySlots=['surface','card','button','input','navigation','call-controls','heading','message','banner','badge'];
+  const slots=[...communitySlots,...Object.values(personalSlots).flat()];
   const layouts={home:['compact','banner','split'],room:['standard','compact']};
   const defaults={surface:'#111820',surfaceRaised:'#19232e',text:'#edf3f9',muted:'#a9b8c8',accent:'#75c9c3',accentText:'#0d2224',border:'#354555',success:'#83d8aa',warning:'#f0ca79',danger:'#ff9b9b',fontBody:'"Segoe UI", sans-serif',fontHeading:'"Segoe UI", sans-serif',fontSize:'14px',spacing:'12px',radius:'12px',shadow:'0 8px 24px #00000033',density:'comfortable'};
   const colorTokens=new Set(['surface','surfaceRaised','text','muted','accent','accentText','border','success','warning','danger']);
@@ -80,8 +84,10 @@
       const allowed=new Set(['format','schemaVersion','kind','id','name','version','author','description','license','compatibility','tokens','components','layouts','css','assets','previews','motion']);
       for(const key of Object.keys(pkg))if(!allowed.has(key))errors.push(`Unsupported package field: ${key}`);
       if(pkg.format!=='vumirotheme'||pkg.schemaVersion!==SCHEMA_VERSION)errors.push('Unsupported theme format/schemaVersion');
-      if(pkg.kind!==undefined&&!['theme','decorative-pack'].includes(pkg.kind))errors.push('Unsupported package kind');
-      if(pkg.kind==='decorative-pack'&&(Object.keys(pkg.tokens||{}).length||Object.keys(pkg.layouts||{}).length))errors.push('Decorative packs may style documented component slots only; tokens and layouts must be empty');
+      if(pkg.kind!==undefined&&!['theme','decorative-pack',...personalKinds].includes(pkg.kind))errors.push('Unsupported package kind');
+      if((pkg.kind==='decorative-pack'||personalKinds.includes(pkg.kind))&&(Object.keys(pkg.tokens||{}).length||Object.keys(pkg.layouts||{}).length))errors.push('Decorative packages may style documented component slots only; tokens and layouts must be empty');
+      if(personalKinds.includes(pkg.kind)&&Object.keys(pkg.components||{}).some(slot=>!personalSlots[pkg.kind].includes(slot)))errors.push('Personal cosmetic contains a component outside its target');
+      if(!personalKinds.includes(pkg.kind)&&Object.keys(pkg.components||{}).some(slot=>!communitySlots.includes(slot)))errors.push('Community themes cannot target personal profile slots');
       if(!slug(pkg.id)||!plain(pkg.name)||!plain(pkg.author))errors.push('Package id, name and author are required plain metadata');
       if(typeof pkg.version!=='string'||!/^\d+\.\d+\.\d+$/.test(pkg.version))errors.push('Package version must be major.minor.patch');
       if(!object(pkg.compatibility)||pkg.compatibility.engine!==ENGINE_VERSION||Object.keys(pkg.compatibility).some(key=>key!=='engine'))errors.push('Unsupported engine compatibility');
@@ -97,8 +103,10 @@
       checkTokens(pkg.tokens,errors);checkComponents(pkg.components,ids,errors);
       if(!object(pkg.layouts)||Object.keys(pkg.layouts).some(key=>!Object.hasOwn(layouts,key)))errors.push('Invalid layouts');
       else for(const [kind,values] of Object.entries(pkg.layouts))if(!Array.isArray(values)||!values.length||values.some(value=>!layouts[kind].includes(value)))errors.push(`Unsupported ${kind} layout`);
-      if(pkg.motion!==undefined&&!['none','ember','scan'].includes(pkg.motion))errors.push('Unsupported motion preset');
-      parseCss(pkg.css,ids,errors);
+      if(pkg.motion!==undefined&&!motionPresets.includes(pkg.motion))errors.push('Unsupported motion preset');
+      const cssRules=parseCss(pkg.css,ids,errors);
+      if(personalKinds.includes(pkg.kind)&&cssRules.some(rule=>!personalSlots[pkg.kind].some(slot=>rule.selector.startsWith(`[data-community-slot="${slot}"]`))))errors.push('Personal cosmetic CSS must target its documented personal slots');
+      if(!personalKinds.includes(pkg.kind)&&cssRules.some(rule=>!communitySlots.some(slot=>rule.selector.startsWith(`[data-community-slot="${slot}"]`))))errors.push('Community CSS cannot target personal profile slots');
     }catch(error){errors.push(error.message||'Invalid package');}
     return {valid:errors.length===0,errors,package:errors.length?null:pkg};
   }
@@ -108,6 +116,15 @@
     showcase('baseline','Vumiro baseline',{},{}),
     showcase('viking','Ember & Oak',{surface:'#191b17',surfaceRaised:'#27291f',text:'#f1ead8',muted:'#c1b99f',accent:'#dfb575',accentText:'#241b10',border:'#62513c',fontHeading:'Georgia, serif',radius:'6px',shadow:'0 8px 24px #00000055'},{card:{borderWidth:'2px',borderStyle:'double',borderColor:'#827055',backgroundImage:'linear-gradient(135deg, #292b20, #1d211b)'},banner:{backgroundImage:'radial-gradient(#695537, #242a20)',borderColor:'#af8e56'},heading:{letterSpacing:'1px'}},'[data-community-slot="badge"] {border-color:#bfa572; border-radius:4px}', 'ember'),
     showcase('cyberpunk','Signal / Neon',{surface:'#111322',surfaceRaised:'#1b1d33',text:'#e4f1ff',muted:'#a7b9d3',accent:'#6ff5e5',accentText:'#082827',border:'#4b4a79',fontHeading:'Consolas, monospace',radius:'2px',shadow:'0 8px 24px #090d2455'},{card:{borderWidth:'1px',borderStyle:'solid',borderColor:'#7460bb',backgroundImage:'linear-gradient(135deg, #25243c, #171e31)'},banner:{backgroundImage:'linear-gradient(135deg, #442751, #163c44)'},heading:{letterSpacing:'2px'}},'[data-community-slot="badge"] {color:#ffb8ef; border-color:#a967cb; border-radius:2px}', 'scan')
+  ];
+  function personal(id,name,kind,components,motion='none'){return {...showcase(id,name,{},components,'',motion),kind,tokens:{},layouts:{},description:'Original Vumiro cosmetic artwork with app-owned bounded motion and a static reduced-motion presentation.'};}
+  const personalBuiltins=[
+    personal('celestial-orbit','Celestial Orbit','avatar-frame',{'avatar-frame':{borderColor:'#aa9af7',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 14px #a99bff99',backgroundImage:'linear-gradient(135deg, #7eddec, #b58ff4, #ecd99b)'}},'orbit'),
+    personal('ember-crown','Ember Crown','avatar-frame',{'avatar-frame':{borderColor:'#e3ab65',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 16px #ce884466',backgroundImage:'linear-gradient(135deg, #e9c28a, #965a3b, #eccb93)'}},'pulse'),
+    personal('neon-circuit','Neon Circuit','avatar-frame',{'avatar-frame':{borderColor:'#61e1d3',borderWidth:'2px',borderStyle:'solid',boxShadow:'0 0 12px #39cfbf66',backgroundImage:'linear-gradient(135deg, #64efdc, #7994f8, #e0a6ef)'}},'shimmer'),
+    personal('gilded-portrait','Gilded Portrait','profile-card',{'profile-card':{borderColor:'#ceb47d',borderWidth:'3px',borderStyle:'double',boxShadow:'0 0 18px #b7945533'},'profile-banner':{backgroundImage:'linear-gradient(135deg, #32271f, #665335)',borderColor:'#9c8058'},'profile-badge':{color:'#e2cba4',borderColor:'#b99a65'}},'shimmer'),
+    personal('prismatic-card','Prismatic Card','profile-card',{'profile-card':{borderColor:'#9982c7',borderWidth:'2px',borderStyle:'solid',boxShadow:'0 0 20px #8266c344'},'profile-banner':{backgroundImage:'linear-gradient(135deg, #352a4c, #1d4149)'}},'none'),
+    personal('aurora-drift','Aurora Drift','profile-effect',{'profile-effect':{backgroundImage:'linear-gradient(135deg, #397f83, #6d5191, #2b6c68)',borderColor:'#6bcbbf',boxShadow:'0 0 24px #75c7b933'}},'pulse')
   ];
   function resolve({bindings=[],packages=builtins,preferences={}}={}){
     const warnings=[],available=[...builtins,...packages].reverse();let selected=copy(builtins[0]),tokens={...defaults},components={},css='',assets=[],motion='none',layout={home:'compact',room:'standard'};
@@ -132,10 +149,10 @@
       Object.assign(tokens,overrides.tokens);for(const [slot,styles] of Object.entries(overrides.components||{}))components[slot]={...components[slot],...styles};Object.assign(layout,overrides.layout);
     }
     if(preferences.simplified){tokens={...tokens,fontBody:defaults.fontBody,fontHeading:defaults.fontHeading,shadow:'none',radius:defaults.radius};components={};css='';assets=[];motion='none';}
-    if(preferences.reducedMotion)motion='none';
+    if(preferences.reducedMotion){motion='none';if(personalKinds.includes(selected.kind)){for(const styles of Object.values(components))if(styles.backgroundImage?.startsWith('asset('))styles.backgroundImage='none';css=css.replace(/asset\([a-z][a-z0-9-]{0,63}\)/g,'none');assets=[];}}
     if(preferences.highContrast){tokens={...tokens,surface:'#080c10',surfaceRaised:'#111820',text:'#ffffff',muted:'#d5e0eb',border:'#b8c9da',accent:'#96f5e8',accentText:'#061a17'};components={};css='';}
     if(preferences.fontScale&&Number.isFinite(preferences.fontScale))tokens.fontSize=Math.max(12,Math.min(28,parseFloat(tokens.fontSize)*Math.max(1,Math.min(1.5,preferences.fontScale))))+'px';
-    return {packageId:selected.id,version:selected.version,tokens,components,css,assets,motion,layout,warnings};
+    return {packageId:selected.id,version:selected.version,kind:selected.kind||'theme',tokens,components,css,assets,motion,layout,warnings};
   }
   function createMemoryAdapter(){const records=new Map();return {persistent:false,async put(key,value){records.set(key,copy(value));},async get(key){return records.has(key)?copy(records.get(key)):null;},async remove(key){records.delete(key);}};}
   function createIndexedDBAdapter({indexedDB=window.indexedDB,name='vumiro-community-theme-assets'}={}){
@@ -191,7 +208,7 @@
     let css=`${selector}{color:var(--community-text);background:var(--community-surface);font-family:var(--community-font-body);font-size:var(--community-font-size)}\n${selector} [data-community-slot="heading"]{font-family:var(--community-font-heading)}\n`;
     const rootSlot=slotSelector=>`${selector}${slotSelector},${selector} ${slotSelector}`;
     // Reset decoration, preserving the app's heading hierarchy, control sizing and layout.
-    for(const slot of slots){
+    for(const slot of personalKinds.includes(resolved.kind)?personalSlots[resolved.kind]:communitySlots){
       const base={color:resolved.tokens.text,backgroundColor:slot==='heading'?'#00000000':['surface','message'].includes(slot)?resolved.tokens.surface:resolved.tokens.surfaceRaised,backgroundImage:'none',borderColor:resolved.tokens.border,borderWidth:['surface','heading','navigation','message','call-controls'].includes(slot)?'0':'1px',borderStyle:'solid',borderRadius:resolved.tokens.radius,boxShadow:slot==='card'?resolved.tokens.shadow:'none',fontFamily:slot==='heading'?resolved.tokens.fontHeading:resolved.tokens.fontBody,letterSpacing:'0'};
       if(slot==='button'){base.backgroundColor=resolved.tokens.accent;base.color=resolved.tokens.accentText;}
       css+=`${rootSlot(`[data-community-slot="${slot}"]`)}{${declarations({...base,...resolved.components[slot]})}}\n`;
@@ -204,5 +221,5 @@
     style.textContent=css;root.append(style);let active=true;
     const cleanup=()=>{if(!active)return;active=false;style.remove();for(const url of assetUrls.values())if(url.startsWith('blob:'))URL.revokeObjectURL?.(url);for(const key of keys)root.style.removeProperty(key);root.removeAttribute('data-community-theme-root');root.removeAttribute('data-community-motion');applications.delete(root);};applications.set(root,cleanup);return cleanup;
   }
-  (typeof window==='undefined'?globalThis:window).VumiroCommunityThemes={SCHEMA_VERSION,ENGINE_VERSION,MAX_PACKAGE,MAX_ASSET,slots:copy(slots),layouts:copy(layouts),tokenDefaults:copy(defaults),builtins,validate,resolve,applyToRoot,createMemoryAdapter,createIndexedDBAdapter,createManager};
+  (typeof window==='undefined'?globalThis:window).VumiroCommunityThemes={SCHEMA_VERSION,ENGINE_VERSION,MAX_PACKAGE,MAX_ASSET,slots:copy(slots),communitySlots:copy(communitySlots),layouts:copy(layouts),tokenDefaults:copy(defaults),builtins,personalBuiltins,personalKinds:copy(personalKinds),personalSlots:copy(personalSlots),motionPresets:copy(motionPresets),kindScopes,validate,resolve,applyToRoot,createMemoryAdapter,createIndexedDBAdapter,createManager};
 })();

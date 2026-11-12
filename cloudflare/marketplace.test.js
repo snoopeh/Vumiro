@@ -34,6 +34,147 @@ async function fixture(t) {
   async function sponsor(hubId,id=account){return request(`/items/${item}/grants`,'POST',{hubId},id);}
   return {db,env,permissions,events,request,claim,sponsor};
 }
+
+async function signingIdentity(){
+  const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  const spki=await crypto.subtle.exportKey('spki',pair.publicKey);
+  return {key:Buffer.from(spki).toString('base64url'),peerId:Buffer.from(await crypto.subtle.digest('SHA-256',spki)).toString('base64url'),sign:async text=>Buffer.from(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},pair.privateKey,new TextEncoder().encode(text))).toString('base64url')};
+}
+async function publicAppearance(f,peerId){const response=await handle(new Request(`https://market.example/api/v1/marketplace/profiles/${peerId}/appearance`),f.env);return {status:response.status,body:await response.json()};}
+async function proveIdentity(f,identity,id=account){const challenge=await f.request('/profile/identity/challenge','POST',{peerId:identity.peerId,key:identity.key},id);assert.equal(challenge.status,201,JSON.stringify(challenge));return f.request('/profile/identity/verify','POST',{challengeId:challenge.body.challengeId,signature:await identity.sign(challenge.body.text)},id);}
+async function personalItem(f,kind='profile-card',suffix='one'){
+  const now=Date.now(),itemId=`personal-${kind}-${suffix}`,versionId=`version-${kind}-${suffix}`;
+  const pkg={...structuredClone(globalThis.VumiroCommunityThemes.builtins[0]),id:itemId,name:'Original personal artwork',kind,tokens:{},layouts:{},components:{[kind]:{borderColor:'#123456'}},css:'',motion:'none'};
+  const digest=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(pkg)))).toString('hex');
+  f.db.prepare('INSERT INTO marketplace_listings(id,creator_id,title,description,status,price_minor,currency,latest_version_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(itemId,account,'Personal artwork','Original personal cosmetics','published',0,'BRL',versionId,now,now).run();
+  f.db.prepare('INSERT INTO marketplace_versions(id,item_id,version,asset_key,digest,status,rights_json,summary_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)').bind(versionId,itemId,'1.0.0',`private/${versionId}`,digest,'approved','{}',JSON.stringify({kind,engine:1,slots:[kind],scopes:[kind==='profile-card'?'profile-card':kind==='avatar-frame'?'avatar':'profile']}),now).run();
+  await f.env.MARKETPLACE_ASSETS.put(`private/${versionId}`,JSON.stringify(pkg));
+  return {itemId,versionId,pkg};
+}
+
+test('personal identity linking requires a fresh account-bound signing proof and one-use challenge',async t=>{
+  const f=await fixture(t),identity=await signingIdentity(),foreign=await signingIdentity();
+  const challenge=await f.request('/profile/identity/challenge','POST',{peerId:identity.peerId,key:identity.key,accountId:other});
+  assert.equal(challenge.status,201);
+  const canonical=JSON.parse(challenge.body.text);assert.equal(canonical[0],'vumiro-profile-cosmetics-v1');assert.equal(canonical[1],account);assert.equal(canonical[2],identity.peerId);assert.equal(canonical[3],identity.key);assert.ok(canonical[4].length>=32);assert.equal(canonical[5],challenge.body.expires);assert.ok(canonical[5]<=Date.now()+60000);
+  const proof={challengeId:challenge.body.challengeId,signature:await identity.sign(challenge.body.text)};
+  assert.equal((await f.request('/profile/identity/verify','POST',proof,other)).status,403);
+  assert.equal((await f.request('/profile/identity/verify','POST',{...proof,signature:await foreign.sign(challenge.body.text)})).status,403);
+  assert.equal((await f.request('/profile/identity/verify','POST',proof)).status,200);
+  assert.equal((await f.request('/profile/identity/verify','POST',proof)).status,409);
+  assert.equal((await proveIdentity(f,identity,other)).status,409,'a peer identity cannot move to a different account');
+  assert.equal((await proveIdentity(f,await signingIdentity())).status,200,'an account can link another own identity');
+});
+
+test('identity challenges reject mismatched keys, malformed proof and expired challenges',async t=>{
+  const f=await fixture(t),a=await signingIdentity(),b=await signingIdentity();
+  assert.equal((await f.request('/profile/identity/challenge','POST',{peerId:a.peerId,key:b.key})).status,400);
+  assert.equal((await f.request('/profile/identity/challenge','POST',{peerId:a.peerId,key:'A'.repeat(257)})).status,400);
+  const challenge=await f.request('/profile/identity/challenge','POST',{peerId:a.peerId,key:a.key});assert.equal(challenge.status,201);
+  assert.equal((await f.request('/profile/identity/verify','POST',{challengeId:challenge.body.challengeId,signature:'AAAA'})).status,400);
+  f.db.prepare('UPDATE marketplace_profile_challenges SET expires_at=? WHERE id=?').bind(Date.now()-1,challenge.body.challengeId).run();
+  assert.equal((await f.request('/profile/identity/verify','POST',{challengeId:challenge.body.challengeId,signature:await a.sign(challenge.body.text)})).status,409);
+});
+
+test('public unlinked appearance is bounded baseline without authentication or private data',async t=>{
+  const f=await fixture(t),identity=await signingIdentity();await f.claim();
+  const result=await publicAppearance(f,identity.peerId);assert.equal(result.status,200);assert.deepEqual(Object.keys(result.body).sort(),['appearance','licenseNotice']);
+  assert.deepEqual(result.body.appearance,{'profile-card':null,'avatar-frame':null,'profile-effect':null});assert.match(result.body.licenseNotice,/display/i);
+  assert.equal((await f.request('/profile/appearance','GET',undefined,other)).status,200);
+  assert.equal((await publicAppearance(f,'invalid')).status,404);
+});
+
+test('personal cosmetics claim free, equip by account and kind, replace, undo, reset and restore',async t=>{
+  const f=await fixture(t),one=await personalItem(f),two=await personalItem(f,'profile-card','two');
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',one)).status,403);
+  assert.equal((await f.request(`/items/${one.itemId}/claim`,'POST',{})).status,201);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_orders').first().n,0);
+  let result=await f.request('/profile/appearance/profile-card','PUT',one);assert.equal(result.status,200,JSON.stringify(result));assert.equal(result.body.appearance['profile-card'].versionId,one.versionId);
+  assert.equal((await f.request('/profile/appearance','GET',undefined,other)).body.appearance['profile-card'],null);
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',one,other)).status,403);
+  assert.equal((await f.request('/profile/appearance/avatar-frame','PUT',one)).status,400);
+  assert.equal((await f.request(`/items/${two.itemId}/claim`,'POST',{})).status,201);
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',two)).body.appearance['profile-card'].itemId,two.itemId);
+  assert.equal((await f.request('/profile/appearance/profile-card/undo','POST',{})).body.appearance['profile-card'].itemId,one.itemId);
+  result=await f.request('/profile/appearance/profile-card','DELETE');assert.equal(result.status,200);assert.equal(result.body.appearance['profile-card'],null);assert.equal(result.body.configuration['profile-card'],null);
+  assert.equal((await f.request('/profile/appearance/profile-card/undo','POST',{})).body.appearance['profile-card'].itemId,one.itemId);
+  assert.equal((await f.request('/profile/appearance')).body.configuration['profile-card'].versionId,one.versionId);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_grants').first().n,0);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_profile_bindings WHERE item_id IS NOT NULL').first().n,1);
+});
+
+test('personal cosmetics cannot sponsor hubs or enter community bindings and community packages cannot equip personally',async t=>{
+  const f=await fixture(t),personal=await personalItem(f);await f.request(`/items/${personal.itemId}/claim`,'POST',{});await f.claim();
+  assert.equal((await f.request(`/items/${personal.itemId}/grants`,'POST',{hubId:'root'})).status,400);
+  // Even a legacy/manual grant must not permit a personal package on a hub.
+  const now=Date.now();f.db.prepare("INSERT INTO marketplace_grants(id,account_id,item_id,hub_id,status,created_at,updated_at) VALUES(?,?,?,?,'active',?,?)").bind(crypto.randomUUID(),account,personal.itemId,'root',now,now).run();
+  assert.equal((await f.request('/hubs/root/theme','PUT',personal)).status,400);
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',{itemId:item,versionId:version})).status,400);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_theme_bindings').first().n,0);
+});
+
+test('public proven profile exposes only active validated display cosmetics and never confers acquisition',async t=>{
+  const f=await fixture(t),identity=await signingIdentity();assert.equal((await proveIdentity(f,identity)).status,200);
+  const card=await personalItem(f),frame=await personalItem(f,'avatar-frame'),effect=await personalItem(f,'profile-effect');
+  for(const cosmetic of [card,frame,effect]){await f.request(`/items/${cosmetic.itemId}/claim`,'POST',{});const r=await f.request(`/profile/appearance/${cosmetic.pkg.kind}`,'PUT',cosmetic);assert.equal(r.status,200,JSON.stringify(r));}
+  const result=await publicAppearance(f,identity.peerId);assert.equal(result.status,200);assert.deepEqual(Object.keys(result.body).sort(),['appearance','licenseNotice']);
+  for(const cosmetic of [card,frame,effect]){const entry=result.body.appearance[cosmetic.pkg.kind];assert.deepEqual(Object.keys(entry).sort(),['digest','itemId','kind','package','versionId']);assert.deepEqual(entry.package,cosmetic.pkg);}
+  const encoded=JSON.stringify(result.body);for(const secret of [account,other,'account_id','order_id','entitlements','Authorization','configuration'])assert.equal(encoded.includes(secret),false,secret);
+  assert.equal((await f.request(`/versions/${card.versionId}/download`,'GET',undefined,other)).status,403);
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',card,other)).status,403);
+  const linkedOther=await signingIdentity();assert.equal((await proveIdentity(f,linkedOther,other)).status,200);assert.equal((await publicAppearance(f,linkedOther.peerId)).body.appearance['profile-card'],null);
+});
+
+test('personal catalog summaries derive kind scopes from the reviewed package',async t=>{
+  const f=await fixture(t);
+  for(const [kind,scopes] of [['profile-card',['profile-card']],['avatar-frame',['avatar']],['profile-effect',['profile']]]){
+    const pkg={...structuredClone(globalThis.VumiroCommunityThemes.builtins[0]),id:`original-${kind}`,name:'Original personal artwork',kind,tokens:{},layouts:{},components:{[kind]:{borderColor:'#123456'}},css:'',motion:'none'};
+    const created=await f.request('/items','POST',{title:kind,description:'Original personal cosmetics',priceMinor:0,currency:'BRL'}),id=created.body.item.id;
+    const submitted=await f.request(`/items/${id}/versions`,'POST',{package:pkg,rights:{ownsOrLicensed:true,permitsRedistribution:true,declaration:'I own this original artwork and permit licensed redistribution.'}});assert.equal(submitted.status,201,JSON.stringify(submitted));
+    assert.deepEqual(submitted.body.version.summary.scopes,scopes);assert.equal(submitted.body.version.kind,kind);
+    assert.equal((await f.request(`/items/${id}/claim`,'POST',{})).status,409);
+    assert.equal((await f.request(`/admin/versions/${submitted.body.version.id}`,'POST',{action:'approve',reason:'Artwork and rights verified'},admin)).status,200);
+    const catalog=(await f.request('/catalog','GET',undefined,other)).body.items.find(value=>value.id===id);assert.deepEqual(catalog.scopes,scopes);assert.deepEqual(catalog.slots,[kind]);
+    assert.equal((await f.request(`/items/${id}/claim`,'POST',{},other)).status,201);
+  }
+});
+
+test('identity proof replay is atomic across simultaneous verification requests',async t=>{
+  const f=await fixture(t),identity=await signingIdentity(),challenge=await f.request('/profile/identity/challenge','POST',{peerId:identity.peerId,key:identity.key});
+  const proof={challengeId:challenge.body.challengeId,signature:await identity.sign(challenge.body.text)};
+  const results=await Promise.all([f.request('/profile/identity/verify','POST',proof),f.request('/profile/identity/verify','POST',proof)]);
+  assert.deepEqual(results.map(value=>value.status).sort(),[200,409]);assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_profile_identities WHERE peer_id=?').bind(identity.peerId).first().n,1);
+});
+
+test('identity challenge issuance remains bounded across successful and pending proofs',async t=>{
+  const f=await fixture(t),identity=await signingIdentity();
+  for(let i=0;i<8;i++)assert.equal((await proveIdentity(f,identity)).status,200);
+  assert.equal((await f.request('/profile/identity/challenge','POST',{peerId:identity.peerId,key:identity.key})).status,429);
+  assert.equal(f.db.prepare('SELECT count(*) AS n FROM marketplace_profile_challenges').first().n,8);
+});
+
+test('ordinary personal delisting preserves existing licenses, public display and restored configuration',async t=>{
+  const f=await fixture(t),identity=await signingIdentity(),card=await personalItem(f);await proveIdentity(f,identity);await f.request(`/items/${card.itemId}/claim`,'POST',{});
+  assert.equal((await f.request('/profile/appearance/profile-card','PUT',card)).status,200);
+  f.db.prepare("UPDATE marketplace_listings SET status='delisted' WHERE id=?").bind(card.itemId).run();
+  assert.equal((await publicAppearance(f,identity.peerId)).body.appearance['profile-card'].itemId,card.itemId);
+  await f.request('/profile/appearance/profile-card','DELETE');assert.equal((await f.request('/profile/appearance/profile-card','PUT',card)).status,200);
+  assert.equal((await f.request(`/items/${card.itemId}/claim`,'POST',{},other)).status,409);
+});
+
+for(const loss of ['refund','lost-dispute','disabled','version-disabled','tampered','storage-unavailable'])test(`personal ${loss} immediately falls back while retaining configuration and other valid kinds`,async t=>{
+  const f=await fixture(t),identity=await signingIdentity(),card=await personalItem(f),frame=await personalItem(f,'avatar-frame');await proveIdentity(f,identity);
+  for(const value of [card,frame]){await f.request(`/items/${value.itemId}/claim`,'POST',{});assert.equal((await f.request(`/profile/appearance/${value.pkg.kind}`,'PUT',value)).status,200);}
+  if(['refund','lost-dispute'].includes(loss)){const entitlement=f.db.prepare('SELECT id FROM marketplace_entitlements WHERE account_id=? AND item_id=?').bind(account,card.itemId).first();await module.revokeMarketplaceEntitlement(f.db,entitlement.id,loss);}
+  else if(loss==='disabled')f.db.prepare("UPDATE marketplace_listings SET status='disabled' WHERE id=?").bind(card.itemId).run();
+  else if(loss==='version-disabled')f.db.prepare("UPDATE marketplace_versions SET status='disabled' WHERE id=?").bind(card.versionId).run();
+  else if(loss==='tampered')await f.env.MARKETPLACE_ASSETS.put(`private/${card.versionId}`,JSON.stringify({...card.pkg,name:'Overwritten object'}));
+  else{const get=f.env.MARKETPLACE_ASSETS.get;f.env.MARKETPLACE_ASSETS.get=async key=>key===`private/${card.versionId}`?null:get(key);}
+  const own=await f.request('/profile/appearance'),publicResult=await publicAppearance(f,identity.peerId);
+  assert.equal(own.body.appearance['profile-card'],null);assert.equal(publicResult.body.appearance['profile-card'],null);assert.ok(publicResult.body.appearance['avatar-frame']);assert.equal(own.body.configuration['profile-card'].itemId,card.itemId);
+  await f.request('/profile/appearance/profile-card','DELETE');assert.equal((await f.request('/profile/appearance/profile-card/undo','POST',{})).body.appearance['profile-card'],null);
+  assert.equal((await f.request('/profile/appearance')).body.configuration['profile-card'].itemId,card.itemId);
+});
 test('handler exposes authenticated account ownership',async t=>{const f=await fixture(t);const r=await handle(new Request('https://market.example/api/v1/marketplace/library',{headers:{'X-Account-Id':account}}),f.env);assert.equal(r.status,401);await f.claim();assert.equal((await f.request('/library','GET',undefined,other)).body.entitlements.length,0);});
 test('a hub manager can install an offered item before activation without acquiring it personally',async t=>{
   const f=await fixture(t);await f.claim();await f.sponsor('offered-hub');

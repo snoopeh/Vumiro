@@ -66,6 +66,15 @@ test('marketplace uses recovered stable account identity and keeps bearer creden
   for(const path of ['https://attacker.example/','//attacker.example','/../account/data','/library?redirect=https://attacker.example'])await assert.rejects(()=>account.marketplaceRequest(path),/path/i);
   assert.equal(JSON.stringify(account.getState()).includes(session.access_token),false);
 });
+test('public cosmetic lookup is restricted to display by peer identity and sends no account credentials',async()=>{
+  const peer='A'.repeat(43),app=harness({stored:saved,route:(url,options)=>url.endsWith('/api/v1/marketplace/profiles/'+peer+'/appearance')?response(200,{appearance:{}}):url.endsWith('/api/v1/account/config')?response(200,{...config,marketplaceEnabled:true}):commonRoute(url,options)});
+  await app.start();const account=app.sandbox.window.VumiroAccount;
+  assert.equal(typeof account.publicMarketplaceRequest,'function');
+  await account.publicMarketplaceRequest('/profiles/'+peer+'/appearance');
+  const call=app.calls.find(value=>value.url.endsWith('/profiles/'+peer+'/appearance'));
+  assert.equal(call.options.method,'GET');assert.equal(call.options.headers?.Authorization,undefined);assert.equal(call.options.headers?.['X-Vumiro-Device-Token'],undefined);
+  for(const path of ['/library','/profile/appearance','https://evil.test/profiles/'+peer+'/appearance','/profiles/'+peer+'/appearance?token=x','/profiles/../appearance'])await assert.rejects(()=>account.publicMarketplaceRequest(path),/public|path/i);
+});
 
 function commonRoute(url) {
   if(url.endsWith('/api/v1/account/config'))return response(200,config);
@@ -654,4 +663,28 @@ test('authenticated startup failure stays outside account management and retry c
   unavailable=false;await app.element('accountRetry').onclick();
   assert.equal(app.navigations.at(-1),'https://vumiro.local/friends.html');
   assert.equal(app.navigations.length,1);
+});
+
+
+for(const pauseAt of ['provider','persistence'])test(`marketplace equipment request cannot cross accounts while expired token refresh awaits ${pauseAt}`,async()=>{
+  let pause=false,release,entered;const waiting=new Promise(resolve=>entered=resolve),blocked=new Promise(resolve=>release=resolve);
+  const second={...session,access_token:'account-B-token',refresh_token:'account-B-refresh',user:{id:'account-B',email:'b@example.com'}};
+  const app=harness({stored:saved,localProfile:{id:'existing-peer',name:'Existing'},route:async(url,options)=>{
+    if(url.endsWith('/account/config'))return response(200,{...config,marketplaceEnabled:true});
+    if(url.includes('grant_type=password'))return response(200,second);
+    if(url.endsWith('/devices/register'))return response(201,{deviceToken:'b'.repeat(64)});
+    if(url.includes('grant_type=refresh_token')&&pause&&pauseAt==='provider'){pause=false;entered();await blocked;return response(200,{...session,expires_in:7200});}
+    if(url.includes('/api/v1/marketplace/'))return response(200,{appearance:{}});
+    return commonRoute(url,options);
+  }});await app.start();const account=app.sandbox.window.VumiroAccount;
+  const persist=app.secure.set.bind(app.secure);app.secure.set=async value=>{await persist(value);if(pause&&pauseAt==='persistence'){pause=false;entered();await blocked;}};
+  app.clock.now+=3600*1000;pause=true;
+  const request=account.marketplaceRequest('/profile/appearance/avatar-frame',{method:'PUT',body:{itemId:'owned-frame',versionId:'v1'}});
+  const outcome=request.then(()=>null,error=>error);await waiting;
+  if(pauseAt==='provider')app.clock.now-=3600*1000;
+  await account.signOut();app.element('accountEmail').value=second.user.email;app.element('accountPassword').value='existing password';await app.element('accountForm').onsubmit({preventDefault(){}});
+  assert.equal(account.getState().accountId,second.user.id);release();const error=await outcome;
+  assert.ok(error,'the stale request must reject');assert.match(error.message,/account|session|changed|cancelled/i);
+  assert.equal(account.getState().accountId,second.user.id,'stale refresh cannot replace the later signed-in session');
+  assert.equal(app.calls.some(call=>call.url.includes('/api/v1/marketplace/profile/appearance/')),false,'no equipment write is sent under either account');
 });

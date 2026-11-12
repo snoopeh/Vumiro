@@ -9,6 +9,6 @@ test('marketplace navigation cooperates with existing workspace and closes when 
   if(fs.existsSync(file))vm.runInNewContext(fs.readFileSync(file,'utf8'),context);
   assert.equal(typeof node('marketplaceNav').click,'function','marketplace sidebar button is wired');
   await node('marketplaceNav').click();
-  assert.ok(calls.includes('marketplace'));assert.ok(calls.includes('show'));assert.equal(node('workspaceHeading').textContent,'Marketplace');
+  assert.equal(typeof calls.find(value=>typeof value==='object').personalApply,'function');assert.ok(calls.includes('marketplace'));assert.ok(calls.includes('show'));assert.equal(node('workspaceHeading').textContent,'Marketplace');
   listeners.get('vumiro-workspace-change')({detail:{view:'friends'}});assert.ok(calls.includes('hide'));
 });

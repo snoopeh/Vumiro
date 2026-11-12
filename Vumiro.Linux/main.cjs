@@ -23,6 +23,7 @@ const ASSET_PATHS = new Map([
   ['/direct-chat.js', 'text/javascript; charset=utf-8'],
   ['/server-workspace.js', 'text/javascript; charset=utf-8'],
   ['/community-themes.js', 'text/javascript; charset=utf-8'],
+  ['/profile-cosmetics.js', 'text/javascript; charset=utf-8'],
   ['/community-studio.js', 'text/javascript; charset=utf-8'],
   ['/marketplace-studio-entry.js', 'text/javascript; charset=utf-8'],
   ['/marketplace-model.js', 'text/javascript; charset=utf-8'],

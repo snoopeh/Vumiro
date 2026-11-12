@@ -1,6 +1,7 @@
 // One validator for Theme Studio exports, local imports and backend submissions.
 import '../Vumiro.Client/WebServer/community-themes.js';
 const engine=globalThis.VumiroCommunityThemes;
+export const kindScopes=kind=>engine.kindScopes(kind);
 export const validateMarketplacePackage=input=>engine.validate(input);
 export function validateMarketplaceOverrides(input,overrides){
   const checked=validateMarketplacePackage(input);

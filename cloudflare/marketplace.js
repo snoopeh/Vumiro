@@ -1,12 +1,14 @@
 import { authenticate } from './accounts.js';
-import { validateMarketplacePackage, validateMarketplaceOverrides, digestPackage } from './marketplace-package.js';
+import { validateMarketplacePackage, validateMarketplaceOverrides, digestPackage, kindScopes } from './marketplace-package.js';
 import { recordMarketplaceMetric, readMarketplaceMetrics } from './marketplace-metrics.js';
+import { handleMarketplacePersonalRequest } from './marketplace-personal.js';
 
 const PREFIX = '/api/v1/marketplace';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GRACE_MS = 86400000;
 const MAX_BODY = 2*1024*1024+16384;
+const PERSONAL_KINDS = new Set(['profile-card','avatar-frame','profile-effect']);
 const json = (body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
 const fail = (status,code)=>{throw Object.assign(new Error(code),{status,code});};
 const text = (v,min,max)=>typeof v==='string' && v.length>=min && v.length<=max && v===v.trim() && !/[\u0000-\u001f\u007f]/.test(v);
@@ -23,7 +25,7 @@ function packageCapabilities(pkg){
   // The shared validator has already restricted every selector to an engine slot.
   const slots=new Set(Object.keys(pkg.components));
   for(const match of pkg.css.matchAll(/\[data-community-slot="([a-z-]+)"\]/g))slots.add(match[1]);
-  return {kind:pkg.kind||'theme',engine:pkg.compatibility.engine,slots:[...slots].sort(),scopes:['hub','space','text','voice']};
+  return {kind:pkg.kind||'theme',engine:pkg.compatibility.engine,slots:[...slots].sort(),scopes:kindScopes(pkg.kind)};
 }
 const aesthetic=value=>typeof value==='string'&&/^[a-z][a-z0-9-]{0,31}$/.test(value);
 const audit=(db,actor,action,target,detail={},now=Date.now())=>statement(db,'INSERT INTO marketplace_audit(id,actor_id,action,target_id,detail_json,created_at) VALUES(?,?,?,?,?,?)',crypto.randomUUID(),actor,action,target,JSON.stringify(detail),now);
@@ -67,7 +69,7 @@ async function authority(env,accountId,hubId,scopeId=hubId,scopeKind='hub') {
 async function activeBinding(db,rootHubId,now,scopeId=rootHubId) {
   now=Math.max(now,Date.now());
   return first(db,`SELECT b.* FROM marketplace_theme_bindings b JOIN marketplace_listings l ON l.id=b.item_id JOIN marketplace_versions v ON v.id=b.version_id
-    WHERE b.hub_id=? AND b.scope_id=? AND l.status<>'disabled' AND v.status='approved' AND v.item_id=b.item_id AND EXISTS (
+    WHERE b.hub_id=? AND b.scope_id=? AND l.status<>'disabled' AND v.status='approved' AND v.item_id=b.item_id AND COALESCE(json_extract(v.summary_json,'$.kind'),'theme') NOT IN ('profile-card','avatar-frame','profile-effect') AND EXISTS (
       SELECT 1 FROM marketplace_grants g JOIN marketplace_entitlements e ON e.account_id=g.account_id AND e.item_id=g.item_id
       WHERE g.hub_id=b.hub_id AND g.item_id=b.item_id AND e.status='active' AND (g.status='active' OR(g.status='grace' AND g.grace_until>?)))`,rootHubId,scopeId,now);
 }
@@ -128,7 +130,9 @@ export async function handleMarketplaceRequest(request,env) {
     const db=env.MARKETPLACE_DB;if(!db)fail(503,'marketplace-unavailable');
     const path=url.pathname.slice(PREFIX.length)||'/',method=request.method,now=Date.now();
     if(path==='/internal/events'&&method==='POST')return await membershipEvent(request,env,db,now);
+    if(path.startsWith('/profiles/'))return await handleMarketplacePersonalRequest(request,env,{path,method,now,body,storedPackage});
     const user=await authenticate(request,env);if(!user)fail(401,'account-auth-required');const accountId=user.id;
+    if(path.startsWith('/profile/')){const personal=await handleMarketplacePersonalRequest(request,env,{path,method,accountId,now,body,storedPackage});if(personal)return personal;}
     if(path==='/catalog'&&method==='GET')return json({items:await capabilityRows(db,"SELECT l.id,l.creator_id,c.display_name AS creator_name,l.title,l.description,l.aesthetic,l.price_minor,l.currency,l.latest_version_id,l.updated_at,v.summary_json FROM marketplace_listings l JOIN marketplace_creators c ON c.account_id=l.creator_id LEFT JOIN marketplace_versions v ON v.id=l.latest_version_id WHERE l.status='published' ORDER BY l.updated_at DESC LIMIT 100")});
     if(path==='/library'&&method==='GET')return json({entitlements:await all(db,'SELECT * FROM marketplace_entitlements WHERE account_id=? ORDER BY created_at DESC LIMIT 500',accountId),items:await capabilityRows(db,'SELECT l.*,v.summary_json FROM marketplace_listings l JOIN marketplace_entitlements e ON e.item_id=l.id LEFT JOIN marketplace_versions v ON v.id=l.latest_version_id WHERE e.account_id=? ORDER BY e.created_at DESC LIMIT 500',accountId),versions:await capabilityRows(db,'SELECT v.id,v.item_id,v.version,v.digest,v.status,v.created_at,v.summary_json FROM marketplace_versions v JOIN marketplace_entitlements e ON e.item_id=v.item_id WHERE e.account_id=? ORDER BY v.created_at DESC LIMIT 2500',accountId),grants:await all(db,"SELECT *,CASE WHEN status='grace' AND grace_until<=? THEN 'expired' ELSE status END AS effective_status FROM marketplace_grants WHERE account_id=? ORDER BY updated_at DESC LIMIT 2500",now,accountId)});
     if(path==='/creators/enroll'&&method==='POST'){
@@ -178,6 +182,8 @@ export async function handleMarketplaceRequest(request,env) {
       const entitlement=await first(db,'SELECT * FROM marketplace_entitlements WHERE account_id=? AND item_id=?',accountId,match[1]);if(!entitlement)fail(409,'free-claim-unavailable');if(entitlement.id===id)await metric(db,'acquisition',match[1]);return json({entitlement},entitlement.id===id?201:200);
     }
     if((match=/^\/items\/([A-Za-z0-9_-]{1,160})\/grants$/.exec(path))&&method==='POST'){
+      const latest=await first(db,"SELECT v.asset_key,v.digest FROM marketplace_listings l JOIN marketplace_versions v ON v.id=l.latest_version_id AND v.item_id=l.id WHERE l.id=? AND v.status='approved'",match[1]);
+      if(latest&&PERSONAL_KINDS.has((await storedPackage(env,latest)).kind))fail(400,'personal-item-not-shareable');
       const input=await body(request),auth=await authority(env,accountId,input.hubId),hubId=auth.rootHubId;
       await reconcileMembership(env,db);
       const entitlement=await first(db,"SELECT e.id FROM marketplace_entitlements e JOIN marketplace_listings l ON l.id=e.item_id WHERE e.account_id=? AND e.item_id=? AND e.status='active' AND l.status<>'disabled'",accountId,match[1]);if(!entitlement)fail(403,'entitlement-required');
@@ -215,8 +221,8 @@ export async function handleMarketplaceRequest(request,env) {
         if(!ID.test(input.itemId||'')||!ID.test(input.versionId||''))fail(400,'invalid-binding');
         const overrides=input.overrides||{};
         const version=await first(db,"SELECT asset_key,digest FROM marketplace_versions WHERE id=? AND item_id=? AND status='approved'",input.versionId,input.itemId);if(!version)fail(403,'package-unavailable');
+        const pkg=await storedPackage(env,version);if(PERSONAL_KINDS.has(pkg.kind))fail(400,'personal-item-not-shareable');
         if(Object.keys(overrides).length){
-          const pkg=await storedPackage(env,version);
           const checked=validateMarketplaceOverrides(pkg,overrides);if(!checked.valid)return json({error:'invalid-overrides',errors:checked.errors},400);
         }
         const result=await statement(db,`INSERT INTO marketplace_theme_bindings(hub_id,scope_id,scope_kind,item_id,version_id,overrides_json,applied_by,updated_at)
@@ -234,7 +240,7 @@ export async function handleMarketplaceRequest(request,env) {
     if((match=/^\/versions\/([A-Za-z0-9_-]{1,160})\/download$/.exec(path))&&method==='GET'){
       const version=await first(db,"SELECT v.* FROM marketplace_versions v JOIN marketplace_listings l ON l.id=v.item_id WHERE v.id=? AND v.status='approved' AND l.status<>'disabled'",match[1]);if(!version)fail(403,'package-unavailable');
       let entitled=!!await first(db,"SELECT id FROM marketplace_entitlements WHERE account_id=? AND item_id=? AND status='active'",accountId,version.item_id);
-      if(!entitled&&url.searchParams.has('hubId')){const hubId=url.searchParams.get('hubId'),scopeId=url.searchParams.get('scopeId')||hubId;const auth=await authority(env,accountId,hubId,scopeId,url.searchParams.get('scopeKind')||(scopeId===hubId?'hub':'space'));await reconcileMembership(env,db);const binding=await activeBinding(db,auth.rootHubId,now,scopeId);entitled=binding?.version_id===version.id;if(!entitled&&auth.canManage)entitled=!!await first(db,"SELECT g.id FROM marketplace_grants g JOIN marketplace_entitlements e ON e.account_id=g.account_id AND e.item_id=g.item_id WHERE g.hub_id=? AND g.item_id=? AND e.status='active' AND (g.status='active' OR (g.status='grace' AND g.grace_until>?)) LIMIT 1",auth.rootHubId,version.item_id,now);}
+      if(!entitled&&url.searchParams.has('hubId')){if(PERSONAL_KINDS.has((await storedPackage(env,version)).kind))fail(403,'entitlement-required');const hubId=url.searchParams.get('hubId'),scopeId=url.searchParams.get('scopeId')||hubId;const auth=await authority(env,accountId,hubId,scopeId,url.searchParams.get('scopeKind')||(scopeId===hubId?'hub':'space'));await reconcileMembership(env,db);const binding=await activeBinding(db,auth.rootHubId,now,scopeId);entitled=binding?.version_id===version.id;if(!entitled&&auth.canManage)entitled=!!await first(db,"SELECT g.id FROM marketplace_grants g JOIN marketplace_entitlements e ON e.account_id=g.account_id AND e.item_id=g.item_id WHERE g.hub_id=? AND g.item_id=? AND e.status='active' AND (g.status='active' OR (g.status='grace' AND g.grace_until>?)) LIMIT 1",auth.rootHubId,version.item_id,now);}
       if(!entitled)fail(403,'entitlement-required');
       const pkg=await storedPackage(env,version);
       return new Response(JSON.stringify(pkg),{headers:{'Content-Type':'application/json','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename="${version.id}.json"`,'X-Vumiro-Package-Digest':version.digest}});
