@@ -49,3 +49,16 @@ The dialog follows the existing English marketplace UI; the static entry button 
 ## Limits
 
 No production deployment, release version change, payment activation, automatic merge into another agent's branch or alteration of production profile data. The existing service enablement and moderation/entitlement requirements govern live equipment. Human visual acceptance remains separate from automated checks.
+
+## User QA correction
+
+The user reported that the new custom burgundy UI departed from the application's existing theme, and that local Apply reported success without decorating their actual profile. The earlier native tests verified the marketplace handoff and preview surfaces but missed that final application boundary.
+
+The studio and marketplace now use the actual neutral app surfaces, red accent, Sora body/Outfit headings and established control shapes. The own-profile renderer reads installed, validated local selections from the existing account-scoped marketplace store when the service is not enabled. The marketplace now refreshes actual profile surfaces after the binding has committed or rolled back, rather than notifying before persistence. Existing saved selections recover automatically; reset/undo use the same path. Local styles never decorate other peers or override an enabled live service. Regression tests cover application, restart, account changes, reset/undo, missing live transport, persistence failure and display failure. Native verification must exercise acquire → install → apply through actual own-profile surfaces, not just marketplace preview artwork.
+
+Verification of the correction:
+
+- Fresh focused marketplace/profile checks: 222/222 client tests and the backend suite passed (`dist/profile-fix-checks/checks-report.json`).
+- Fresh default LOCAL QA launcher: 932 client tests passed, two optional tests skipped, all fourteen native suites passed; Windows build had zero warnings/errors. Full receipt: `dist/local-qa/checks/checks-report.json`, fingerprint `2b94e735d4dd108f13e84c6aa7b3698d480b9c75133c4195edbf9c8c67581eae` (before this documentation-only completion note).
+- Native WebView2 regression: 46/46 passed (`dist/profile-style-native-apply-report.json`). The fixture loads the actual app styles and real entry/client/model/renderer. Acquire/install alone leave appearance unchanged; Apply decorates own sidebar/editor/user-card avatars and the user-card perimeter. Saved restore, workspace navigation, both slot resets/undo, storage failure, sign-out/account switch, peer isolation, remote-empty appearance and missing live transport passed. The CTA gradient was compared with an actual app primary button. No source bugs remained in independent review.
+- Actual LOCAL QA window reopened from this checkout (PID 65008, `Vumiro · LOCAL QA · 6d9eb2b + working tree`); persistent QA data root unchanged. Updated screenshots: `dist/profile-style-native-studio.png`, `dist/profile-style-native-marketplace.png`, `dist/profile-style-native-own-profile.png`, plus narrow studio/marketplace variants.

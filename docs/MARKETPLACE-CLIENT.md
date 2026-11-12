@@ -13,7 +13,8 @@ const marketplace = VumiroMarketplace.init({
   request: (path, options) => authenticatedRequest(path, options),
   getTargets: () => communityAdapter.targets(),
   applyBinding: (target, binding) => communityAdapter.apply(target, binding),
-  personalApply: (target, binding) => VumiroProfileCosmetics.refreshOwn(),
+  personalApply: () => { if (!window.VumiroProfileCosmetics) throw Error('Profile renderer unavailable'); },
+  personalCommitted: () => VumiroProfileCosmetics.refreshOwn(),
   preferences: () => ({reducedMotion: false}),
   openExternal: url => VumiroMarketplaceExternal.openExternal(url),
   openThemeStudio: () => communityAdapter.openThemeStudio()
@@ -36,7 +37,7 @@ The user flow is deliberately separate: preview, acquire, install, offer a licen
 
 Themes use their normal tokens, components, CSS, assets and layouts. Decorative packages use the same validated format with `kind: "decorative-pack"`, empty `tokens` and `layouts`, and documented engine component slots. Required slots must be exposed by the destination. The engine merges a decorative pack after the inherited base theme so its base tokens and layout survive.
 
-`personalApply(target, binding)` refreshes the actual profile renderer after a successful authorized personal write. It must keep local simulation effects local; the application entry checks marketplace availability before refreshing server-backed profiles. Without that hook the view falls back to its injected `applyBinding`. A successful callback emits `vumiro-personal-appearance-changed` with `{kind, mode, accountId}`.
+`personalApply(target, binding)` is the optional target adapter, invoked before the marketplace saves its client binding; without it the view uses injected `applyBinding`. The application entry uses it to check renderer availability while separating personal targets from community adapters. After the store commits or rolls back a personal operation, the view emits `vumiro-personal-appearance-changed` with `{kind, mode, accountId}` and awaits `personalCommitted()` to refresh actual profile surfaces. Display failure replaces the success message. In local simulation, personal equipment is visible only on the active account's own device and survives restart using its saved marketplace bindings. Remote ownership and peer display still require service authority.
 
 `applyBinding` must render the given binding using the shared engine. The callback must not change hub content or bypass role checks. It receives a built-in `baseline` binding with `fallback: true` when remote effective rights are absent or cannot be verified. `reconcileBindings(targets, applyBinding, manager)` checks every connected target on show, system-browser return/focus, and explicit refresh. Saved backend configuration remains separate from effective styling in `snapshot().configurations`, so expiry does not erase customization. Reactivation can restore the server-approved binding. Apply failures request backend undo and restore the previous local appearance; failed install never changes applied configuration.
 

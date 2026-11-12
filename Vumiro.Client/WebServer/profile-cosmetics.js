@@ -1,5 +1,5 @@
-/* Personal cosmetics are decorative overlays. Public service responses, never peer claims,
-   authorize live appearance. Preview packages cannot alter ownership or profile data. */
+/* Personal cosmetics are decorative overlays. Public service responses authorize live
+   appearance; saved local simulation decorates only the active user's own device. */
 (() => {
   'use strict';
   const TTL=30000,MAX_CACHE=128,MAX_TARGETS=256,PEER=/^[A-Za-z0-9_-]{43}$/;
@@ -70,8 +70,28 @@
   function arm(){if(timer||!targets.size)return;timer=setTimeout(()=>{timer=0;void refreshOwn();},TTL);}
   function invalidate(){generation++;cache.clear();pending.clear();clearAll();if(timer){clearTimeout(timer);timer=0;}}
   function syncIdentity(){const next=stamp();if(next!==identityStamp){identityStamp=next;linked='';linking=null;invalidate();}return next;}
+  function localAppearance(id){
+    const account=state(),model=window.VumiroMarketplaceModel,engine=window.VumiroCommunityThemes;
+    if(!account.signedIn||!account.accountId||id!==identity().id||!model?.createStore)return null;
+    try{
+      // Reuse the marketplace's persisted account store, including selections saved
+      // before local profile rendering was connected. Never read another peer's cache.
+      const store=model.createStore({accountId:account.accountId,mode:'local-demo',storage:window.localStorage,engine});
+      if(!store.status().saved)return null;
+      const saved=store.snapshot(),appearance={};
+      for(const kind of personalKinds){
+        const binding=saved.bindings[kind],record=saved.library.find(item=>item.itemId===binding?.itemId&&item.installed&&item.status!=='revoked');
+        if(binding?.mode!=='package'||!record)continue;
+        const result=engine.validate(binding.package);
+        if(!result.valid||result.package.kind!==kind||result.package.id!==binding.packageId||result.package.version!==binding.version||record.version!==binding.version)continue;
+        appearance[kind]={kind,itemId:binding.itemId,package:result.package};
+      }
+      return appearance;
+    }catch{return null;}
+  }
   async function appearance(id){
-    if(!enabled()||!PEER.test(id))return null;
+    if(!PEER.test(id))return null;
+    if(!enabled())return state().marketplaceEnabled===true?null:localAppearance(id);
     const saved=cache.get(id);if(saved&&saved.expires>Date.now())return saved.value;
     if(pending.has(id))return pending.get(id);
     const version=generation;

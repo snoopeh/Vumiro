@@ -24,7 +24,7 @@ Live rendering reads `GET /profiles/:peerId/appearance` through `VumiroAccount.p
 
 Public results are cached for 30 seconds with at most 128 identities and in-flight request deduplication. Active targets are reconciled on expiry, focus, reconnect, account/identity changes and `vumiro-personal-appearance-changed`. Invalidation removes old paint before asynchronous work begins. Missing packages, revoked equipment, invalid packages and failed requests leave the original app content visible. Generations discard late responses for replaced identities, accounts, or reused avatar elements. The cosmetic event is separate from `vumiro-profile-changed`, so decoration does not trigger profile backup or peer-data publication.
 
-This leaves local profile, backup and peer profile schemas unchanged. Marketplace local-simulation previews do not publish real profile appearance. A service without the enabled marketplace/public transport keeps the baseline interface.
+This leaves local profile, backup and peer profile schemas unchanged. Try-on previews never save equipment. In local simulation, installed and applied personal items decorate the current user's own profile surfaces on this device. The renderer reuses the existing account-scoped marketplace store, validates saved packages and installed library versions, and restores selections after restart. Reset and undo refresh the real profile after persistence commits or rolls back. Local decorations are never published to peers, backed up as profile fields, or interpreted as live ownership. Sign-out and account changes clear them. An enabled live service never falls back to local equipment, including when its public transport is unavailable.
 
 ## Verification
 
