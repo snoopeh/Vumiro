@@ -306,6 +306,21 @@
   window.VumiroAvatarEditor = {edit};
 })();
 
+/* Shared sidebar expansion is an explicit choice across every destination. */
+(() => {
+  const toggle=document.getElementById('sidebarToggle');
+  if(!toggle)return;
+  let collapsed=false;
+  function render(){
+    document.body.classList.toggle('sidebar-collapsed',collapsed);
+    const key=collapsed?'Expand sidebar':'Collapse sidebar',label=window.VumiroI18n?.t(key)||key;
+    toggle.setAttribute('aria-expanded',String(!collapsed));toggle.setAttribute('aria-label',label);toggle.setAttribute('title',label);
+  }
+  toggle.addEventListener('click',()=>{collapsed=!collapsed;render();});
+  addEventListener('vumiro:localechange',render);
+  render();
+})();
+
 /* Profile disclosure shares account state without exposing account credentials. */
 (() => {
   'use strict';

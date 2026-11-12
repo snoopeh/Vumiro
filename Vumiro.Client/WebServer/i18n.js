@@ -3,6 +3,8 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Collapse sidebar": "Collapse sidebar",
+    "Expand sidebar": "Expand sidebar",
     "Signing out…": "Signing out…",
     "Finishing your session. Your local profile stays on this device.": "Finishing your session. Your local profile stays on this device.",
     "Marketplace": "Marketplace",
@@ -1958,6 +1960,8 @@
     "Search this hub": "Search this hub"
   },
   "es": {
+    "Collapse sidebar": "Contraer barra lateral",
+    "Expand sidebar": "Expandir barra lateral",
     "Signing out…": "Cerrando sesión…",
     "Finishing your session. Your local profile stays on this device.": "Terminando tu sesión. Tu perfil local permanece en este dispositivo.",
     "Marketplace": "Mercado",
@@ -3913,6 +3917,8 @@
     "Search this hub": "Buscar en esta comunidad"
   },
   "pt-BR": {
+    "Collapse sidebar": "Recolher menu lateral",
+    "Expand sidebar": "Expandir menu lateral",
     "Signing out…": "Saindo da conta…",
     "Finishing your session. Your local profile stays on this device.": "Finalizando sua sessão. Seu perfil local permanece neste dispositivo.",
     "Marketplace": "Mercado",
@@ -5868,6 +5874,8 @@
     "Search this hub": "Pesquisar nesta comunidade"
   },
   "ja": {
+    "Collapse sidebar": "サイドバーを折りたたむ",
+    "Expand sidebar": "サイドバーを展開",
     "Signing out…": "サインアウト中…",
     "Finishing your session. Your local profile stays on this device.": "セッションを終了しています。ローカルプロフィールはこの端末に保持されます。",
     "Marketplace": "マーケットプレイス",
@@ -7823,6 +7831,8 @@
     "Search this hub": "ハブ内を検索"
   },
   "zh-CN": {
+    "Collapse sidebar": "收起侧边栏",
+    "Expand sidebar": "展开侧边栏",
     "Signing out…": "正在退出登录…",
     "Finishing your session. Your local profile stays on this device.": "正在结束会话。本地个人资料将保留在此设备上。",
     "Marketplace": "主题市场",
@@ -9778,6 +9788,8 @@
     "Search this hub": "搜索此社区"
   },
   "ru": {
+    "Collapse sidebar": "Свернуть боковое меню",
+    "Expand sidebar": "Развернуть боковое меню",
     "Signing out…": "Выход из аккаунта…",
     "Finishing your session. Your local profile stays on this device.": "Завершаем сеанс. Локальный профиль останется на этом устройстве.",
     "Marketplace": "Магазин",

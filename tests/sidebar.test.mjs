@@ -9,6 +9,24 @@ const end=source.indexOf('/* Local contacts and signed requests.',start);
 assert.ok(start>=0&&end>start,'the independent disclosure controller exists');
 const disclosure=source.slice(start,end);
 
+test('sidebar starts expanded and only an explicit toggle changes its app-wide state',()=>{
+  const from=source.indexOf('/* Shared sidebar expansion'),to=source.indexOf('/* Profile disclosure shares',from);
+  assert.ok(from>=0&&to>from,'sidebar has one shared expansion controller');
+  const classes=new Set(),attributes={},listeners=new Map(),button={setAttribute:(key,value)=>{attributes[key]=value;},addEventListener:(key,callback)=>listeners.set(key,callback)};
+  const body={classList:{toggle:(key,on)=>on?classes.add(key):classes.delete(key)}};
+  const events=new Map(),context={document:{body,getElementById:id=>id==='sidebarToggle'?button:null},window:{VumiroI18n:{t:key=>key}},addEventListener:(name,callback)=>events.set(name,callback)};
+  vm.runInNewContext(source.slice(from,to),context);
+  assert.equal(classes.has('sidebar-collapsed'),false);assert.equal(attributes['aria-expanded'],'true');assert.equal(attributes['aria-label'],'Collapse sidebar');
+  listeners.get('click')();assert.equal(classes.has('sidebar-collapsed'),true);assert.equal(attributes['aria-expanded'],'false');assert.equal(attributes['aria-label'],'Expand sidebar');
+  events.get('vumiro-workspace-change')?.({detail:{view:'servers'}});
+  assert.equal(classes.has('sidebar-collapsed'),true,'changing destination preserves explicit collapse');
+  listeners.get('click')();assert.equal(classes.has('sidebar-collapsed'),false);assert.equal(attributes['aria-expanded'],'true');
+  events.get('vumiro-workspace-change')?.({detail:{view:'gaming'}});assert.equal(classes.has('sidebar-collapsed'),false,'changing destination preserves expansion');
+  context.window.VumiroI18n.t=key=>'Translated '+key;
+  assert.equal(typeof events.get('vumiro:localechange'),'function');events.get('vumiro:localechange')();
+  assert.equal(attributes['aria-label'],'Translated Collapse sidebar');
+});
+
 function harness({signedIn=false,width=1000,height=800}={}) {
   const elements=new Map(),documentListeners=new Map(),windowListeners=new Map();
   const document={activeElement:null,getElementById:element,addEventListener:(name,callback)=>documentListeners.set(name,callback)};
