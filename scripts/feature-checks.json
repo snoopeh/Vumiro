@@ -4,6 +4,7 @@
   "sharedSources": ["Vumiro.Client/WebServer/call-client.js", "Vumiro.Client/WebServer/friends-client.js", "Vumiro.Client/WebServer/local-profile.js", "Vumiro.Client/WebServer/peer-profile.js", "Vumiro.Client/WebServer/call.html", "Vumiro.Client/WebServer/friends.html", "Vumiro.Client/WebServer/i18n.js", "Vumiro.Client/WebServer/motion.js", "Vumiro.Client/WebServer/settings-drafts.js"],
   "webConsumers": ["tests/package-web-bundle.test.mjs", "tests/windows-package-comparison.test.mjs", "tests/linux-smoke-assets.test.mjs", "tests/i18n.test.mjs"],
   "nativeChecks": [
+    {"name": "marketplace-links", "project": "tests/MarketplaceLinkChecks/MarketplaceLinkChecks.csproj"},
     {"name": "oauth", "project": "tests/OAuthCallbackChecks/OAuthCallbackChecks.csproj"},
     {"name": "notifications", "project": "tests/NativeNotificationChecks/NativeNotificationChecks.csproj"},
     {"name": "window", "project": "tests/NativeWindowChecks/NativeWindowChecks.csproj"},
@@ -19,6 +20,7 @@
     {"name": "gaming-diagnostics", "project": "tests/GamingDiagnosticsChecks/GamingDiagnosticsChecks.csproj"}
   ],
   "groups": {
+    "marketplace": {"sources": ["Vumiro.Client/WebServer/community-themes.js", "Vumiro.Client/WebServer/community-studio.js", "Vumiro.Client/WebServer/marketplace-studio-entry.js", "Vumiro.Client/WebServer/marketplace-model.js", "Vumiro.Client/WebServer/marketplace-client.js", "Vumiro.Client/WebServer/marketplace-entry.js", "Vumiro.Client/WebServer/marketplace-external.js", "cloudflare/marketplace.js", "cloudflare/marketplace-worker.js", "cloudflare/marketplace-package.js", "cloudflare/marketplace-gateway.js", "cloudflare/marketplace-metrics.js", "cloudflare/marketplace-commerce.js", "Vumiro.Client/MarketplaceLinks.cs"], "tests": ["tests/marketplace-package.test.mjs", "tests/marketplace-studio.test.mjs", "tests/marketplace-studio-entry.test.mjs", "tests/marketplace-model.test.mjs", "tests/marketplace-client.test.mjs", "tests/marketplace-entry.test.mjs", "tests/marketplace-external.test.mjs", "tests/marketplace-assets.test.mjs", "tests/package-web-bundle.test.mjs", "tests/linux-smoke-assets.test.mjs"], "backend": true, "native": ["marketplace-links"]},
     "gaming": {
       "sources": ["Vumiro.Client/WebServer/gaming-client.js", "Vumiro.Client/WebServer/controller-mapping.js", "Vumiro.Client/GamingBridge.cs", "Vumiro.Client/GamingServices.cs", "Vumiro.Client/GamingController.cs", "Vumiro.Client/VirtualGamepad.cs", "Vumiro.Client/GamingDependencies.cs", "Vumiro.Client/WebServer/gaming-session.js", "Vumiro.Client/WebServer/gaming-directory.js", "Vumiro.Client/GamingLan.cs", "Vumiro.Client/GamingLanBridge.cs", "Vumiro.Client/GamingHostClient.cs", "Vumiro.Client/GamingPayloads.cs", "Vumiro.Client.Updater/GamingHost.cs", "cloudflare/gaming-signals.js", "cloudflare/gaming-signals.test.js", "Vumiro.Client/WebServer/ui-controls.js", "Vumiro.Client/WebServer/controller-art.js", "Vumiro.Client/WebServer/gaming-view.js", "Vumiro.Client/WebServer/gaming-lab.js", "Vumiro.Client/GamingDiagnostics.cs", "scripts/Start-GamingQa.ps1", "scripts/Start-GamingQaRelay.ps1", "scripts/New-GamingQaKit.ps1", "scripts/Copy-GamingQaNotices.ps1", "scripts/GamingQaRelay.mjs"],
       "tests": ["tests/gaming-client.test.mjs", "tests/controller-mapping.test.mjs", "tests/gaming-lifecycle.test.mjs", "tests/gaming-session.test.mjs", "tests/gaming-directory.test.mjs", "tests/controller-art.test.mjs", "tests/ui-controls.test.mjs", "tests/gaming-view.test.mjs", "tests/gaming-lab.test.mjs", "tests/gaming-qa-entry.test.mjs", "tests/button-labels.test.mjs", "tests/gaming-qa-signaling.test.mjs", "tests/gaming-qa-relay.test.mjs", "tests/workspace-navigation.test.mjs"],
@@ -59,7 +61,7 @@
       "sources": [],
       "tests": ["tests/native-notification-bridge.test.mjs", "tests/qa-notification-tools.test.mjs", "tests/startup-updates.test.mjs", "tests/diagnostics.test.mjs", "tests/oauth-desktop.test.mjs", "tests/motion.test.mjs", "tests/nudge-effect.test.mjs"],
       "backend": false,
-      "native": ["oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host", "gaming-diagnostics"]
+      "native": ["marketplace-links", "oauth", "notifications", "window", "local-service", "updater", "audio", "diagnostics", "gaming-services", "gaming-controller", "gaming-dependencies", "gaming-lan", "gaming-host", "gaming-diagnostics"]
     },
     "linux": {
       "sources": [],

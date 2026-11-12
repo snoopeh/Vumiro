@@ -55,6 +55,18 @@ const config={authUrl:'https://project.supabase.co',publishableKey:'sb_publishab
 const session={access_token:'header.payload.signature',refresh_token:'refresh-next',expires_in:3600,user:{id:'11111111-1111-4111-8111-111111111111',email:'person@example.com'}};
 const saved=JSON.stringify({version:2,refreshToken:'refresh-old',deviceId:'22222222-2222-4222-8222-222222222222',deviceToken:'a'.repeat(64)});
 
+test('marketplace uses recovered stable account identity and keeps bearer credentials inside a bounded transport',async()=>{
+  const app=harness({stored:saved,route:(url,options)=>url.endsWith('/api/v1/marketplace/library')?response(200,{items:[]}):url.endsWith('/api/v1/account/config')?response(200,{...config,marketplaceEnabled:true}):commonRoute(url,options)});
+  await app.start();const account=app.sandbox.window.VumiroAccount;
+  assert.equal(account.getState().accountId,session.user.id);
+  assert.equal(account.getState().marketplaceEnabled,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(await account.marketplaceRequest('/library'))),{items:[]});
+  const request=app.calls.find(call=>call.url.endsWith('/api/v1/marketplace/library'));
+  assert.equal(request.options.headers.Authorization,`Bearer ${session.access_token}`);
+  for(const path of ['https://attacker.example/','//attacker.example','/../account/data','/library?redirect=https://attacker.example'])await assert.rejects(()=>account.marketplaceRequest(path),/path/i);
+  assert.equal(JSON.stringify(account.getState()).includes(session.access_token),false);
+});
+
 function commonRoute(url) {
   if(url.endsWith('/api/v1/account/config'))return response(200,config);
   if(url.includes('/auth/v1/token?grant_type=refresh_token'))return response(200,session);
@@ -86,7 +98,7 @@ test('public account state is immutable and token-free and logout returns to sig
   assert.equal(account.getState().signedIn,false);
   await app.start();
   const state=account.getState();
-  assert.deepEqual(Object.keys(state).sort(),['email','signedIn']);
+  assert.deepEqual(Object.keys(state).sort(),['accountId','email','marketplaceEnabled','signedIn']);
   assert.equal(state.signedIn,true);assert.equal(state.email,session.user.email);
   assert.ok(Object.isFrozen(state));
   assert.equal(JSON.stringify(account.state()),JSON.stringify(state));

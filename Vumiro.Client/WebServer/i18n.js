@@ -3,6 +3,7 @@
   if (window.VumiroI18n) return;
   const catalogs = /* VUMIRO_CATALOGS */ {
   "en": {
+    "Marketplace": "Marketplace",
     "Gaming": "Gaming",
     "LAN tunneling": "LAN tunneling",
     "Game together": "Game together",
@@ -1938,6 +1939,7 @@
     "Clear search": "Clear search"
   },
   "es": {
+    "Marketplace": "Mercado",
     "Gaming": "Juegos",
     "LAN tunneling": "LAN virtual",
     "Game together": "Jugar juntos",
@@ -3873,6 +3875,7 @@
     "Clear search": "Borrar búsqueda"
   },
   "pt-BR": {
+    "Marketplace": "Mercado",
     "Gaming": "Jogos",
     "LAN tunneling": "Rede LAN virtual",
     "Game together": "Jogar juntos",
@@ -5808,6 +5811,7 @@
     "Clear search": "Limpar busca"
   },
   "ja": {
+    "Marketplace": "マーケットプレイス",
     "Gaming": "ゲーム",
     "LAN tunneling": "仮想LAN",
     "Game together": "一緒にプレイ",
@@ -7743,6 +7747,7 @@
     "Clear search": "検索をクリア"
   },
   "zh-CN": {
+    "Marketplace": "主题市场",
     "Gaming": "游戏",
     "LAN tunneling": "虚拟局域网",
     "Game together": "一起玩游戏",
@@ -9678,6 +9683,7 @@
     "Clear search": "清除搜索"
   },
   "ru": {
+    "Marketplace": "Магазин",
     "Gaming": "Игры",
     "LAN tunneling": "Виртуальная LAN",
     "Game together": "Играть вместе",

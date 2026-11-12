@@ -21,7 +21,8 @@ test('default plans discover every top-level test and all native/backend checks'
   assert.deepEqual(result.tests, files);
   assert.equal(result.full, true);
   assert.equal(result.backend, true);
-  assert.equal(result.native.length, 13);
+  assert.equal(result.native.length, 14);
+  assert.ok(result.native.some(check=>check.project.endsWith('MarketplaceLinkChecks.csproj')));
   assert.ok(result.native.some(check => check.project.endsWith('NativeAudioSmoke.csproj') && check.args.includes('--self-test')));
 });
 
@@ -34,6 +35,13 @@ test('chat group selects explicit chat tests without backend or unrelated releas
   assert.ok(!result.tests.includes('tests/ship-command.test.mjs'));
   assert.equal(result.backend, false);
   assert.deepEqual(result.native, []);
+});
+
+test('marketplace group includes licensing commerce and desktop link acceptance checks',async()=>{
+  const result=await plan({groups:['marketplace']});
+  assert.equal(result.full,false);assert.equal(result.backend,true);
+  assert.ok(result.tests.includes('tests/marketplace-model.test.mjs'));
+  assert.ok(result.native.some(check=>check.name==='marketplace-links'));
 });
 
 test('leaf source changes infer groups and include packaging consumers', async () => {
@@ -93,7 +101,7 @@ test('known test changes expand to their feature group', async () => {
 
 test('all native group checks have existing projects, and manifest maps current tests', async () => {
   const result = await plan({ groups: ['native'] });
-  assert.equal(result.native.length, 13);
+  assert.equal(result.native.length, 14);
   for (const check of result.native) assert.ok(existsSync(path.join(root, check.project)), check.project);
   const manifest = JSON.parse(await readFile(path.join(root, 'scripts/feature-checks.json'), 'utf8'));
   const mapped = new Set(Object.values(manifest.groups).flatMap(group => group.tests));

@@ -340,6 +340,13 @@
     try{return await callJson(`${accountService}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'X-Vumiro-Device':deviceId,'X-Vumiro-Device-Token':deviceToken,...(path==='/api/v1/account/data'?{'X-Vumiro-Profile-Cards':'1',...(authConfig?.profileMediaEnabled===true?{'X-Vumiro-Profile-Media':'1'}:{})}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});}
     catch(error){if(error.status===401||error.status===403){session=null;deviceToken='';deviceId='';deviceAccountId='';active=false;await secureStore?.delete?.();render();if(!authPage)navigate('auth.html',false,'signin');if(error.status===403)throw Error('This device is no longer authorized. Sign in again to link it as a new device.');}throw error;}
   }
+  async function marketplaceRequest(path,{method='GET',body}={}) {
+    if(typeof path!=='string'||path.length>2048||!/^\/[a-zA-Z0-9/_-]*(?:\?[a-zA-Z0-9_%=&+.,-]*)?$/.test(path)||path.startsWith('//'))throw Error('Invalid marketplace path.');
+    if(!['GET','POST','PUT','DELETE'].includes(method))throw Error('Unsupported marketplace method.');
+    if(authConfig?.marketplaceEnabled!==true)throw Error('The marketplace service is not enabled.');
+    const token=await accessToken();
+    return callJson(`${accountService}/api/v1/marketplace${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  }
   async function coverRequest(method, manifest, blob) {
     if(authConfig?.profileMediaEnabled!==true)throw Error('Private high-resolution cover backup is not enabled on this service yet.');
     const tools=window.VumiroCoverMedia;if(!tools)throw Error('Reload Vumiro to restore high-resolution covers.');tools.validateManifest(manifest);
@@ -578,7 +585,7 @@
     field.value=identityRecoveryCode;panel.hidden=false;const securityDetails=$('accountSecurityDetails');if(securityDetails)securityDetails.open=true;
   }
   function requestReauth(action) { reauthAction=action;$('accountConfirmPassword').value='';$('accountReauthForm').hidden=false;for(const provider of ['google','azure'])if($(`accountReauth${provider}`))$(`accountReauth${provider}`).hidden=!session?.user?.app_metadata?.providers?.includes(provider)||!authConfig?.oauthProviders?.includes(provider);$('accountConfirmPassword').focus(); }
-  function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||''}); }
+  function accountState() { return Object.freeze({signedIn:!!session,email:session?.user?.email||'',accountId:session?.user?.id||'',marketplaceEnabled:authConfig?.marketplaceEnabled===true}); }
   function signOutLocally() {
     const wasActive=active;active=false;clearTimeout(syncTimer);
     return enqueue(async()=>{try{if(wasActive&&session&&await differsFromAcknowledged(await snapshot()))await upload(false);}catch(error){status('Your latest changes remain on this device and could not sync. '+(globalThis.VumiroI18n?.error(error)||error.message),true);}finally{await signOut(false);}});
@@ -792,5 +799,5 @@
       if(authPage){setAccountScreen(accountScreen==='unlock'?'unlock':pendingSignup?'verify':session?'manage':accountScreen);if(session&&startupSucceeded)completeAuthentication();}
     } finally {resolveStartup(!authPage&&startupSucceeded&&!!session&&accountScreen!=='unlock'&&!!window.VumiroLocalProfile?.profile());}
   });
-  window.VumiroAccount=Object.freeze({ready:()=>startupReady,setSettingsNavigation:callback=>{settingsNavigation=typeof callback==='function'?callback:null;},prepare:()=>{render();return $('accountDialog');},open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
+  window.VumiroAccount=Object.freeze({ready:()=>startupReady,marketplaceRequest,setSettingsNavigation:callback=>{settingsNavigation=typeof callback==='function'?callback:null;},prepare:()=>{render();return $('accountDialog');},open:openAccount,state:accountState,getState:accountState,signOut:signOutLocally,onProfileReady:async()=>{if(session&&!active)try{await enqueue(syncInitial);}catch(error){status((globalThis.VumiroI18n?.error(error)||error.message),true);}},scheduleSync});
 })();

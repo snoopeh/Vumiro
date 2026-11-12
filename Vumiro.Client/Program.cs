@@ -178,6 +178,7 @@ namespace Vumiro.Client
                         if (HandleWindowMessage(message)) return;
                         if (HandleLocalQaMessage(message)) return;
                         if (source.AbsolutePath != "/friends.html") return;
+                        if (HandleMarketplaceMessage(message)) return;
                         if (await HandleGamingMessageAsync(message)) return;
                         if (HandleDiagnosticsMessage(message)) return;
                         if (HandleStreamAudioMessage(message)) return;
@@ -231,6 +232,20 @@ namespace Vumiro.Client
                 WriteLocalQaStatus("error", error.Message);
                 if (!IsDisposed) loading.ShowError("Vumiro could not start. Microsoft Edge WebView2 Runtime is required.\n\n" + error.Message);
             }
+        }
+
+        private bool HandleMarketplaceMessage(Dictionary<string, object> message)
+        {
+            object type, action, requestId, url;
+            if(message==null||!message.TryGetValue("type",out type)||type as string!="marketplace")return false;
+            if(message.Count!=4||!message.TryGetValue("action",out action)||action as string!="open-external"||
+                !message.TryGetValue("requestId",out requestId)||!(requestId is string)||((string)requestId).Length>64||
+                !message.TryGetValue("url",out url)||!(url is string))return true;
+            string error=null;
+            if(!MarketplaceLinks.IsAllowed((string)url))error="Only hosted payment and seller onboarding URLs are supported.";
+            else try{using(var launched=System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo((string)url){UseShellExecute=true,Verb="open"})) { }}catch(Exception){error="The system browser could not be opened. Try again.";}
+            if(!IsDisposed&&browser.CoreWebView2!=null)browser.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string,object>{{"type","marketplace-external-result"},{"requestId",requestId},{"ok",error==null},{"error",error}}));
+            return true;
         }
 
         private async Task<bool> HandleOAuthMessageAsync(Dictionary<string, object> message, Uri source)

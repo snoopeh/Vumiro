@@ -288,7 +288,7 @@ export async function handleAccountRequest(request, env) {
     const base = String(env.SUPABASE_URL || '').replace(/\/$/, ''), publishable = String(env.SUPABASE_PUBLISHABLE_KEY || '');
     if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(base) || !/^(?:sb_publishable_[A-Za-z0-9_-]{20,}|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(publishable)) return json({ error: 'Account service is not configured yet.', serviceEnabled: false, registrationEnabled: false }, 503, cors);
     const oauthProviders = [env.ACCOUNT_OAUTH_GOOGLE_ENABLED === 'true' ? 'google' : null, env.ACCOUNT_OAUTH_MICROSOFT_ENABLED === 'true' ? 'azure' : null].filter(Boolean);
-    return json({ profileMediaEnabled: !!env.PROFILE_MEDIA, authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: supportsProfileCards ? PRIVACY_NOTICE_VERSION : LEGACY_PRIVACY_NOTICE_VERSION }, 200, cors);
+    return json({ marketplaceEnabled: env.MARKETPLACE_SERVICE_ENABLED==='true'&&!!env.MARKETPLACE_SERVICE, profileMediaEnabled: !!env.PROFILE_MEDIA, authUrl: base, publishableKey: publishable, serviceEnabled: true, registrationEnabled: env.ACCOUNT_REGISTRATION_ENABLED === 'true', oauthProviders, privacyNoticeVersion: supportsProfileCards ? PRIVACY_NOTICE_VERSION : LEGACY_PRIVACY_NOTICE_VERSION }, 200, cors);
   }
   if (!env.ACCOUNT_DB) return json({ error: 'Account storage is not configured yet.' }, 503, cors);
   const user = await authenticate(request, env);

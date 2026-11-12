@@ -22,6 +22,14 @@ const ASSET_PATHS = new Map([
   ['/direct-messages.js', 'text/javascript; charset=utf-8'],
   ['/direct-chat.js', 'text/javascript; charset=utf-8'],
   ['/server-workspace.js', 'text/javascript; charset=utf-8'],
+  ['/community-themes.js', 'text/javascript; charset=utf-8'],
+  ['/community-studio.js', 'text/javascript; charset=utf-8'],
+  ['/marketplace-studio-entry.js', 'text/javascript; charset=utf-8'],
+  ['/marketplace-model.js', 'text/javascript; charset=utf-8'],
+  ['/marketplace-external.js', 'text/javascript; charset=utf-8'],
+  ['/marketplace-client.js', 'text/javascript; charset=utf-8'],
+  ['/marketplace-entry.js', 'text/javascript; charset=utf-8'],
+
 
   ['/app-extras.js', 'text/javascript; charset=utf-8'],
   ['/friends.html', 'text/html; charset=utf-8'],
@@ -491,6 +499,12 @@ function configureDisplayCapture() {
 }
 
 function registerIpc() {
+  ipcMain.handle('vumiro:marketplace-external', async (event, request) => {
+    if(!validMainFrame(event.sender,event.senderFrame)||!request||Object.keys(request).join(',')!=='url'||typeof request.url!=='string'||request.url.length>8192||/[\s\\\u0000-\u001f]/.test(request.url))throw Error('Invalid marketplace browser request.');
+    let url;try{url=new URL(request.url);}catch{throw Error('Invalid hosted payment URL.');}
+    if(url.protocol!=='https:'||url.username||url.password||url.port||!((url.hostname==='checkout.stripe.com'&&url.pathname.startsWith('/c/pay/'))||(url.hostname==='connect.stripe.com'&&url.pathname.startsWith('/setup/'))))throw Error('Only hosted payment and seller onboarding URLs are supported.');
+    await shell.openExternal(url.href);return true;
+  });
   ipcMain.handle('vumiro:oauth', async (event, request) => {
     if (smoke) throw new Error('Account sign-in is disabled during offline smoke checks.');
     if (!validAccountFrame(event.sender, event.senderFrame)) throw new Error('Account sign-in is available only to Vumiro.');
