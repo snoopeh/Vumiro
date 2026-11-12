@@ -28,6 +28,7 @@
 .vm-personal-layer>.vm-personal-paint{position:absolute!important;inset:0!important;box-sizing:border-box!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;width:auto!important;height:auto!important;margin:0!important;padding:0!important;border-radius:inherit!important;overflow:hidden!important}
 .vm-personal-layer>.vm-personal-paint[data-community-slot=profile-banner]{bottom:65%!important}
 .vm-personal-layer>.vm-personal-paint[data-community-slot=profile-badge]{top:85%!important;left:70%!important}
+.vm-personal-layer[data-personal-raster=true]>.vm-personal-paint{background-size:100% 100%!important;background-position:center!important;background-repeat:no-repeat!important}
 @keyframes vm-personal-orbit{50%{filter:brightness(1.22)}to{filter:brightness(1)}}
 @keyframes vm-personal-shimmer{50%{background-position:100% 50%}to{background-position:0 50%}}
 @keyframes vm-personal-pulse{50%{opacity:.65}to{opacity:1}}
@@ -53,6 +54,7 @@
     const slots=surface==='avatar'?['avatar-frame']:pkg.kind==='profile-effect'?['profile-effect']:['profile-card','profile-banner','profile-badge'];
     for(const slot of slots){const part=element.ownerDocument.createElement('span');part.classList.add('vm-personal-paint');part.setAttribute('data-community-slot',slot);root.append(part);}
     const resolved=engine.resolve({bindings:[{mode:'package',packageId:pkg.id,version:pkg.version}],packages:[pkg],preferences:settings});
+    if(resolved.assets.length)root.setAttribute('data-personal-raster','true');
     const motion=settings.reducedMotion?'none':resolved.motion||'none';root.setAttribute('data-personal-motion',motion);
     const originalPosition=element.style.position,position=window.getComputedStyle?.(element)?.position||originalPosition;
     const changedPosition=!position||position==='static';if(changedPosition)element.style.position='relative';
@@ -72,7 +74,8 @@
   function invalidate(){generation++;cache.clear();pending.clear();clearAll();if(timer){clearTimeout(timer);timer=0;}}
   function syncIdentity(){const next=stamp();if(next!==identityStamp){identityStamp=next;linked='';linking=null;invalidate();localPackages=readLocal();}return next;}
   async function appearance(id){
-    if(!enabled()||!PEER.test(id))return null;
+    if(!PEER.test(id))return null;
+    if(!enabled())return null;
     const saved=cache.get(id);if(saved&&saved.expires>Date.now())return saved.value;
     if(pending.has(id))return pending.get(id);
     const version=generation;
