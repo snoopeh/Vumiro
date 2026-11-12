@@ -108,6 +108,17 @@ test('all native group checks have existing projects, and manifest maps current 
   for (const file of (await plan()).tests) assert.ok(mapped.has(file), file);
 });
 
+test('Android changes select their isolated web tests without requiring desktop native projects', async () => {
+  const result = await plan({changedFiles:['Vumiro.Android/Web/mobile-client.js']});
+  assert.equal(result.full,false);
+  assert.deepEqual(result.groups,['android']);
+  assert.ok(result.tests.includes('tests/android-mobile.test.mjs'));
+  assert.ok(result.tests.includes('tests/android-host.test.mjs'));
+  assert.ok(result.tests.includes('tests/android-package.test.mjs'));
+  assert.deepEqual(result.native,[]);
+  assert.equal(result.backend,false);
+});
+
 test('full plan discovers tests from the requested repository root', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'vumiro-plan-root-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

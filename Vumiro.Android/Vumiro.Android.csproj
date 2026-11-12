@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android36.0</TargetFramework><OutputType>Exe</OutputType>
+    <SupportedOSPlatformVersion>29</SupportedOSPlatformVersion><ApplicationId>com.vumiro.android.qa</ApplicationId>
+    <ApplicationTitle>Vumiro QA</ApplicationTitle><ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AndroidPackageFormats>apk</AndroidPackageFormats>
+    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers><AndroidUseSharedRuntime>false</AndroidUseSharedRuntime>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="Xamarin.AndroidX.WebKit" Version="1.17.1"/><AndroidAsset Include="Assets/Web/**/*" /></ItemGroup>
+  <Target Name="PrepareVumiroAndroidWeb" BeforeTargets="BeforeBuild" Condition="Exists('../scripts/Prepare-AndroidAssets.mjs')">
+    <Exec Command="node &quot;../scripts/Prepare-AndroidAssets.mjs&quot;" WorkingDirectory="$(MSBuildProjectDirectory)"/>
+    <ItemGroup><AndroidAsset Include="Assets/Web/**/*" Exclude="@(AndroidAsset)"/></ItemGroup>
+  </Target>
+</Project>

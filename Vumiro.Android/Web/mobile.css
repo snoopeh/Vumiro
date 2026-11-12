@@ -1,0 +1,45 @@
+/* Android-only shell; shared desktop pages and their source remain unchanged. */
+html.vumiro-mobile{--mobile-vh:100dvh;--mobile-nav-height:calc(68px + env(safe-area-inset-bottom,0px));color-scheme:dark;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+.vumiro-mobile body{width:100%;max-width:100%;margin:0;overscroll-behavior:none}
+.vumiro-mobile #windowTitlebar,.vumiro-mobile #authTitlebar,.vumiro-mobile .resizeEdge,.vumiro-mobile #windowControls,.vumiro-mobile #mainSidebar,.vumiro-mobile .sidebar,.vumiro-mobile #updatesNav,.vumiro-mobile #updateDetails,.vumiro-mobile #gamingNav,.vumiro-mobile #gamingSubnav{display:none!important}
+.vumiro-mobile[data-mobile-oauth=false] #accountSocial{display:none!important}
+.vumiro-mobile button,.vumiro-mobile input:not([type=checkbox]):not([type=radio]):not([type=range]),.vumiro-mobile select,.vumiro-mobile .iconButton{min-height:44px;touch-action:manipulation}
+.vumiro-mobile .iconButton{min-width:44px}
+.vumiro-mobile[data-mobile-page=friends] body{height:var(--mobile-vh);min-height:0;overflow:hidden}
+.vumiro-mobile[data-mobile-page=friends] .app,.vumiro-mobile[data-mobile-page=friends] body.sidebar-collapsed .app{display:flex;grid-template-columns:none;width:100%;height:calc(var(--mobile-vh) - var(--mobile-nav-height));min-height:0;padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.vumiro-mobile .workspace{width:100%;min-width:0;min-height:0;overflow:hidden}
+.vumiro-mobile .workspace>.topbar{padding:12px 16px;gap:8px;min-height:64px;flex-wrap:wrap}
+.vumiro-mobile .topbar h1{font-size:22px}.vumiro-mobile .topbar p{display:none}.vumiro-mobile .topbar .spacer{flex:1}
+.vumiro-mobile .topbar #createRoom{display:none}.vumiro-mobile .topbar #addFriend{font-size:12px;padding-inline:12px}
+.vumiro-mobile #friendsBody,.vumiro-mobile .conversations-view #friendsBody{grid-template-columns:minmax(0,1fr);min-height:0;flex:1}
+.vumiro-mobile #friendsBody>.listPane{min-width:0;overflow:auto;padding:16px;border:0}
+.vumiro-mobile #friendsBody>.profilePane{display:none!important}
+.vumiro-mobile #directChatPane{display:none!important;min-width:0}
+.vumiro-mobile .people-conversation #friendsBody>.listPane{display:none!important}
+.vumiro-mobile .people-conversation #directChatPane{display:flex!important;flex-direction:column;width:100%;min-height:0}
+.vumiro-mobile .directConversation{width:100%;min-width:0;min-height:0;flex:1}
+.vumiro-mobile .directChatHeader{padding:8px 10px;gap:8px;min-height:60px}
+.vumiro-mobile .directChatHeader #directChatBack{display:inline-flex!important}
+.vumiro-mobile .directHistory{min-height:0;padding:12px 10px}
+.vumiro-mobile .directComposer{margin:8px 10px max(8px,env(safe-area-inset-bottom,0px));min-width:0}
+.vumiro-mobile .directChatConnection{padding-inline:12px}
+.vumiro-mobile .friend{min-height:64px;padding:12px 8px}.vumiro-mobile .friend .avatar{width:42px;height:42px;flex-basis:42px}
+.vumiro-mobile #serverWorkspace{min-width:0;min-height:0;flex:1}
+.vumiro-mobile .footer{padding:8px 12px;font-size:11px}
+.mobile-navigation{position:fixed;z-index:80;inset:auto 0 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));height:var(--mobile-nav-height);padding:4px env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);background:#171717;border-top:1px solid #ffffff12;color:#b0a6a4}
+.vumiro-mobile .mobile-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;min-height:56px;padding:6px 2px;border:0;border-radius:0;background:transparent!important;color:#a8a4a4;font-size:10px;font-weight:600;line-height:1.25}
+.mobile-tab svg{width:23px;height:23px;flex:none}.vumiro-mobile .mobile-tab[aria-current=page]{color:#f6f0eb}.mobile-tab[aria-current=page] svg{color:#e31c29}.mobile-tab:focus-visible{outline:2px solid #e31c29;outline-offset:-4px}
+.vumiro-mobile dialog.mobile-more{position:fixed;inset:auto 0 0;width:100%;max-width:100%;max-height:calc(var(--mobile-vh) - env(safe-area-inset-top,0px) - 20px);margin:0;padding:16px max(16px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));overflow:auto;overscroll-behavior:contain;border:1px solid #383838;border-bottom:0;border-radius:20px 20px 0 0;background:#171717;color:#f6f0eb;box-shadow:0 -16px 70px #0008}
+.mobile-more::backdrop{background:#0009}.mobile-more-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.mobile-more-head h2{font-size:22px;margin:0}.mobile-sheet-close{min-width:64px;background:transparent;color:#b0a6a4;border-color:#383838}
+.vumiro-mobile .mobile-more-action{display:flex;align-items:center;width:100%;min-height:48px;margin:4px 0;padding:12px 14px;border:0;border-radius:8px;background:#232323;color:#f6f0eb;font-size:14px;text-align:left}.vumiro-mobile .mobile-more-action:active{background:#333}.vumiro-mobile .mobile-danger{color:#ff939d}
+.mobile-availability{font-size:12px!important;line-height:1.65!important;color:#b0a6a4!important;margin:16px 0!important;padding:12px 14px;background:#ffffff05;border:1px solid #ffffff0c;border-radius:8px}
+.mobile-feedback{position:fixed;left:12px;right:12px;bottom:calc(var(--mobile-nav-height) + 8px);z-index:90;padding:12px;background:#232323;border:1px solid #383838;border-radius:10px;color:#f6f0eb;font-size:12px}
+.vumiro-mobile .mobile-stream-unavailable>:not(summary):not(.mobile-availability){display:none!important}
+.vumiro-mobile dialog.settingsScreen,.vumiro-mobile dialog.vumiro-audio-dialog.settingsScreen{inset:0;height:var(--mobile-vh);max-height:var(--mobile-vh);padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.vumiro-mobile .settingsLayout{height:100%;display:flex;flex-direction:column;min-height:0}.vumiro-mobile .settingsNav{flex:none;flex-direction:row;overflow-x:auto;gap:4px;padding:8px;border-right:0;border-bottom:1px solid #383838}.vumiro-mobile .settingsNavTitle,.vumiro-mobile .settingsNav small,.vumiro-mobile .settingsNav .settingsNavFooter{display:none}.vumiro-mobile .settingsNav button{flex:none;white-space:nowrap;min-height:44px;padding:10px 12px;font-size:12px}.vumiro-mobile .settingsBody{flex:1;min-height:0;overflow:auto;padding:20px 16px 32px}.vumiro-mobile .settingsGrid{grid-template-columns:1fr}
+.vumiro-mobile dialog:not(.settingsScreen):not(.mobile-more){max-width:calc(100vw - 24px);max-height:calc(var(--mobile-vh) - 24px);overflow:auto}
+.vumiro-mobile[data-mobile-page=auth] body{height:auto;min-height:var(--mobile-vh);overflow:auto;background-attachment:scroll}.vumiro-mobile .authShell{width:100%;min-height:var(--mobile-vh);padding:calc(30px + env(safe-area-inset-top,0px)) max(24px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(24px,env(safe-area-inset-left,0px));align-items:center;justify-content:center}.vumiro-mobile .authCard{width:390px;max-width:100%}.vumiro-mobile .authCard h2{font-size:36px}.vumiro-mobile .authCard .brand{margin-bottom:20px}.vumiro-mobile .authCard .brandWordmark{width:200px}.vumiro-mobile .login-petals,.vumiro-mobile .boot-reveal{inset:0}.vumiro-mobile .accountTabs button{min-height:44px}
+.vumiro-mobile[data-mobile-page=call] #share,.vumiro-mobile[data-mobile-page=call] #stopShare,.vumiro-mobile[data-mobile-page=call] #qualityOpen,.vumiro-mobile[data-mobile-page=call] #streamSettings{display:none!important}
+.vumiro-mobile[data-mobile-page=call] body{height:var(--mobile-vh);min-height:0}.vumiro-mobile[data-mobile-page=call] .call-dock{padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}.vumiro-mobile[data-mobile-page=call] .call-dock .dock-button{min-height:44px;min-width:44px}.vumiro-mobile #mobileCallNotice{position:fixed;right:12px;left:12px;top:env(safe-area-inset-top,0px);z-index:2;margin:8px 0!important;pointer-events:none;font-size:10px!important;padding:5px 8px;opacity:.85}
+.vumiro-mobile[data-mobile-keyboard=true]{--mobile-nav-height:0px}.vumiro-mobile[data-mobile-keyboard=true] #mobileNavigation{display:none}.vumiro-mobile[data-mobile-keyboard=true] .authShell{align-items:flex-start;padding-top:16px}.vumiro-mobile[data-mobile-keyboard=true] .authCard .brand{display:none}
+@media(orientation:landscape) and (max-height:540px){.vumiro-mobile{--mobile-nav-height:56px}.vumiro-mobile .mobile-navigation{padding-top:0}.vumiro-mobile .mobile-tab{flex-direction:row;gap:7px;min-height:48px}.vumiro-mobile .authShell{padding-top:16px;padding-bottom:16px;align-items:flex-start}.vumiro-mobile .authCard .brand{display:none}.vumiro-mobile .authCard h2{font-size:28px}.vumiro-mobile .workspace>.topbar{min-height:52px;padding-block:6px}.vumiro-mobile .footer{display:none}.vumiro-mobile[data-mobile-keyboard=true]{--mobile-nav-height:0px}}

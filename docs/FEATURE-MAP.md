@@ -12,6 +12,7 @@ The default `node scripts/Check-Client.mjs` keeps the complete client/backend su
 
 | Group | Scope | Backend | Native checks |
 | --- | --- | --- | --- |
+| `android` | Android-only bridge, phone navigation, packaged shared assets and APK build | No | Separate `Build-Android.ps1` runs Android host policy checks and APK compilation |
 | `gaming` | Built-in gaming, signed friend sessions, virtual LAN, WebRTC game sharing and mapped/physical controller input | Yes | Services, controller, dependency, LAN and host |
 | `marketplace` | Shared theme and personal cosmetic packages, animated avatar/card frames, marketplace preview/library/creator UI, account equipment, licensing, free distribution, sandbox commerce and private service gateway | Yes | Hosted payment links |
 | `accounts` | Account entry, authentication, identity recovery, account profile data | Yes | OAuth callbacks, local service isolation |

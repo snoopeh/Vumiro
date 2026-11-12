@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="VumiroTheme" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:colorAccent">#e31c29</item>
+    <item name="android:windowBackground">@drawable/vumiro_splash</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:windowLightNavigationBar">false</item>
+    <item name="android:windowSplashScreenBackground">#111111</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/vumiro_icon</item>
+    <item name="android:windowSplashScreenIconBackgroundColor">#111111</item>
+  </style>
+</resources>
